@@ -55,10 +55,21 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, 
 // ---- load assets --------------------------------------------------------------
 const loader = new GLTFLoader();
 let gltf;
+async function loadModel() {
+  try {
+    return await loader.loadAsync('./assets/models/Xbot.glb', (e) => {
+      if (e.total) ui.loading(e.loaded / e.total * 0.9, '正在载入球员模型…');
+    });
+  } catch (err) {
+    // some static hosts refuse .glb; fall back to a base64 text copy if one is published
+    const res = await fetch('./assets/models/Xbot.glb.b64.txt');
+    if (!res.ok) throw err;
+    const bin = Uint8Array.from(atob((await res.text()).trim()), (c) => c.charCodeAt(0));
+    return await loader.parseAsync(bin.buffer, './assets/models/');
+  }
+}
 try {
-  gltf = await loader.loadAsync('./assets/models/Xbot.glb', (e) => {
-    if (e.total) ui.loading(e.loaded / e.total * 0.9, '正在载入球员模型…');
-  });
+  gltf = await loadModel();
 } catch (err) {
   ui.loading(0, '模型载入失败：请通过本地服务器或 GitHub Pages 打开（不能直接双击 index.html）。');
   throw err;
