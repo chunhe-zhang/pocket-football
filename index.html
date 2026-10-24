@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Pocket Football</title>
+  <meta name="description" content="小场地 1v1 足球网页游戏：动捕动作、物理足球、蓄力射门。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&display=swap" />
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="loading" class="overlay show">
+    <div class="load-card">
+      <div class="brand">POCKET<span>FOOTBALL</span></div>
+      <div class="bar"><i id="load-bar"></i></div>
+      <div class="hint" id="load-text">正在载入球员模型…</div>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div id="scoreboard">
+      <div class="team t0"><i></i><span class="name">BLUE</span></div>
+      <div class="score"><b id="s0">0</b><em>:</em><b id="s1">0</b></div>
+      <div class="team t1"><span class="name">ORANGE</span><i></i></div>
+      <div class="clock" id="clock">3:00</div>
+    </div>
+    <div id="tools">
+      <button id="btn-cam" title="切换视角 (C)">视角</button>
+      <button id="btn-mute" title="静音 (M)">声音</button>
+      <button id="btn-pause" title="暂停 (P / Esc)">暂停</button>
+    </div>
+    <div id="banner"><div class="big" id="banner-big"></div><div class="small" id="banner-small"></div></div>
+    <div id="tags"></div>
+    <div id="keyhint"></div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="knob"></div></div>
+    <div id="btns">
+      <button id="btn-sprint">冲刺</button>
+      <button id="btn-lob">挑射</button>
+      <button id="btn-kick">射门</button>
+    </div>
+  </div>
+
+  <div id="menu" class="overlay">
+    <div class="menu-card">
+      <div class="brand">POCKET<span>FOOTBALL</span></div>
+      <p class="tag">小场地 1v1 · 动作捕捉动画 · 物理足球</p>
+      <div class="row">
+        <label>模式</label>
+        <div class="seg" data-key="mode">
+          <button data-v="solo" class="on">单人 vs 电脑</button>
+          <button data-v="duo">双人同屏</button>
+        </div>
+      </div>
+      <div class="row" id="row-level">
+        <label>难度</label>
+        <div class="seg" data-key="level">
+          <button data-v="easy">简单</button>
+          <button data-v="normal" class="on">普通</button>
+          <button data-v="hard">困难</button>
+        </div>
+      </div>
+      <div class="row">
+        <label>时长</label>
+        <div class="seg" data-key="duration">
+          <button data-v="90">1.5 分钟</button>
+          <button data-v="180" class="on">3 分钟</button>
+          <button data-v="300">5 分钟</button>
+        </div>
+      </div>
+      <button id="btn-start" class="primary">开 球</button>
+      <div class="controls" id="controls-help"></div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay">
+    <div class="menu-card small">
+      <div class="title">暂停</div>
+      <button id="btn-resume" class="primary">继续</button>
+      <button id="btn-quit">返回菜单</button>
+    </div>
+  </div>
+
+  <div id="end" class="overlay">
+    <div class="menu-card">
+      <div class="title" id="end-title">全场结束</div>
+      <div class="final"><span class="c0" id="end-s0">0</span> : <span class="c1" id="end-s1">0</span></div>
+      <table id="end-stats"></table>
+      <button id="btn-again" class="primary">再来一局</button>
+      <button id="btn-menu">返回菜单</button>
+    </div>
+  </div>
+
+  <noscript>需要启用 JavaScript 才能运行这个游戏。</noscript>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
