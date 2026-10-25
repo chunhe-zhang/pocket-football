@@ -183,7 +183,8 @@ export class Athlete {
       const leg = c.part === 'foot' || c.part === 'shin';
       // the boots of a player who is dribbling, striking or sliding are driven by the
       // touch logic, not by raw collisions (that would make close control jittery)
-      c.active = !(leg && (controlling || this.ignoreBall > 0 || (this.kick && !this.kick.resolved) || this.touch || this.holdW > 0.05));
+      const lower = leg || c.part === 'thigh' || c.part === 'hips';
+      c.active = !(leg && (controlling || this.ignoreBall > 0 || (this.kick && !this.kick.resolved) || this.touch || this.holdW > 0.05)) && !(lower && this.dribbling);
       if (this.slide && leg && c.side === 'R') c.active = false;
     });
     this._resetColliders = false;
@@ -512,15 +513,15 @@ export class Athlete {
   /** automatic ball control: first touch, dribbling, shielding */
   handleBall(dt) {
     const g = this.game, ball = g.ball;
-    if (this.frozen) return false;
-    if (this.kick && this.kick.t < this.kick.contactT + 0.1) return false;
+    if (this.frozen) { this.dribbling = false; return false; }
+    if (this.kick && this.kick.t < this.kick.contactT + 0.1) { this.dribbling = false; return false; }
     const f = this.forward, r = this.rightDir;
     const rx = ball.pos.x - this.pos.x, rz = ball.pos.z - this.pos.z;
     const fwd = rx * f.x + rz * f.z, lat = rx * r.x + rz * r.z;
     const dist = Math.hypot(rx, rz);
     const by = ball.pos.y;
 
-    if (this.stunT > 0 || this.slide) return false;
+    if (this.stunT > 0 || this.slide) { this.dribbling = false; return false; }
     this._anticipate();
     // a receive in progress owns the ball's arrival
     if (this.receive) {
@@ -533,48 +534,19 @@ export class Athlete {
       return false;
     }
 
-    // close control: while I'm dribbling, the ball's motion relative to me relaxes
-    // towards "slightly slower than me, drifting back to my centre line", so the
-    // ball stays within a stride instead of rolling away (like a skilled dribbler).
-    const sp0 = Math.hypot(this.vel.x, this.vel.z);
-    const stopping = this.intent.move.lengthSq() < 0.04 && !this.charging;
-    if (ball.lastTouch === this && g.time - this.lastTouchTime < 0.9 && (sp0 > 1 || stopping) && by < 0.4 &&
-        fwd > -0.2 && fwd < 2.4 && Math.abs(lat) < 1.1 && !(this.kick && this.kick.t >= this.kick.contactT)) {
-      const back = -1.5 * Math.min(1, sp0 / 5);
-      const tx = f.x * back - r.x * lat * 2.5, tz = f.z * back - r.z * lat * 2.5;
-      const k = 1 - Math.exp(-dt / 0.33);
-      const rvx0 = ball.vel.x - this.vel.x, rvz0 = ball.vel.z - this.vel.z;
-      ball.vel.x = this.vel.x + rvx0 + (tx - rvx0) * k;
-      ball.vel.z = this.vel.z + rvz0 + (tz - rvz0) * k;
-    }
-
-    // a scheduled dribble touch: the ball is knocked on when the boot arrives
-    if (this.touch) {
-      const tt = this.touch; tt.t += dt;
-      const foot = this.char.anklePos(tt.side === 'Left' ? 'L' : 'R', this._fa);
-      const footHit = Math.hypot(foot.x - ball.pos.x, foot.z - ball.pos.z) < R + 0.1 && by < 0.5;
-      if (dist > 1.5 || by > 0.6) this.touch = null;
-      else if (footHit || tt.t >= tt.dur * 0.75) {
-        const sp = Math.hypot(this.vel.x, this.vel.z);
-        const push = Math.min(10.5, sp + 1.9);
-        ball.vel.set(f.x * push - r.x * lat * 2.5, 0.3 + Math.random() * 0.25, f.z * push - r.z * lat * 2.5);
-        ball.pos.y = Math.max(ball.pos.y, R + 0.005);
-        g.sfx.touch();
-        this._took(sp > 4.5 ? 0.18 : 0.24);
-        this.touch = null;
-      }
-      return true;
-    }
+    // ---- dribbling: the ball is under my control ----------------------------------
+    if (this._dribble(dt, dist, by)) return true;
+    this.touch = null;
 
     if (this.touchCD > 0) return false;
-    const inZone = fwd > -0.12 && fwd < 0.95 + R && Math.abs(lat) < 0.55 && dist < 1.0 + R;
+    const inZone = fwd > -0.15 && fwd < 0.95 + R && Math.abs(lat) < 0.6 && dist < 1.0 + R;
     if (!inZone || by > 1.5) return false;
 
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
     const rel = Math.hypot(rvx, rvz, ball.vel.y);
     const approaching = rvx * -rx + rvz * -rz > 0;
 
-    // first touch / chest control of fast or bouncing balls
+    // first touch of a fast or bouncing ball that I didn't see coming
     if ((rel > 5.5 && approaching) || (by > 0.45 && approaching)) {
       if (rel > 19 && by < 0.5) return false; // too hot to handle: it just ricochets
       const keep = by > 0.45 ? 0.08 : 0.14;
@@ -582,36 +554,112 @@ export class Athlete {
       ball.vel.y = by > 0.45 ? -0.6 : 0;
       ball.spin.multiplyScalar(0.2);
       this.char.play('trap', { side: 'Right' });
-      if (by < 0.45) this.trapT = 0.32; // sole stop: the boot comes down on top of the ball
+      if (by < 0.45) this.trapT = 0.32;
       g.sfx.touch();
-      this._took(0.28);
+      this._took(0.12);
       return true;
     }
     if (by > 0.4) return false;
+    // a slow ball at my feet: it's mine now
+    if (ball.lastTouch !== this) this.stats.touches++;
+    ball.lastTouch = this; this.lastTouchTime = g.time;
+    this.dribbleT = 0; this.knockT = 0.2;
+    const side = lat > 0 ? 'Right' : 'Left';
+    this.char.play('touch', { side, amp: 0.8 });
+    g.sfx.touch();
+    return true;
+  }
+
+  /**
+   * Close control. While I have the ball, it is kept in front of my feet in the
+   * direction I want to go: its velocity relative to me is steered towards a
+   * point a stride ahead (a critically damped spring), and every few steps a
+   * visible touch knocks it on a little further. Turning takes a touch that
+   * swings the ball round to the new direction. The ball is only lost to a shot,
+   * a tackle, an opponent's foot or body, or a hard bounce off something.
+   */
+  _dribble(dt, dist, by) {
+    const g = this.game, ball = g.ball;
+    const mine = ball.lastTouch === this && g.time - this.lastTouchTime < 0.45;
+    const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
+    const relSp = Math.hypot(rvx, rvz);
+    if (!mine || dist > 1.7 || by > 0.55 || relSp > 7.5 || ball.goalTeam >= 0) { this.dribbling = false; return false; }
+    if (this.kick && this.kick.t >= this.kick.contactT - 0.02) { this.dribbling = false; return false; }
 
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    if (sp > 0.7) {
-      // dribble: when the ball is about to be run over, knock it ahead
-      if (fwd < 0.5 + R * 1.4) {
-        // start the touch now; the knock happens when the foot gets there
-        const side = Math.abs(lat) > 0.12 ? (lat > 0 ? 'Right' : 'Left') : this.nextFoot;
-        this.nextFoot = side === 'Right' ? 'Left' : 'Right';
-        this.touch = { t: 0, dur: clamp(0.17 - sp * 0.01, 0.1, 0.16), side };
-        this.char.play('touch', { side, amp: 0.8 + Math.min(0.5, sp / 12) });
-        return true;
-      }
-    } else {
-      // standing: cushion and settle the ball just in front of the boot
-      const k = Math.exp(-dt * 7);
-      ball.vel.x = this.vel.x + rvx * k; ball.vel.z = this.vel.z + rvz * k;
-      const hold = 0.3 + R;
-      const tx = this.pos.x + f.x * hold, tz = this.pos.z + f.z * hold;
-      ball.vel.x += (tx - ball.pos.x) * 4 * dt; ball.vel.z += (tz - ball.pos.z) * 4 * dt;
-      if (ball.lastTouch !== this) { ball.lastTouch = this; this.stats.touches++; }
-      this.lastTouchTime = g.time;
-      return true;
+    const it = this.intent;
+    const wants = it.move.lengthSq() > 0.04;
+    // direction the ball should go: where I'm steering, else where I'm facing
+    const d = this._v;
+    if (this.charging) this.aimDir(d);
+    else if (wants) d.set(it.move.x, 0, it.move.y).normalize();
+    else d.copy(this.forward);
+
+    this.dribbling = true;
+    this.dribbleT = (this.dribbleT || 0) + dt;
+    this.knockT = Math.max(0, (this.knockT || 0) - dt);
+
+    // how far ahead: further when running, much further when sprinting
+    const sprinting = it.sprint && sp > PLAYER.runSpeed * 0.9;
+    let ahead = 0.34 + R + Math.min(sp, PLAYER.runSpeed) * 0.05 + (sprinting ? 0.35 : 0);
+    if (!wants && sp < 1) ahead = 0.3 + R;                 // standing: ball at the boot
+    if (this.charging) ahead = 0.3 + R + 0.1;              // set it up for the strike
+    ahead += 0.3 * (this.knockT / 0.2);                    // a fresh knock pushes it on
+    const tgt = this._w.set(this.pos.x + d.x * ahead, 0, this.pos.z + d.z * ahead);
+    clampToArena(tgt, R + 0.04);              // never steer the ball into the boards
+    const tx = tgt.x, tz = tgt.z;
+
+    // is the ball behind / beside me relative to where I'm going? then it needs a turn touch
+    const bx = ball.pos.x - this.pos.x, bz = ball.pos.z - this.pos.z;
+    const bl = Math.hypot(bx, bz) || 1;
+    const cosA = (bx * d.x + bz * d.z) / bl;
+    const turning = wants && cosA < 0.5 && bl > 0.25;
+
+    // desired relative velocity towards the target, capped so it reads as rolling
+    const kp = turning ? 7 : 5.5;
+    let dvx = (tx - ball.pos.x) * kp, dvz = (tz - ball.pos.z) * kp;
+    const cap = turning ? 6.5 : 4.5, m = Math.hypot(dvx, dvz);
+    if (m > cap) { dvx *= cap / m; dvz *= cap / m; }
+    // swing round the body rather than through it when turning
+    if (turning) {
+      const cross = bx * d.z - bz * d.x; // which way round is shorter
+      const s2 = cross > 0 ? 1 : -1, px = -bz / bl * s2, pz = bx / bl * s2;
+      dvx += px * 1.8; dvz += pz * 1.8;
     }
-    return false;
+    const kv = 1 - Math.exp(-dt * (this.knockT > 0 ? 4 : 11));
+    ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
+    ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
+    if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);
+    ball.spin.y *= 0.9;
+    this.lastTouchTime = g.time;
+
+    // visible touches: a knock every few strides, or a turn touch
+    const interval = sprinting ? 0.42 : sp > 3 ? 0.36 : 0.5;
+    const fwdNow = bx * d.x + bz * d.z;
+    if (!this.touch && !this.charging && !this.kick) {
+      const due = wants && sp > 0.8 && this.dribbleT > interval && fwdNow < ahead - 0.05;
+      if (turning || due) {
+        const latNow = bx * this.rightDir.x + bz * this.rightDir.z;
+        const side = turning ? (latNow >= 0 ? 'Right' : 'Left') : this.nextFoot;
+        this.nextFoot = side === 'Right' ? 'Left' : 'Right';
+        this.touch = { t: 0, dur: clamp(0.17 - sp * 0.01, 0.1, 0.16), side, turn: turning };
+        this.char.play('touch', { side, amp: 0.75 + Math.min(0.5, sp / 12) });
+        this.dribbleT = 0;
+      }
+    }
+    if (this.touch) {
+      const tt = this.touch; tt.t += dt;
+      if (tt.t >= tt.dur * 0.7 && !tt.done) {
+        tt.done = true;
+        this.knockT = tt.turn ? 0.08 : 0.2;
+        ball.vel.y = Math.max(ball.vel.y, 0.25 + Math.random() * 0.2);
+        ball.pos.y = Math.max(ball.pos.y, R + 0.005);
+        g.sfx.touch();
+        this.stats.touches++;
+      }
+      if (tt.t >= tt.dur) this.touch = null;
+    }
+    return true;
   }
 
   _took(cd) {
