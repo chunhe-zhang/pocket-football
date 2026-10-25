@@ -90,6 +90,12 @@ export function goalInfo(team) {
     inward: { x: -ax * t.sign, z: -az * t.sign },  // unit vector from the goal into the pitch
   };
 }
+// 2v2 team mode: the two sides
+export const SIDES = [
+  { name: '星星队', icon: '★', css: '#ffc93c' },
+  { name: '月亮队', icon: '☾', css: '#62d8ff' },
+];
+
 export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 /** which goal (team index) a goal-line side belongs to */
 export function goalIndexFor(axis, sign) { return GOALS.findIndex((g) => g.axis === axis && g.sign === sign); }

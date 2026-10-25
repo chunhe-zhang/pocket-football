@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS } from './config.js';
+import { TEAMS, SIDES } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -13,24 +13,25 @@ const HELP = {
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚</span>
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
-    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人获胜</span>
+    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
+    <b>传球（2v2）</b><span><kbd>I</kbd> 或 <kbd>Q</kbd>：把球传到队友脚下</span>
     <b>铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲；在自己的禁区里变成扑救，按方向键选扑哪边</span>
     <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b style="color:${TEAMS[0].css}">P1 蓝</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 铲球 · <kbd>左Shift</kbd> 冲刺</span>
-    <b style="color:${TEAMS[1].css}">P2 橙</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 铲球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 铲球 · <kbd>R</kbd> 传球 · <kbd>左Shift</kbd> 冲刺</span>
+    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 铲球 · <kbd>,</kbd> 传球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b style="color:${TEAMS[2].css}">P3 紫</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 铲球 · RB 冲刺</span>
-    <b style="color:${TEAMS[3].css}">P4 粉</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 铲球 / 冲刺</b><span>右侧按钮</span></div>',
+    <b>P3</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 铲球 · Y 传球 · RB 冲刺</span>
+    <b>P4</b><span>手柄 2：同上</span></div>`,
+  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 铲球 / 冲刺 / 传球</b><span>右侧按钮（传球只在 2v2 里有）</span></div>',
 };
 
 export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
-    this.settings = { net: 'local', humans: 1, level: 'gf', duration: 180 };
+    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', duration: 180 };
     this.muted = false;
     this.tags = [];
     this.net = null;
@@ -48,7 +49,7 @@ export class UI {
         for (const s2 of document.querySelectorAll(`.seg[data-key="${key}"]`)) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
         this.settings[key] = key === 'duration' || key === 'humans' ? +v : v;
         this._refreshMenu();
-        if (this.lobby) this._broadcastLobby();
+        if (this.lobby) { this._renderLobby(); this._broadcastLobby(); }
       });
     }
     $('#btn-start').addEventListener('click', () => this.startLocal());
@@ -100,6 +101,13 @@ export class UI {
     if (!online && n >= 3) help += HELP.pads;
     if (isTouch && (online || n === 1)) help = HELP.touch;
     $('#controls-help').innerHTML = help;
+    const team = this.settings.mode === 'team';
+    const people = online ? (this.lobby ? this.lobby.slots.length : (this.guestLobby?.slots.length || 1)) : n;
+    for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
+    const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
+    for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
+      ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。可以传球给队友；最后还有人在场的一队获胜。`
+      : '每人守一个球门，谁都可以打，最后留下的人获胜。';
   }
 
   loading(p, text) {
@@ -118,7 +126,7 @@ export class UI {
     $('#touch').classList.add('hidden');
     $('#menu').classList.add('show');
     const g = this.game;
-    g.role = 'local'; g.net = null; g.state = 'menu'; g.controllers = [];
+    g.role = 'local'; g.net = null; g.state = 'menu'; g.controllers = []; g.side = null;
     g._resetElimination();
     for (const a of g.athletes) { a.frozen = false; a.puppet = false; a.char.stopEmotes(); }
     g.placeAll();
@@ -130,19 +138,21 @@ export class UI {
     $('#hud').classList.remove('hidden');
     const solo = this.settings.net === 'online' || this.settings.humans === 1;
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
+    const team = this.game.teamMode;
+    $('#btn-pass').classList.toggle('hidden', !team);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? '按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球（禁区内扑救）　·　<b>Shift</b> 冲刺'
-      : 'P1：WASD + F/G　·　P2：方向键 + Enter / /　·　P3/P4：手柄';
+      ? `按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球（禁区内扑救）　·　<b>Shift</b> 冲刺${team ? '　·　<b>I</b> 传球' : ''}`
+      : `P1：WASD + F/G${team ? ' · R 传球' : ''}　·　P2：方向键 + Enter / /${team ? ' · , 传球' : ''}　·　P3/P4：手柄${team ? ' · Y 传球' : ''}`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
   }
 
   startLocal() {
     this.sfx.init();
-    this._showHud();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, slots: null });
+    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, slots: null });
+    this._showHud();
   }
 
   again() {
@@ -173,9 +183,15 @@ export class UI {
       const lives = Math.max(0, (g.lives ?? 2) - (g.conceded ? g.conceded[i] : 0));
       c.querySelector('.ga').textContent = alive ? '♥'.repeat(lives) + '♡'.repeat(Math.max(0, (g.lives ?? 2) - lives)) : '出局';
       c.classList.toggle('out', !alive);
+      const s = g.side ? SIDES[g.side[i]] : null;
+      c.classList.toggle('side', !!s);
+      if (s) c.style.setProperty('--sc', s.css);
+      c.querySelector('.nm').innerHTML = (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(a.label);
     });
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
-    $('#clock').textContent = `剩 ${left} 人`;
+    $('#clock').innerHTML = g.side
+      ? SIDES.map((s, k) => `<span class="side-badge" style="--sc:${s.css}">${s.icon}</span>${g.alive.filter((v, i) => v && g.side[i] === k).length}`).join(' : ')
+      : `剩 ${left} 人`;
   }
 
   banner(big, small) {
@@ -189,7 +205,7 @@ export class UI {
   updateHud(g) {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
-    $('#clock').classList.toggle('low', left === 2);
+    $('#clock').classList.toggle('low', !g.side && left === 2);
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];
@@ -197,7 +213,13 @@ export class UI {
       if (this._v.z > 1 || a.out) { t.el.style.display = 'none'; return; }
       t.el.style.display = '';
       t.el.style.transform = `translate(${(this._v.x * 0.5 + 0.5) * w}px, ${(-this._v.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
-      if (t.lbl.textContent !== a.label) t.lbl.textContent = a.label;
+      const s = g.side ? SIDES[g.side[i]] : null, key = (s ? s.icon : '') + a.label;
+      if (t.key !== key) {
+        t.key = key;
+        t.lbl.innerHTML = (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(a.label);
+        t.el.classList.toggle('side', !!s);
+        if (s) t.el.style.setProperty('--sc', s.css);
+      }
       t.meter.style.display = a.charging ? '' : 'none';
       t.fill.style.width = `${Math.round(a.charge * 100)}%`;
       t.pct.textContent = a.charging ? `${Math.round(a.charge * 100)}%` : '';
@@ -216,10 +238,18 @@ export class UI {
 
   showEnd(g, res) {
     const win = res[0];
-    $('#end-title').textContent = `${win.name} 获胜！`;
-    $('#end-sub').textContent = '最后留下的人赢得比赛';
+    const team = win.side !== null && win.side !== undefined;
+    if (team) {
+      const s = SIDES[win.side];
+      $('#end-title').textContent = `${s.icon} ${s.name}获胜！`;
+      $('#end-sub').textContent = res.filter((r) => r.side === win.side).map((r) => r.name).join(' + ') + ' 赢得了 2v2';
+    } else {
+      $('#end-title').textContent = `${win.name} 获胜！`;
+      $('#end-sub').textContent = '最后留下的人赢得比赛';
+    }
+    const last = Math.max(...res.map((r) => r.place));
     $('#end-stats').innerHTML = '<tr><th>名次</th><th>球员</th><th>被谁淘汰</th><th>淘汰别人</th><th>射门</th></tr>' + res.map((r) =>
-      `<tr class="${r.place === res.length ? 'lose' : ''}"><td>${r.place === 1 ? '🏆' : r.place}</td><td><i class="dot" style="background:${TEAMS[r.i].css}"></i>${esc(r.name)}</td><td>${esc(r.by) || '—'}</td><td><b>${r.kos}</b></td><td>${r.shots}</td></tr>`).join('');
+      `<tr class="${r.place === last ? 'lose' : ''}"><td>${r.place === 1 ? '🏆' : r.place}</td><td>${team ? `<span class="side-badge" style="--sc:${SIDES[r.side].css}">${SIDES[r.side].icon}</span>` : ''}<i class="dot" style="background:${TEAMS[r.i].css}"></i>${esc(r.name)}</td><td>${esc(r.by) || '—'}</td><td><b>${r.kos}</b></td><td>${r.shots}</td></tr>`).join('');
     $('#btn-again').classList.toggle('hidden', g.role === 'guest');
     $('#btn-again').textContent = g.role === 'host' ? '回到房间' : '再来一局';
     $('#end').classList.add('show');
@@ -292,15 +322,16 @@ export class UI {
     const g = this.game;
     if (d.k === 'lobby') {
       this.guestLobby.slots = d.slots;
+      if (d.settings) { this.guestLobby.settings = d.settings; }
       if (g.role === 'guest') { g.role = 'local'; g.state = 'menu'; }
       this._hideAll(); this._showLobby(false);
       return;
     }
     if (d.k === 'start') {
       this.settings.net = 'online';
-      this._showHud();
       g.net = this.net;
       g.startGuest(d, this.net.id);
+      this._showHud();
       return;
     }
     if (g.role === 'guest') g.onHostData(d);
@@ -320,23 +351,30 @@ export class UI {
     $('#lobby-slots').innerHTML = TEAMS.map((t, i) => {
       const s = slots[i];
       const who = s ? `${esc(s.name)}${s.id === this.net?.id ? '（你）' : ''}${i === 0 ? ' · 房主' : ''}` : `<span class="cpu">电脑 · ${t.cpuName}</span>`;
-      return `<li style="--c:${t.css}"><i></i><span>${who}</span><em>${t.cn}色球门</em></li>`;
+      const st = this.lobby ? this.settings : this.guestLobby?.settings || {};
+      let where = `${t.cn}色球门`;
+      if (st.mode === 'team') {
+        const k = st.pairing === 'vs' ? i % 2 : i < 2 ? 0 : 1, sd = SIDES[k];
+        where = `<span class="side-badge" style="--sc:${sd.css}">${sd.icon}</span>${sd.name} · 随机球门`;
+      }
+      return `<li style="--c:${t.css}"><i></i><span>${who}</span><em>${where}</em></li>`;
     }).join('');
+    this._refreshMenu();
   }
 
   _broadcastLobby() {
     if (!this.lobby || !this.net) return;
-    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind }) => ({ name, id, kind })), settings: { level: this.settings.level, duration: this.settings.duration } });
+    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind }) => ({ name, id, kind })), settings: { level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, duration: this.settings.duration } });
   }
 
   startOnline() {
     if (!this.lobby) return;
     const slots = TEAMS.map((t, i) => this.lobby.slots[i] || { kind: 'cpu', name: t.cpuName });
     this.settings.net = 'online';
-    this._showHud();
     const g = this.game;
     g.role = 'host'; g.net = this.net;
     for (const a of g.athletes) a.puppet = false;
-    g.start({ level: this.settings.level, slots });
+    g.start({ level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, slots });
+    this._showHud();
   }
 }

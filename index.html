@@ -42,6 +42,7 @@
   <div id="touch" class="hidden">
     <div id="stick"><div id="knob"></div></div>
     <div id="btns">
+      <button id="btn-pass" class="hidden">传球</button>
       <button id="btn-tackle">铲球</button>
       <button id="btn-sprint">冲刺</button>
       <button id="btn-lob">挑射</button>
@@ -52,7 +53,7 @@
   <div id="menu" class="overlay">
     <div class="menu-card">
       <div class="brand">POCKET<span>FOOTBALL</span></div>
-      <p class="tag">四门混战 · 每人守一个球门 · 每人 2 条命，被进两球出局，最后留下的人获胜</p>
+      <p class="tag">每人守一个球门 · 每人 2 条命，被进两球出局 · 四门混战或 2v2 组队</p>
       <div class="seg tabs" data-key="net">
         <button data-v="local" class="on">本地游戏</button>
         <button data-v="online">联机对战</button>
@@ -70,15 +71,30 @@
         </div>
         <p class="note" id="humans-note">其余位置由电脑补上。</p>
         <div class="row">
+          <label>模式</label>
+          <div class="seg" data-key="mode">
+            <button data-v="ffa" class="on">四门混战</button>
+            <button data-v="team">2v2 组队</button>
+          </div>
+        </div>
+        <div class="row pairing-row hidden">
+          <label>分组</label>
+          <div class="seg" data-key="pairing">
+            <button data-v="humans" class="on">真人一队</button>
+            <button data-v="vs">真人对抗</button>
+          </div>
+        </div>
+        <p class="note mode-note">每人守一个球门，谁都可以打。</p>
+        <div class="row">
           <label>难度</label>
           <div class="seg" data-key="level">
             <button data-v="easy">简单</button>
             <button data-v="normal">普通</button>
             <button data-v="hard">困难</button>
-            <button data-v="gf" class="on">女朋友模式</button>
+            <button data-v="gf" class="on">女友模式</button>
           </div>
         </div>
-        <p class="note level-note">女朋友模式：电脑很菜，拿到球就传给真人玩家，让你射门。</p>
+        <p class="note level-note">女友模式：电脑很菜，拿到球就传给真人玩家，让你射门。</p>
         <button id="btn-start" class="primary">开 球</button>
       </div>
 
@@ -106,15 +122,30 @@
       <ol id="lobby-slots"></ol>
       <div id="lobby-host">
         <div class="row">
+          <label>模式</label>
+          <div class="seg" data-key="mode">
+            <button data-v="ffa" class="on">四门混战</button>
+            <button data-v="team">2v2 组队</button>
+          </div>
+        </div>
+        <div class="row pairing-row hidden">
+          <label>分组</label>
+          <div class="seg" data-key="pairing">
+            <button data-v="humans" class="on">真人一队</button>
+            <button data-v="vs">真人对抗</button>
+          </div>
+        </div>
+        <p class="note mode-note">每人守一个球门，谁都可以打。</p>
+        <div class="row">
           <label>难度</label>
           <div class="seg" data-key="level">
             <button data-v="easy">简单</button>
             <button data-v="normal">普通</button>
             <button data-v="hard">困难</button>
-            <button data-v="gf" class="on">女朋友模式</button>
+            <button data-v="gf" class="on">女友模式</button>
           </div>
         </div>
-        <p class="note level-note">女朋友模式：电脑很菜，拿到球就传给真人玩家，让你射门。</p>
+        <p class="note level-note">女友模式：电脑很菜，拿到球就传给真人玩家，让你射门。</p>
         <button id="btn-lobby-start" class="primary">开始比赛</button>
       </div>
       <p class="note hidden" id="lobby-wait">等待房主开始比赛…</p>

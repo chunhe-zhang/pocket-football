@@ -19,7 +19,8 @@ export class Athlete {
     this.stamina = 1; this.exhausted = false;
     this.charging = false; this.charge = 0; this.chargeHold = 0; this.chargeType = 'kick';
     this.kick = null; this.touchCD = 0; this.frozen = false;
-    this.intent = { move: new THREE.Vector2(), kick: false, lob: false, sprint: false, tackle: false };
+    this.intent = { move: new THREE.Vector2(), kick: false, lob: false, sprint: false, tackle: false, pass: false };
+    this._prevPass = false; this._passHold = 0;
     this.skill = 1;          // 0..1, lowers shot error (AI difficulty uses this)
     this.speedMul = 1;
     this.stats = { shots: 0, onTarget: 0, touches: 0 };
@@ -41,7 +42,11 @@ export class Athlete {
 
   get home() { return GOALS[this.team]; }                       // the goal I defend
   /** the goal mouth centres I can score in */
-  get targets() { return GOALS.filter((g) => g.team !== this.team && this.game.activeGoal(g.team)); }
+  get targets() { return GOALS.filter((g) => g.team !== this.team && this.game.activeGoal(g.team) && !this.game.sameSide(this.team, g.team)); }
+  /** 2v2: my team-mate still on the pitch (null in free-for-all) */
+  get mate() { return this.game.mateOf(this.team); }
+  /** my last touch was a pass to this team-mate (null otherwise) */
+  get passedTo() { return this.passTarget && this.passT === this.lastTouchTime ? this.passTarget : null; }
   get forward() { return this._f.set(Math.sin(this.facing), 0, Math.cos(this.facing)); }
   get rightDir() { return this._r.crossVectors(this.forward, UP); }
   // where the ball centre sits relative to the body when the boot meets it (measured from the rig)
@@ -96,8 +101,16 @@ export class Athlete {
       if (inOwnBox(this.team, this.pos.x, this.pos.z)) this._startDive(); else this._startSlide();
     }
 
+    // ---- pass to my team-mate (2v2) ---------------------------------------------
+    const passPressed = it.pass && !this._prevPass;
+    this._prevPass = it.pass;
+    if (passPressed && !this.charging && !this.kick && !this.frozen && g.state === 'play') {
+      const mate = this.mate, b = g.ball, bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
+      if (mate && b.pos.y < 0.7 && (g.possessor === this || bd < 1.3)) { this.passTo = mate; this._passHold = 0.06; }
+    }
+    if (this._passHold > 0) this._passHold -= dt;
     // ---- charging / release ------------------------------------------------
-    const held = (it.kick || it.lob) && !this.slide && !this.dive && this.stunT <= 0;
+    const held = (it.kick || it.lob || this._passHold > 0) && !this.slide && !this.dive && this.stunT <= 0;
     if (this.frozen || this.slide || this.dive || this.stunT > 0) { this.charging = false; this.charge = 0; }
     else if (!this.kick) {
       if (held && !this.charging) { this.charging = true; this.charge = 0; this.chargeHold = 0; this.chargeType = it.lob ? 'chip' : 'kick'; }
@@ -245,7 +258,7 @@ export class Athlete {
       }
       // and through anyone standing in the way
       for (const o of g.athletes) {
-        if (o === this || sl.hit.has(o) || o.slide) continue;
+        if (o === this || sl.hit.has(o) || o.slide || g.sameSide(this.team, o.team)) continue;
         const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         const ahead = (dx * sl.dir.x + dz * sl.dir.z) / (d || 1);
         if (d < 0.85 && ahead > 0.2) { sl.hit.add(o); o.knock(sl.dir, sp); g.sfx.bump(sp); g.rumble(this, 0.4, 70); }
@@ -435,13 +448,14 @@ export class Athlete {
     const aim = this.aimDir(new THREE.Vector3());
     // a pass: aimed at where the team-mate will be, weighted to arrive at a comfortable pace
     let passSpeed = 0;
+    this.passTarget = null;
     if (this.passTo && !this.passTo.out) {
       const rcv = this.passTo, ball = g.ball;
       let tx = rcv.pos.x, tz = rcv.pos.z, d = 0, sp = 0;
       for (let k = 0; k < 3; k++) {
         d = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
-        sp = clamp(Math.sqrt(9 + 2 * 0.9 * d) + 0.6, 5, 15);         // arrives at roughly 3 m/s
-        const t = d / ((sp + 3) / 2) + 0.25;
+        sp = clamp(Math.sqrt(16 + 2 * 0.9 * d) + 0.6, 5.5, 15);      // arrives at roughly 4 m/s
+        const t = d / ((sp + 4) / 2) + 0.25;
         tx = rcv.pos.x + rcv.vel.x * t * 0.8; tz = rcv.pos.z + rcv.vel.z * t * 0.8;
       }
       aim.set(tx - this.pos.x, 0, tz - this.pos.z).normalize();
@@ -574,6 +588,7 @@ export class Athlete {
     g.rumble(this, 0.3 + 0.7 * p, 60 + 80 * p);
     this.char.face('aa', 0.6 + 0.4 * p); this.faceT = 0.35;
     this.lastTouchTime = g.time;
+    this.passT = k.type === 'pass' ? g.time : -1;
     this.touchCD = 0.35;
     this.stats.touches++;
     g.onKick(this, k, vel);

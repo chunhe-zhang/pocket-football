@@ -102,13 +102,13 @@ button { font-family: var(--font); cursor: pointer; }
   background: rgba(255, 255, 255, 0.08); border: 2px solid rgba(255, 255, 255, 0.25); pointer-events: auto; }
 #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); }
 #btns { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); display: grid;
-  grid-template-columns: 74px 92px; grid-template-rows: 74px 92px; gap: 10px; pointer-events: auto; }
+  grid-template-columns: 74px 92px; grid-template-rows: 64px 74px 92px; gap: 10px; pointer-events: auto; }
 #btns button { border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(10, 16, 30, 0.55); color: #fff; font-size: 18px; font-weight: 800; }
 #btns button.down { background: rgba(255, 210, 63, 0.75); color: var(--ink); }
-#btn-sprint { grid-column: 1; grid-row: 2; align-self: end; height: 74px; }
-#btn-tackle { grid-column: 1; grid-row: 1; align-self: start; height: 74px; }
-#btn-lob { grid-column: 2; grid-row: 1; justify-self: end; width: 74px; }
-#btn-kick { grid-column: 2; grid-row: 2; font-size: 22px !important; }
+#btn-sprint { grid-column: 1; grid-row: 3; align-self: end; height: 74px; }
+#btn-tackle { grid-column: 1; grid-row: 2; align-self: start; height: 74px; }
+#btn-lob { grid-column: 2; grid-row: 2; justify-self: end; width: 74px; }
+#btn-kick { grid-column: 2; grid-row: 3; font-size: 22px !important; }
 
 #end .final { font-size: 64px; font-weight: 800; text-align: center; margin: 4px 0 8px; }
 #end .final .c0 { color: var(--blue); } #end .final .c1 { color: var(--orange); }
@@ -157,3 +157,14 @@ button { font-family: var(--font); cursor: pointer; }
 
 .level-note { margin: -2px 0 6px 62px; font-size: 14px; }
 @media (max-width: 560px) { .level-note { margin-left: 0; } }
+#btn-pass { grid-column: 2; grid-row: 1; justify-self: end; width: 64px; height: 64px; font-size: 16px !important; }
+#btns button.hidden { display: none; }
+.mode-note { margin: -2px 0 6px 62px; font-size: 14px; }
+@media (max-width: 560px) { .mode-note { margin-left: 0; } }
+/* 2v2 side badges */
+.side-badge { display: inline-block; font-weight: 800; margin-right: 3px; color: var(--sc); }
+#scoreboard .chip.side { border-color: var(--sc); box-shadow: inset 0 -3px 0 var(--sc); }
+#tags .lbl .side-badge { color: #fff; text-shadow: 0 0 4px var(--sc), 0 0 2px var(--sc); }
+#tags .tag-el.side .lbl { box-shadow: 0 0 0 2px var(--sc); }
+#tags .tag-el.side.me .lbl { box-shadow: 0 0 0 2px var(--sc), 0 0 0 4px #fff; }
+#lobby-slots li em .side-badge { color: var(--sc); }

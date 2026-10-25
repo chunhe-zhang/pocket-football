@@ -26,6 +26,7 @@ export class AIController {
     this.plan = { move: new THREE.Vector2(), sprint: false, tackle: false };
     this.shooting = null;
     this.dodge = 0; this.dodgeSide = 1;
+    this.passCD = 0;        // don't ping the ball straight back the moment it arrives
   }
 
   setLevel(level) {
@@ -52,6 +53,8 @@ export class AIController {
     // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
     if (this._keeper()) return;
     this.think -= dt;
+    this.passCD = Math.max(0, this.passCD - dt);
+    if (g.possessor !== me) this._had = false; else if (!this._had) { this._had = true; this.passCD = Math.max(this.passCD, 0.5); }
     if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); this._decide(); }
     this._avoidObstacles();
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
@@ -70,6 +73,7 @@ export class AIController {
     let best = null, bestD = Infinity;
     for (const a of this.game.live) {
       if (a === me || !this._isHuman(a)) continue;
+      if (this.game.teamMode && !this.game.sameSide(a.team, me.team)) continue;   // 2v2: only feed my own team-mate
       const d = Math.hypot(a.pos.x - me.pos.x, a.pos.z - me.pos.z);
       if (d < bestD) { bestD = d; best = a; }
     }
@@ -158,6 +162,8 @@ export class AIController {
       const tgt = me.goalTarget();
       const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z);
       const gd = to.length();
+      // 2v2: play it to my team-mate when they're better placed (or I'm under pressure)
+      if (g.teamMode && this._teamPass(tgt, gd)) return;
       const blocker = others.find((a) => {
         const rx = a.pos.x - me.pos.x, rz = a.pos.z - me.pos.z, d = Math.hypot(rx, rz);
         return d < 2.6 && (rx * to.x + rz * to.y) / (d * gd || 1) > 0.5;
@@ -210,7 +216,25 @@ export class AIController {
     const holder = g.possessor;
     // slide in on whoever has the ball if they are close and coming my way
     const humanHas = holder && this._isHuman(holder);
-    if (!this.cfg.noTackle && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
+    const mateHas = holder && g.sameSide(holder.team, me.team);
+    const lt = ball.lastTouch, fresh = lt && g.time - lt.lastTouchTime < 3 && !holder;
+    // 2v2: a pass is on its way to me: go and meet it
+    if (fresh && lt !== me && lt.passedTo === me && g.sameSide(lt.team, me.team)) {
+      const run = 5.2 * this.cfg.speed;
+      let px = bp.x, pz = bp.z;
+      for (let t = 0; t <= 2.6; t += 0.1) {
+        const q = ball.predict(t);
+        px = q.x; pz = q.z;
+        if (Math.hypot(q.x - me.pos.x, q.z - me.pos.z) <= run * t + 0.4) break;
+      }
+      this._goTo(px, pz, 0.3, 1.2);
+      return;
+    }
+    // I've just played it to my team-mate: leave it for them and find space
+    if (fresh && lt === me && me.passedTo && !me.passedTo.out) { this._support(me.passedTo); return; }
+    // 2v2: my team-mate has it: get into space to receive (unless the ball is by my own goal)
+    if (mateHas && toHome > 6) { this._support(holder); return; }
+    if (!this.cfg.noTackle && !mateHas && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
       const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
       plan.move.set(tx, tz).normalize();
       plan.tackle = true;
@@ -247,6 +271,55 @@ export class AIController {
     const dx = bp.x - home.centre.x, dz = bp.z - home.centre.z, dl = Math.hypot(dx, dz) || 1;
     const gx = home.centre.x + (dx / dl) * dist, gz = home.centre.z + (dz / dl) * dist;
     this._goTo(clamp(gx, -H + 0.6, H - 0.6), clamp(gz, -H + 0.6, H - 0.6), 0.8, 3.5);
+  }
+
+  /** an opponent standing close to the line from a to b */
+  _laneBlocked(ax, az, bx, bz) {
+    const me = this.me, g = this.game;
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    return g.live.some((o) => {
+      if (o === me || g.sameSide(o.team, me.team)) return false;
+      const t = clamp(((o.pos.x - ax) * dx + (o.pos.z - az) * dz) / L2, 0.1, 0.9);
+      return Math.hypot(ax + dx * t - o.pos.x, az + dz * t - o.pos.z) < 1.0;
+    });
+  }
+
+  _teamPass(tgt, gd) {
+    const me = this.me, g = this.game, mate = me.mate;
+    if (!mate || this.passCD > 0 || mate.stunT > 0 || mate.slide || mate.dive) return false;
+    const d = Math.hypot(mate.pos.x - me.pos.x, mate.pos.z - me.pos.z);
+    if (d < 2.5 || d > 16) return false;
+    if (this._laneBlocked(me.pos.x, me.pos.z, mate.pos.x, mate.pos.z)) return false;
+    const mt = mate.goalTarget();
+    const mateGd = Math.hypot(mt.x - mate.pos.x, mt.z - mate.pos.z);
+    const pressure = g.live.some((o) => o !== mate && o !== me && Math.hypot(o.pos.x - me.pos.x, o.pos.z - me.pos.z) < 1.8);
+    const mateFree = !g.live.some((o) => o !== mate && o !== me && Math.hypot(o.pos.x - mate.pos.x, o.pos.z - mate.pos.z) < 1.6);
+    const human = this._isHuman(mate);
+    let want = 0;
+    if (mateFree && mateGd < gd + 2.5) want = 0.3 + 0.2 * this.cfg.skill;   // keep the ball moving between us
+    if (mateFree && mateGd < gd - 1) want = 0.6 + 0.3 * this.cfg.skill;     // they're closer to goal and unmarked
+    if (pressure && mateFree) want = Math.max(want, 0.6 * this.cfg.skill + 0.2);
+    if (human && mateFree && mateGd < gd + 2) want = Math.max(want, 0.6);  // humans love getting the ball
+    if (gd < this.cfg.shootRange * 0.6) want *= 0.3;                       // in range myself: just shoot
+    if (Math.random() >= want) return false;
+    me.passTo = mate;
+    this.shooting = { hold: 0.06, aim: new THREE.Vector2(mate.pos.x - me.pos.x, mate.pos.z - me.pos.z).normalize(), lob: false };
+    this.passCD = 1.2;
+    return true;
+  }
+
+  /** team-mate on the ball: find space between them and an open goal */
+  _support(holder) {
+    const me = this.me;
+    const tgt = me.goalTarget();
+    const gx = tgt.x - holder.pos.x, gz = tgt.z - holder.pos.z, gl = Math.hypot(gx, gz) || 1;
+    // ahead of the ball carrier towards the goal, off to one side
+    const side = ((me.pos.x - holder.pos.x) * -gz + (me.pos.z - holder.pos.z) * gx) >= 0 ? 1 : -1;
+    const ahead = Math.min(6, gl * 0.6);
+    let x = holder.pos.x + (gx / gl) * ahead + (-gz / gl) * side * 3.2;
+    let z = holder.pos.z + (gz / gl) * ahead + (gx / gl) * side * 3.2;
+    x = clamp(x, -H + 1.2, H - 1.2); z = clamp(z, -H + 1.2, H - 1.2);
+    this._goTo(x, z, 0.8, 3);
   }
 
   _shoot(tgt, gd, lob) {

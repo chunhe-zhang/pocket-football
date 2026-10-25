@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, MATCH, BALL, GOALS } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -9,6 +9,7 @@ import { ChargeFx } from './chargefx.js';
 import { Particles } from './fx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const CAM_MODES = ['broadcast', 'high'];
 const H = FIELD.half;
 const SFX_EVENTS = new Set(['kick', 'touch', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd']);
@@ -56,7 +57,8 @@ export class Game {
     this.possessor = null;
     this.possession = TEAMS.map(() => 0);
     this.crowdT = 0;
-    this.settings = { humans: 1, level: 'gf', duration: MATCH.defaultDuration };
+    this.settings = { humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', duration: MATCH.defaultDuration };
+    this.side = null;          // 2v2: side (0 / 1) of each player, null in free-for-all
     this.role = 'local';
     this.net = null;
     this.events = []; this.snapT = 0;
@@ -68,6 +70,25 @@ export class Game {
   get lives() { return MATCH.lives; }
   activeGoal(team) { return this.alive[team]; }
   get live() { return this.athletes.filter((a) => !a.out); }
+  get teamMode() { return !!this.side; }
+  sameSide(a, b) { return !!this.side && a !== b && this.side[a] === this.side[b]; }
+  mateOf(team) { if (!this.side) return null; const m = this.athletes.find((a) => a.team !== team && !a.out && this.side[a.team] === this.side[team]); return m || null; }
+  /** sides (2v2) or players (free-for-all) still in the game */
+  _standing() { return this.side ? new Set(this.alive.map((v, i) => (v ? this.side[i] : -1)).filter((s) => s >= 0)).size : this.alive.filter(Boolean).length; }
+  sideLeft(s) { return this.alive.filter((v, i) => v && this.side[i] === s).length; }
+
+  /**
+   * 2v2: random goals and random pairs. Participants come in order (humans first);
+   * 'humans' puts P1 + P2 on the same side, 'vs' puts them on opposite sides.
+   */
+  _assignTeams(participants, pairing) {
+    const perm = shuffle([0, 1, 2, 3]);           // perm[0], perm[1] = side 0; perm[2], perm[3] = side 1
+    const order = pairing === 'vs' ? [perm[0], perm[2], perm[1], perm[3]] : perm;
+    const side = []; perm.forEach((a, k) => { side[a] = k < 2 ? 0 : 1; });
+    const slots = [];
+    participants.forEach((p, k) => { const a = order[k]; slots[a] = !p || p.kind === 'cpu' ? { kind: 'cpu', name: TEAMS[a].cpuName } : p; });
+    return { slots, side };
+  }
 
   // ------------------------------------------------------------- recording --
   _recordingSfx(real) {
@@ -147,13 +168,15 @@ export class Game {
    */
   start(settings) {
     Object.assign(this.settings, settings);
-    const { level, duration, assist } = this.settings;
+    const { level, duration } = this.settings;
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.possession = TEAMS.map(() => 0);
     this.clock = 0;
     this._resetElimination();
     for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; }
-    const slots = this.settings.slots || this._localSlots(this.settings.humans);
+    let slots = this.settings.slots || this._localSlots(this.settings.humans);
+    this.side = null;
+    if (this.settings.mode === 'team') ({ slots, side: this.side } = this._assignTeams(slots, this.settings.pairing));
     this.slots = slots;
     this.controllers = slots.map((s, i) => {
       const a = this.athletes[i];
@@ -162,10 +185,12 @@ export class Game {
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
       return { type: 'ai', ai: new AIController(a, this, level, level === 'gf') };
     });
+    const mode = this.settings.mode;
     this.endShown = false;
     this.ui.onScore(this);
     this.kickoff();
-    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration }, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })) });
+    if (this.side) this.banner('2v2 组队', SIDES.map((s, k) => `${s.icon} ${s.name}：${this.athletes.filter((a) => this.side[a.team] === k).map((a) => a.label).join(' + ')}`).join('　'));
+    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })) });
   }
 
   _localSlots(humans) {
@@ -187,7 +212,7 @@ export class Game {
 
   goal(team) {
     const toucher = this.ball.lastTouch;
-    const own = !toucher || toucher.team === team;
+    const own = !toucher || toucher.team === team || this.sameSide(toucher.team, team);
     this.conceded[team]++;
     if (!own) this.scored[toucher.team]++;
     this.ui.onScore(this);
@@ -206,10 +231,11 @@ export class Game {
       this.outOrder.push(team);
       this.knockedBy[team] = own ? null : toucher.team;
       const left = this.alive.filter(Boolean).length;
-      if (own) this.banner('出局！', `${loser.label} 打进乌龙球，被淘汰`);
-      else this.banner('出局！', `${toucher.label} 淘汰了 ${loser.label}${left > 1 ? ` · 还剩 ${left} 人` : ''}`);
+      const sideNote = this.side ? ` · ${SIDES[this.side[team]].name}还剩 ${this.sideLeft(this.side[team])} 人` : left > 1 ? ` · 还剩 ${left} 人` : '';
+      if (own) this.banner('出局！', `${toucher && toucher.team !== team ? `${toucher.label} 误伤队友，` : ''}${loser.label} 被淘汰${sideNote}`);
+      else this.banner('出局！', `${toucher.label} 淘汰了 ${loser.label}${sideNote}`);
     } else {
-      if (own) this.banner('乌龙球', `${loser.label} 还剩 ${livesLeft} 条命`);
+      if (own) this.banner(toucher && toucher.team !== team ? '误伤队友' : '乌龙球', `${loser.label} 还剩 ${livesLeft} 条命`);
       else this.banner('进球！', `${toucher.label} 攻破 ${loser.label} 的球门 · ${loser.label} 还剩 ${livesLeft} 条命`);
     }
     this.ui.onScore(this);
@@ -222,7 +248,12 @@ export class Game {
     this.sfx.whistle([0.3, 0.3, 0.75]);
     const w = this.alive.indexOf(true);
     const winner = this.athletes[w];
-    if (winner) { winner.char.play('celebrate'); this.focus = winner; this.banner('冠军！', `${winner.label} 是最后留下的人`); }
+    if (winner && this.side) {
+      const s = this.side[w];
+      for (const a of this.athletes) if (this.side[a.team] === s) a.char.play('celebrate');
+      this.focus = winner;
+      this.banner(`${SIDES[s].icon} ${SIDES[s].name}获胜！`, this.athletes.filter((a) => this.side[a.team] === s).map((a) => a.label).join(' + '));
+    } else if (winner) { winner.char.play('celebrate'); this.focus = winner; this.banner('冠军！', `${winner.label} 是最后留下的人`); }
     this.emit({ e: 'focus', i: winner ? w : -1 });
     this.sfx.cheer();
     for (const a of this.athletes) a.frozen = true;
@@ -231,11 +262,13 @@ export class Game {
   results() {
     const tot = this.possession.reduce((s, x) => s + x, 0) || 1;
     // placing: the winner first, then reverse order of elimination
-    const order = [...this.alive.map((v, i) => (v ? i : -1)).filter((i) => i >= 0), ...[...this.outOrder].reverse()];
+    let order = [...this.alive.map((v, i) => (v ? i : -1)).filter((i) => i >= 0), ...[...this.outOrder].reverse()];
+    const side = this.side, win = side ? side[order[0]] : null;
+    if (side) order = [...order.filter((i) => side[i] === win), ...order.filter((i) => side[i] !== win)];
     return order.map((i, k) => {
       const a = this.athletes[i], by = this.knockedBy[i];
       return {
-        i, place: k + 1, name: a.label, kos: this.scored[i], shots: a.stats.shots,
+        i, place: side ? (side[i] === win ? 1 : 2) : k + 1, side: side ? side[i] : null, name: a.label, kos: this.scored[i], shots: a.stats.shots,
         possession: Math.round((this.possession[i] / tot) * 100),
         out: !this.alive[i], by: this.alive[i] ? '' : by === null ? '乌龙球' : this.athletes[by].label,
       };
@@ -253,7 +286,7 @@ export class Game {
     }
     // a shot if the ball is heading for an opponent's goal mouth
     for (const g of GOALS) {
-      if (g.team === ath.team) continue;
+      if (g.team === ath.team || this.sameSide(g.team, ath.team)) continue;
       const A = g.axis, B = A === 'x' ? 'z' : 'x', line = g.sign * H;
       if (Math.abs(vel[A]) < 0.1) continue;
       const t = (line - this.ball.pos[A]) / vel[A];
@@ -291,7 +324,7 @@ export class Game {
       else if (c.type === 'ai') c.ai.update(dt);
       // remote intents are written by the network handler
     });
-    if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = false; }
+    if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = a.intent.pass = false; }
 
     if (this.state === 'kickoff') {
       this.timer -= rawDt;
@@ -305,7 +338,7 @@ export class Game {
       if (this.timer <= 0) {
         // the knocked-out player leaves and their goal is boarded up
         for (let i = 0; i < this.alive.length; i++) if (!this.alive[i] && !this.athletes[i].out) this.eliminate(i);
-        if (this.alive.filter(Boolean).length <= 1) this.end(); else this.kickoff();
+        if (this._standing() <= 1) this.end(); else this.kickoff();
       }
     } else if (this.state === 'ended') {
       this.timer -= rawDt;
@@ -401,7 +434,9 @@ export class Game {
   _updatePossession(dt) {
     const lt = this.ball.lastTouch;
     let p = null;
-    if (lt && this.ball.pos.y < 0.9 && this._distBall(lt) < 1.5 && this.time - lt.lastTouchTime < 1.2) p = lt;
+    // a pass on its way belongs to nobody, even while it's still near the passer
+    const passing = lt && lt.passedTo && this.time - lt.lastTouchTime < 1.5 && this.ball.speed > 1.5;
+    if (lt && !passing && this.ball.pos.y < 0.9 && this._distBall(lt) < 1.5 && this.time - lt.lastTouchTime < 1.2) p = lt;
     this.possessor = p;
     if (p && this.state === 'play') this.possession[p.team] += dt;
   }
@@ -456,7 +491,7 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     const it = this.athletes[i].intent;
-    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s;
+    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = !!d.p;
   }
 
   /** host: a remote player left mid-game — a CPU takes over their goal */
@@ -506,6 +541,7 @@ export class Game {
     this.role = 'guest';
     this.settings = { ...this.settings, ...msg.settings };
     this.slots = msg.slots;
+    this.side = msg.side || null;
     this.mySlot = msg.slots.findIndex((s) => s.id === myId);
     this.controllers = msg.slots.map((s, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net' }));
     this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.char.stopEmotes(); });
@@ -522,10 +558,10 @@ export class Game {
     if (me) {
       this.input.intent('solo', me.intent);
       this.inputT -= dt;
-      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint}`;
+      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.pass}`;
       if (this.inputT <= 0 || sig !== this._lastSig) {
         this.inputT = 0.05; this._lastSig = sig;
-        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0 });
+        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, p: it.pass ? 1 : 0 });
       }
     }
     const S = this.snaps;

@@ -1,6 +1,6 @@
 // Scripted "simple human": waits for passes, dribbles towards the best goal, shoots inside 9 m.
 window.__humanRun = (secs = 240) => {
-  const g = window.__game, me = g.athletes[0];
+  const g = window.__game, me = g.athletes.find((a, i) => g.controllers[i].type === 'human') || g.athletes[0];
   const c = { pass: 0, recv: 0, shots: 0, goals: [], tr: [] };
   g.input.intent = (scheme, out) => out;   // the script drives the human's intent directly
   for (const a of g.athletes) {
