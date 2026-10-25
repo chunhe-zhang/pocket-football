@@ -5,6 +5,7 @@ import { Ball } from './ball.js';
 import { Character } from './character.js';
 import { Athlete } from './athlete.js';
 import { AIController } from './ai.js';
+import { ChargeFx } from './chargefx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const CAM_MODES = ['broadcast', 'close', 'high'];
@@ -14,6 +15,7 @@ export class Game {
     Object.assign(this, { scene, camera, sfx, input, ui });
     this.pitch = new Pitch(scene);
     this.ball = new Ball(scene, sfx);
+    this.chargeFx = new ChargeFx(scene);
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(gltf, { color: t.color, accent: t.accent });
       scene.add(ch.group);
@@ -179,6 +181,7 @@ export class Game {
 
     this._updatePossession(dt);
     this.pitch.update(dt, this.time);
+    this.chargeFx.update(rawDt, this.athletes, this.time);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);

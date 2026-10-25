@@ -55,9 +55,9 @@ export class UI {
     const tagsRoot = $('#tags');
     this.tags = game.athletes.map((a, i) => {
       const el = document.createElement('div'); el.className = 'tag-el';
-      el.innerHTML = `<span class="lbl" style="background:${TEAMS[i].css}"></span><div class="meter"><i></i></div><div class="stam"><i></i></div>`;
+      el.innerHTML = `<span class="lbl" style="background:${TEAMS[i].css}"></span><div class="meter"><i></i><span class="pct"></span></div><div class="stam"><i></i></div>`;
       tagsRoot.appendChild(el);
-      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
+      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
     });
   }
 
@@ -145,6 +145,8 @@ export class UI {
       t.lbl.textContent = a.label;
       t.meter.style.visibility = a.charging ? 'visible' : 'hidden';
       t.fill.style.width = `${Math.round(a.charge * 100)}%`;
+      t.pct.textContent = a.charging ? `${Math.round(a.charge * 100)}%` : '';
+      t.meter.classList.toggle('full', a.charging && a.charge >= 1);
       const human = g.controllers[i]?.type === 'human';
       t.stam.style.visibility = human && a.stamina < 0.98 ? 'visible' : 'hidden';
       t.stamFill.style.width = `${Math.round(a.stamina * 100)}%`;
