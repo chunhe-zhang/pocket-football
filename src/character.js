@@ -119,6 +119,85 @@ const DEJECT = {
   armFwdR: [[0, -0.1], [1, -0.1]],
 };
 
+// legOut: + swings the kicking leg out sideways. footTurn: + turns the toe outwards
+// (inside of the foot faces forward). body: + reclines the whole body around the hips.
+const SLIDE = {
+  body:    [[0, 0], [0.14, 0.62], [0.62, 0.66], [0.82, 0.25], [1, 0]],
+  drop:    [[0, 0], [0.14, -0.5], [0.62, -0.52], [0.84, -0.18], [1, 0]],
+  thigh:   [[0, 0], [0.14, 0.7], [0.62, 0.72], [0.84, 0.2], [1, 0]],
+  knee:    [[0, 0], [0.14, 0.12], [0.62, 0.15], [0.84, 0.6], [1, 0]],
+  foot:    [[0, 0], [0.14, -0.3], [0.62, -0.3], [1, 0]],
+  supThigh:[[0, 0], [0.14, -0.35], [0.62, -0.3], [0.84, 0.1], [1, 0]],
+  supKnee: [[0, 0], [0.14, 1.75], [0.62, 1.7], [0.84, 0.8], [1, 0]],
+  lean:    [[0, 0], [0.14, 0.2], [0.62, 0.22], [0.84, 0.15], [1, 0]],
+  armOutL: [[0, 0], [0.14, 0.9], [0.62, 0.8], [1, 0]],
+  armOutR: [[0, 0], [0.14, 0.6], [0.62, 0.5], [1, 0]],
+  armFwdL: [[0, 0], [0.14, -0.4], [0.62, -0.5], [1, 0]],
+  armFwdR: [[0, 0], [0.14, -0.6], [0.62, -0.6], [1, 0]],
+  headUp:  [[0, 0], [0.14, 0.35], [0.62, 0.3], [1, 0]],
+};
+
+const STAGGER = {
+  lean:    [[0, 0], [0.2, -0.3], [0.55, 0.35], [1, 0]],
+  twist:   [[0, 0], [0.25, 0.45], [0.6, -0.2], [1, 0]],
+  drop:    [[0, 0], [0.3, -0.12], [0.6, -0.08], [1, 0]],
+  armOutL: [[0, 0], [0.2, 1.3], [0.55, 0.6], [1, 0]],
+  armOutR: [[0, 0], [0.25, 1.1], [0.6, 0.7], [1, 0]],
+  supKnee: [[0, 0], [0.3, 0.45], [0.7, 0.2], [1, 0]],
+  thigh:   [[0, 0], [0.3, 0.35], [0.6, -0.1], [1, 0]],
+  knee:    [[0, 0], [0.3, 0.5], [1, 0]],
+};
+
+const TRAP_FOOT = (c) => ({
+  legOut:  [[0, 0], [c, 0.32], [c + 0.25, 0.2], [1, 0]],
+  footTurn:[[0, 0], [c, 0.95], [c + 0.25, 0.7], [1, 0]],
+  thigh:   [[0, 0], [c - 0.1, 0.42], [c, 0.3], [c + 0.2, 0.05], [1, 0]],   // meet the ball, then give with it
+  knee:    [[0, 0], [c - 0.1, 0.5], [c, 0.35], [c + 0.2, 0.25], [1, 0]],
+  supKnee: [[0, 0], [c, 0.3], [1, 0]],
+  supThigh:[[0, 0], [c, 0.12], [1, 0]],
+  armOutL: [[0, 0], [c, 0.45], [1, 0]],
+  armOutR: [[0, 0], [c, 0.3], [1, 0]],
+  drop:    [[0, 0], [c, -0.05], [1, 0]],
+  headUp:  [[0, 0], [c, -0.25], [1, 0]],
+});
+
+const TRAP_THIGH = (c) => ({
+  thigh:   [[0, 0], [c - 0.1, 1.2], [c, 1.05], [c + 0.25, 0.5], [1, 0]],
+  knee:    [[0, 0], [c - 0.1, 1.35], [c, 1.25], [c + 0.25, 0.7], [1, 0]],
+  foot:    [[0, 0], [c, 0.35], [1, 0]],
+  supKnee: [[0, 0], [c, 0.22], [1, 0]],
+  supThigh:[[0, 0], [c, 0.1], [1, 0]],
+  lean:    [[0, 0], [c, -0.08], [1, 0]],
+  armOutL: [[0, 0], [c, 0.7], [1, 0]],
+  armOutR: [[0, 0], [c, 0.55], [1, 0]],
+  headUp:  [[0, 0], [c, -0.4], [1, 0]],
+});
+
+const TRAP_CHEST = (c) => ({
+  lean:    [[0, 0], [c - 0.12, -0.2], [c, -0.38], [c + 0.25, -0.12], [1, 0]],
+  armOutL: [[0, 0], [c, 0.95], [1, 0]],
+  armOutR: [[0, 0], [c, 0.95], [1, 0]],
+  armFwdL: [[0, 0], [c, -0.35], [1, 0]],
+  armFwdR: [[0, 0], [c, -0.35], [1, 0]],
+  supKnee: [[0, 0], [c, 0.28], [1, 0]],
+  supThigh:[[0, 0], [c, 0.12], [1, 0]],
+  knee:    [[0, 0], [c, 0.28], [1, 0]],
+  thigh:   [[0, 0], [c, 0.12], [1, 0]],
+  drop:    [[0, 0], [c, -0.07], [1, 0]],
+  headUp:  [[0, 0], [c, -0.35], [1, 0]],
+});
+
+const HEADER = (c) => ({
+  hop:     [[0, 0], [c - 0.18, 0.04], [c, 0.2], [c + 0.25, 0], [1, 0]],
+  lean:    [[0, 0], [c - 0.18, -0.3], [c, 0.32], [c + 0.2, 0.15], [1, 0]],
+  headUp:  [[0, 0], [c - 0.18, 0.35], [c, -0.25], [1, 0]],
+  armOutL: [[0, 0], [c - 0.1, 0.8], [c, 0.7], [1, 0]],
+  armOutR: [[0, 0], [c - 0.1, 0.8], [c, 0.7], [1, 0]],
+  knee:    [[0, 0], [c, 0.55], [1, 0]],
+  supKnee: [[0, 0], [c - 0.18, 0.45], [c, 0.25], [1, 0]],
+  thigh:   [[0, 0], [c, 0.25], [1, 0]],
+});
+
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
 
 export class Character {
@@ -233,8 +312,15 @@ export class Character {
       case 'trap': g = new Gesture('trap', 0.42, TRAP, { fadeIn: 0.05, fadeOut: 0.15, ...opts }); break;
       case 'celebrate': g = new Gesture('celebrate', 0.9, CELEBRATE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
       case 'deject': g = new Gesture('deject', 1, DEJECT, { loop: true, fadeIn: 0.4, fadeOut: 0.3, ...opts }); break;
+      case 'slide': g = new Gesture('slide', opts.duration ?? 0.85, SLIDE, { fadeIn: 0.05, fadeOut: 0.1, ...opts }); break;
+      case 'stagger': g = new Gesture('stagger', opts.duration ?? 0.6, STAGGER, { fadeIn: 0.04, fadeOut: 0.12, ...opts }); break;
+      case 'trapFoot': g = new Gesture('trapFoot', opts.duration ?? 0.5, TRAP_FOOT(c), { fadeIn: 0.05, fadeOut: 0.14, ...opts }); break;
+      case 'trapThigh': g = new Gesture('trapThigh', opts.duration ?? 0.55, TRAP_THIGH(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
+      case 'trapChest': g = new Gesture('trapChest', opts.duration ?? 0.55, TRAP_CHEST(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
+      case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
     }
-    if (['kick', 'chip', 'touch', 'trap'].includes(name)) this.gestures = this.gestures.filter((x) => !['kick', 'chip', 'touch', 'trap'].includes(x.name));
+    const LEG = ['kick', 'chip', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header'];
+    if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);
     if (name === 'celebrate') { this.face('happy', 1); }
@@ -259,6 +345,30 @@ export class Character {
   }
   anklePos(side = 'R', out = new THREE.Vector3()) {
     return (side === 'R' ? this.bones.footR : this.bones.footL).getWorldPosition(out);
+  }
+
+  /**
+   * Collision spheres that follow the skeleton: the ball bounces off whatever
+   * part of the body it actually meets. Returns [{ part, side, r, pos }].
+   */
+  bodySpheres(out = []) {
+    const b = this.bones;
+    if (!this._sph) {
+      const mk = (part, side, r) => ({ part, side, r, pos: new THREE.Vector3() });
+      this._sph = [mk('head', 0, 0.12), mk('chest', 0, 0.15), mk('hips', 0, 0.15),
+        mk('thigh', 'R', 0.085), mk('thigh', 'L', 0.085), mk('shin', 'R', 0.065), mk('shin', 'L', 0.065),
+        mk('foot', 'R', 0.065), mk('foot', 'L', 0.065)];
+    }
+    const s = this._sph, t = _a, u = _b;
+    b.head.getWorldPosition(s[0].pos); s[0].pos.y += 0.08;
+    (b.spine2 || b.spine1).getWorldPosition(s[1].pos);
+    b.hips.getWorldPosition(s[2].pos);
+    const mid = (A, B, o, k = 0.5) => { A.getWorldPosition(t); B.getWorldPosition(u); o.copy(t).lerp(u, k); };
+    mid(b.upLegR, b.legR, s[3].pos); mid(b.upLegL, b.legL, s[4].pos);
+    mid(b.legR, b.footR, s[5].pos, 0.55); mid(b.legL, b.footL, s[6].pos, 0.55);
+    mid(b.footR, b.toeR, s[7].pos, 0.6); mid(b.footL, b.toeL, s[8].pos, 0.6);
+    for (const x of s) out.push(x);
+    return out;
   }
 
   teleported() { this.springs && (this.springs.needsReset = true); }
@@ -345,12 +455,15 @@ export class Character {
     const mir = R ? 1 : -1;
     if (ch.drop) this.root.position.y = ch.drop;
     if (ch.hop) this.root.position.y += ch.hop;
+    this._rot(b.hips, r, ch.body || 0);
     this._rot(b.spine1, r, -(ch.lean || 0));
     this._rot(b.spine, UP, (ch.twist || 0) * mir * 0.5);
     this._rot(b.spine2 || b.spine1, UP, (ch.twist || 0) * mir * 0.5);
     this._rot(kick.up, r, ch.thigh || 0);
     this._rot(kick.leg, r, -(ch.knee || 0));
     this._rot(kick.foot, r, -(ch.foot || 0));
+    this._rot(kick.up, f, -(ch.legOut || 0) * mir);
+    this._rot(kick.foot, UP, -(ch.footTurn || 0) * mir);
     this._rot(sup.up, r, ch.supThigh || 0);
     this._rot(sup.leg, r, -(ch.supKnee || 0));
     this._rot(sup.foot, r, (ch.supKnee || 0) - (ch.supThigh || 0));

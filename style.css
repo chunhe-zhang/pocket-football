@@ -106,6 +106,7 @@ button { font-family: var(--font); cursor: pointer; }
 #btns button { border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(10, 16, 30, 0.55); color: #fff; font-size: 18px; font-weight: 800; }
 #btns button.down { background: rgba(255, 210, 63, 0.75); color: var(--ink); }
 #btn-sprint { grid-column: 1; grid-row: 2; align-self: end; height: 74px; }
+#btn-tackle { grid-column: 1; grid-row: 1; align-self: start; height: 74px; }
 #btn-lob { grid-column: 2; grid-row: 1; justify-self: end; width: 74px; }
 #btn-kick { grid-column: 2; grid-row: 2; font-size: 22px !important; }
 

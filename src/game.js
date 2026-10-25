@@ -6,6 +6,7 @@ import { Character } from './character.js';
 import { Athlete } from './athlete.js';
 import { AIController } from './ai.js';
 import { ChargeFx } from './chargefx.js';
+import { Particles } from './fx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const CAM_MODES = ['broadcast', 'high'];
@@ -31,6 +32,7 @@ export class Game {
     this.pitch = new Pitch(scene);
     this.ball = new Ball(scene, this.sfx);
     this.chargeFx = new ChargeFx(scene);
+    this.particles = new Particles(scene);
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
@@ -84,6 +86,26 @@ export class Game {
   }
 
   emit(e) { if (this.role === 'host') { e.t = this.time; this.events.push(e); } }
+
+  /** grass / dust particles, mirrored to guests */
+  fx(kind, p, dir, n, speed) {
+    this.particles.burst(p, dir || { x: 0, z: 0 }, n, speed, kind);
+    this.emit({ e: 'fx', k: kind, p: [p.x, p.y, p.z], d: [dir?.x || 0, dir?.z || 0], n, s: speed });
+  }
+
+  squashBall(dir, amount) {
+    this.ball.squash(dir, amount);
+    this.emit({ e: 'sq', d: [dir.x, dir.y || 0, dir.z], a: amount });
+  }
+
+  /** controller vibration for local gamepad players */
+  rumble(ath, strength, ms) {
+    const c = this.controllers[ath.team];
+    if (!c || c.type !== 'human' || !c.scheme?.startsWith('pad')) return;
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    const pad = pads[+c.scheme.slice(3)];
+    try { pad?.vibrationActuator?.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) }); } catch {}
+  }
 
   banner(big, small) { this.ui.banner(big, small); this.emit({ e: 'banner', big, small }); }
 
@@ -256,14 +278,14 @@ export class Game {
     if (this.state !== 'kickoff') {
       const order = [...this.athletes].sort((p, q) => this._distBall(q) - this._distBall(p));
       for (const a of order) a.handleBall(dt);
-      this._prevBall = (this._prevBall || new THREE.Vector3()).copy(this.ball.pos);
+      this.ball.colliders = this.athletes.flatMap((a) => (a.colliders || []).filter((c) => c.active));
       const events = this.ball.update(dt);
-      this._sweptBlocks();
       for (const e of events) this._ballEvent(e);
     } else this.ball.sync(dt);
 
     this._updatePossession(dt);
     this.pitch.update(dt, this.time);
+    this.particles.update(dt);
     this.chargeFx.update(rawDt, this.athletes, this.time);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
@@ -272,36 +294,6 @@ export class Game {
     if (this.role === 'host') {
       this.snapT -= rawDt;
       if (this.snapT <= 0) { this.snapT = SNAP_INTERVAL; this._sendSnapshot(); }
-    }
-  }
-
-  // fast shots move ~0.4 m per frame, so test the ball's path against each body
-  _sweptBlocks() {
-    const b = this.ball, p0 = this._prevBall, p1 = b.pos;
-    const dx = p1.x - p0.x, dz = p1.z - p0.z, len2 = dx * dx + dz * dz;
-    if (len2 < 0.04) return;
-    for (const a of this.athletes) {
-      if (b.lastTouch === a && this.time - a.lastTouchTime < 0.25) continue;
-      const rr = 0.3 + BALL.r;
-      const fx = p0.x - a.pos.x, fz = p0.z - a.pos.z;
-      const B = fx * dx + fz * dz, C = fx * fx + fz * fz - rr * rr;
-      if (C < 0) continue;
-      const disc = B * B - len2 * C;
-      if (disc < 0) continue;
-      const t = (-B - Math.sqrt(disc)) / len2;
-      if (t < 0 || t > 1) continue;
-      const hy = p0.y + (p1.y - p0.y) * t;
-      if (hy > 1.75) continue;
-      const cx = p0.x + dx * t, cz = p0.z + dz * t;
-      let nx = cx - a.pos.x, nz = cz - a.pos.z; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
-      b.pos.set(cx + nx * 0.01, hy, cz + nz * 0.01);
-      const vn = b.vel.x * nx + b.vel.z * nz;
-      if (vn < 0) { b.vel.x -= 1.45 * vn * nx; b.vel.z -= 1.45 * vn * nz; b.vel.y *= 0.5; }
-      b.spin.multiplyScalar(0.3);
-      b.lastTouch = a; a.lastTouchTime = this.time;
-      this.sfx.kick(Math.min(0.6, -vn / 30));
-      if (this.state === 'play' && -vn > 10) { this.shake = Math.max(this.shake, 0.08); this.sfx.ooh(); }
-      return;
     }
   }
 
@@ -319,6 +311,22 @@ export class Game {
         break;
       }
       case 'goal': if (this.state === 'play') this.goal(e.team); break;
+      case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
+      case 'body': {
+        const a = e.who;
+        if (a.completeReceive(e.part)) break;
+        // an unplanned contact: the ball simply bounced off this player
+        this.ball.lastTouch = a; a.lastTouchTime = this.time;
+        if (e.v > 1.2) {
+          if (e.part === 'head') this.sfx.head(e.v);
+          else if (e.part === 'chest' || e.part === 'hips' || e.part === 'thigh') this.sfx.body(e.v);
+          else this.sfx.touch();
+        }
+        if (e.v > 6) this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.v / 55);
+        if (e.v > 14 && this.state === 'play') this.sfx.ooh();
+        if (e.v > 18 && e.part !== 'foot') a.knock(new THREE.Vector3(-e.n[0], 0, -e.n[2]).normalize(), 3); // a rocket to the body knocks you back
+        break;
+      }
     }
   }
 
@@ -330,6 +338,15 @@ export class Game {
       if (d < min && d > 1e-4) {
         const push = (min - d) / 2, nx = dx / d, nz = dz / d;
         a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push;
+        // closing speed along the line between them
+        const closing = (a.vel.x - b.vel.x) * nx + (a.vel.z - b.vel.z) * nz;
+        if (closing > 6 && !a.slide && !b.slide && this.state === 'play') {
+          // a hard shoulder-to-shoulder: the slower runner is pushed off balance
+          const sa = a.vel.length(), sb = b.vel.length();
+          const loser = sa < sb ? a : b, sgn = loser === a ? -1 : 1;
+          loser.knock(new THREE.Vector3(nx * sgn, 0, nz * sgn), closing * 0.6);
+          this.sfx.bump(closing);
+        }
         a.vel.multiplyScalar(0.96); b.vel.multiplyScalar(0.96);
       }
     }
@@ -406,7 +423,7 @@ export class Game {
 
   _sendSnapshot() {
     const r = (v, k = 100) => Math.round(v * k) / k;
-    const b = this.ball, q = b.mesh.quaternion;
+    const b = this.ball, q = b.spinQ;
     const snap = {
       k: 's', t: r(this.time, 1000), st: this.state, clk: r(this.clock, 10),
       c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label),
@@ -487,7 +504,7 @@ export class Game {
     b.pos.set(L(B0[0], B1[0]), L(B0[1], B1[1]), L(B0[2], B1[2]));
     b.vel.set(B1[3], B1[4], B1[5]);
     const q0 = new THREE.Quaternion(B0[6], B0[7], B0[8], B0[9]), q1 = new THREE.Quaternion(B1[6], B1[7], B1[8], B1[9]);
-    b.mesh.quaternion.slerpQuaternions(q0, q1, u);
+    b.spinQ.slerpQuaternions(q0, q1, u);
     b.spin.set(0, 0, 0);
     b.sync(dt);
     // players
@@ -513,6 +530,7 @@ export class Game {
       a._sync(dt);
     });
     this.pitch.update(dt, (this.time += dt));
+    this.particles.update(dt);
     this.chargeFx.update(dt, this.athletes, this.time);
     this._updateCamera(dt);
     this.ui.updateHud(this);
@@ -525,7 +543,9 @@ export class Game {
       case 'banner': this.ui.banner(e.big, e.small); break;
       case 'bulge': this.pitch.bulgeNet(e.team, new THREE.Vector3().fromArray(e.p), e.v); break;
       case 'cheer': this.pitch.cheer(0, 1); break;
-      case 'shake': this.shake = Math.max(this.shake, e.v); break;
+      case 'shake': break;
+      case 'fx': this.particles.burst({ x: e.p[0], y: e.p[1], z: e.p[2] }, { x: e.d[0], z: e.d[1] }, e.n, e.s, e.k); break;
+      case 'sq': this.ball.squash({ x: e.d[0], y: e.d[1], z: e.d[2] }, e.a); break;
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }

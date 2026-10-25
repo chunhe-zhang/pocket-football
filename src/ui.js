@@ -13,15 +13,17 @@ const HELP = {
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚</span>
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
+    <b>铲球</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲，能把球捅走、把人铲倒</span>
+    <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b style="color:${TEAMS[0].css}">P1 蓝</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>左Shift</kbd> 冲刺</span>
-    <b style="color:${TEAMS[1].css}">P2 橙</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b style="color:${TEAMS[0].css}">P1 蓝</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 铲球 · <kbd>左Shift</kbd> 冲刺</span>
+    <b style="color:${TEAMS[1].css}">P2 橙</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 铲球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b style="color:${TEAMS[2].css}">P3 紫</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · RB 冲刺</span>
+    <b style="color:${TEAMS[2].css}">P3 紫</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 铲球 · RB 冲刺</span>
     <b style="color:${TEAMS[3].css}">P4 粉</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 冲刺</b><span>右侧按钮</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 铲球 / 冲刺</b><span>右侧按钮</span></div>',
 };
 
 export class UI {
@@ -128,7 +130,7 @@ export class UI {
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? '按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>Shift</b> 冲刺　·　守住你的球门！'
+      ? '按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球　·　<b>Shift</b> 冲刺　·　守住你的球门！'
       : 'P1：WASD + F/G　·　P2：方向键 + Enter / /　·　P3/P4：手柄';
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);

@@ -20,7 +20,7 @@ export class AIController {
     this.me = me; this.game = game;
     this.setLevel(level);
     this.think = Math.random() * 0.2;
-    this.plan = { move: new THREE.Vector2(), sprint: false };
+    this.plan = { move: new THREE.Vector2(), sprint: false, tackle: false };
     this.shooting = null;
     this.dodge = 0; this.dodgeSide = 1;
   }
@@ -49,6 +49,7 @@ export class AIController {
     if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); this._decide(); }
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
     it.sprint = this.plan.sprint && this.cfg.sprint;
+    it.tackle = this.plan.tackle; this.plan.tackle = false;
   }
 
   _goTo(x, z, arriveR = 0.6, sprintBeyond = 3) {
@@ -122,6 +123,13 @@ export class AIController {
 
     // nearest to a loose / contested ball: go and win it
     const holder = g.possessor;
+    // slide in on whoever has the ball if they are close and coming my way
+    if (holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
+      const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
+      plan.move.set(tx, tz).normalize();
+      plan.tackle = true;
+      return;
+    }
     if (myDist <= nearestOther + 0.6 || (holder && myDist < 2.2)) {
       const t = clamp(myDist / 5.5, 0, 1.2);
       const pred = ball.predict(t);

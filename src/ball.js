@@ -110,9 +110,18 @@ export class Ball {
     this.events = [];
     this.goalTeam = -1;                    // index of the goal the ball is sitting in
 
+    // root (position) → squash node (deforms along an impact axis) → spinning mesh
+    this.root = new THREE.Group();
+    this.squashNode = new THREE.Group();
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), ballMaterial());
     this.mesh.castShadow = true;
-    scene.add(this.mesh);
+    this.root.add(this.squashNode); this.squashNode.add(this.mesh);
+    scene.add(this.root);
+    this.spinQ = new THREE.Quaternion();
+    this.sq = { axis: new THREE.Vector3(0, 1, 0), amp: 0, t: 1 };
+    this._alignQ = new THREE.Quaternion(); this._invQ = new THREE.Quaternion();
+    this.colliders = [];   // body-part spheres, refreshed by the game each frame
+    this._hit = new Set();
 
     // soft contact shadow that keeps height readable even when the ball is high up
     const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -131,6 +140,7 @@ export class Ball {
   reset(x = 0, z = 0) {
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
     this.lastTouch = null; this.goalTeam = -1;
+    this.sq.amp = 0;
     this.trail.reset(this.pos);
     this.sync();
   }
@@ -144,8 +154,17 @@ export class Ball {
     this.lastTouch = by;
   }
 
+  /** visual squash along an impact direction (any vector), amount ~0..0.25 */
+  squash(n, amount) {
+    const a = Math.min(0.24, amount);
+    if (a < 0.02 || a < this._sqNow() * 0.8) return;
+    this.sq.axis.set(n.x, n.y, n.z).normalize(); this.sq.amp = a; this.sq.t = 0;
+  }
+  _sqNow() { return this.sq.amp * Math.exp(-this.sq.t * 26); }
+
   update(dt) {
     this.events.length = 0;
+    this._hit.clear();
     const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
     const h = dt / steps;
     for (let i = 0; i < steps; i++) this._step(h);
@@ -191,12 +210,40 @@ export class Ball {
         v.z -= contactZ * (1 - BALL.bounceFriction) * 0.9;
         w.x = v.z / R * 0.6 + w.x * 0.4; w.z = -v.x / R * 0.6 + w.z * 0.4;
         if (impact > 1.2) this.events.push({ type: 'bounce', v: impact });
+        if (impact > 3) this.events.push({ type: 'squash', n: [0, 1, 0], a: impact / 45 });
       } else v.y = 0;
     }
 
     this._walls('x', 'z');
     this._walls('z', 'x');
     this._goalFrames();
+    this._bodies();
+  }
+
+  // the ball meets heads, chests, thighs, shins and boots as real spheres
+  _bodies() {
+    const p = this.pos, v = this.vel;
+    for (const c of this.colliders) {
+      const dx = p.x - c.pos.x, dy = p.y - c.pos.y, dz = p.z - c.pos.z;
+      const d = Math.hypot(dx, dy, dz), min = R + c.r;
+      if (d >= min || d < 1e-6) continue;
+      const nx = dx / d, ny = dy / d, nz = dz / d;
+      p.set(c.pos.x + nx * min, Math.max(R, c.pos.y + ny * min), c.pos.z + nz * min);
+      const rvx = v.x - c.vel.x, rvy = v.y - c.vel.y, rvz = v.z - c.vel.z;
+      const vn = rvx * nx + rvy * ny + rvz * nz;
+      if (vn >= 0) continue;
+      const j = -(1 + c.e) * vn;
+      v.x += j * nx; v.y += j * ny; v.z += j * nz;
+      // grip: part of the sliding speed across the surface is lost
+      const tx = rvx - vn * nx, ty = rvy - vn * ny, tz = rvz - vn * nz;
+      v.x -= tx * 0.22; v.y -= ty * 0.22; v.z -= tz * 0.22;
+      this.spin.multiplyScalar(0.5);
+      const key = c.owner.team * 100 + c.idx;
+      if (!this._hit.has(key)) {
+        this._hit.add(key);
+        this.events.push({ type: 'body', who: c.owner, part: c.part, side: c.side, v: -vn, n: [nx, ny, nz] });
+      }
+    }
   }
 
   // the four sides are identical: a board everywhere except a goal mouth in the middle
@@ -219,6 +266,7 @@ export class Ball {
         v[A] = -v[A] * BALL.wallBounce - side * (s > 6 ? BALL.wallKick : 0);
         v[B] *= 0.96;
         if (s > 1.5) this.events.push({ type: 'board', v: s });
+        if (s > 4) this.events.push({ type: 'squash', n: A === 'x' ? [1, 0, 0] : [0, 0, 1], a: s / 50 });
       }
       return;
     }
@@ -275,20 +323,28 @@ export class Ball {
       v.x += j * nx; v.y += j * ny; v.z += j * nz;
       this.spin.multiplyScalar(0.4);
       if (-vn > 1.5) this.events.push({ type: 'post', v: -vn });
+      if (-vn > 4) this.events.push({ type: 'squash', n: [nx, ny, nz], a: -vn / 45 });
     }
   }
 
   sync(dt = 0) {
-    this.mesh.position.copy(this.pos);
+    this.root.position.copy(this.pos);
     if (dt > 0) {
       const w = this.spin.length();
       if (w > 1e-4) {
         this._tmp.copy(this.spin).divideScalar(w);
         this._q.setFromAxisAngle(this._tmp, w * dt);
-        this.mesh.quaternion.premultiply(this._q);
+        this.spinQ.premultiply(this._q);
       }
       this.trail.update(dt, this.pos, this.speed);
+      this.sq.t += dt;
     }
+    // squash: flatten along the impact axis, bulge around it, with a quick wobble back
+    const a = this.sq.amp * Math.exp(-this.sq.t * 26) * Math.cos(this.sq.t * 60);
+    this._alignQ.setFromUnitVectors(UP, this.sq.axis);
+    this.squashNode.quaternion.copy(this._alignQ);
+    this.squashNode.scale.set(1 + a * 0.5, 1 - a, 1 + a * 0.5);
+    this.mesh.quaternion.copy(this._invQ.copy(this._alignQ).invert()).multiply(this.spinQ);
     const hgt = this.pos.y - R;
     const s = R * 3.1 + hgt * 0.25;
     this.blob.position.set(this.pos.x, 0.012, this.pos.z);

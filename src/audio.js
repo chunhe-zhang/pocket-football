@@ -76,6 +76,37 @@ export class Sfx {
     this._noiseBurst(t, { freq: 900, q: 1, peak: 0.06, d: 0.04 });
   }
 
+  /** ball off the head: a quick, higher knock */
+  head(v = 8) {
+    if (!this.ok) return;
+    const k = Math.min(1, v / 14), t = this.ctx.currentTime;
+    this._thump(t, { f0: 260, f1: 120, peak: 0.25 + 0.3 * k, d: 0.07 });
+    this._noiseBurst(t, { freq: 1300, q: 1.2, peak: 0.1 + 0.15 * k, d: 0.04 });
+  }
+
+  /** ball off the chest / thigh: soft and muffled */
+  body(v = 6) {
+    if (!this.ok) return;
+    const k = Math.min(1, v / 14), t = this.ctx.currentTime;
+    this._thump(t, { f0: 95, f1: 50, peak: 0.25 + 0.35 * k, d: 0.12 });
+    this._noiseBurst(t, { freq: 380, q: 0.8, type: 'lowpass', peak: 0.1 + 0.15 * k, d: 0.08 });
+  }
+
+  /** sliding on grass */
+  slide() {
+    if (!this.ok) return;
+    const t = this.ctx.currentTime;
+    this._noiseBurst(t, { freq: 2400, q: 0.4, peak: 0.16, a: 0.03, d: 0.45, rate: 0.6 });
+    this._noiseBurst(t, { freq: 600, q: 0.6, type: 'lowpass', peak: 0.12, a: 0.02, d: 0.35 });
+  }
+
+  /** bodies colliding */
+  bump(v = 5) {
+    if (!this.ok) return;
+    const k = Math.min(1, v / 8), t = this.ctx.currentTime;
+    this._thump(t, { f0: 80, f1: 45, peak: 0.25 + 0.3 * k, d: 0.15, type: 'triangle' });
+  }
+
   bounce(v) {
     if (!this.ok) return;
     const k = Math.min(1, v / 10);
