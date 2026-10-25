@@ -183,3 +183,4 @@ button { font-family: var(--font); cursor: pointer; }
 #tags .tag-el.perfect .perf { display: block; animation: perfpop 0.7s ease-out; }
 @keyframes perfpop { from { transform: scale(1.6); opacity: 0; } 20% { transform: scale(1); opacity: 1; } to { transform: translateY(-8px); opacity: 0.2; } }
 @media (prefers-reduced-motion: reduce) { #tags .tag-el.perfect .perf { animation: none; } }
+#scoreboard .chip.shielded::after { content: "🛡"; font-size: 15px; margin-left: 2px; filter: drop-shadow(0 0 3px var(--c)); }

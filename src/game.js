@@ -220,6 +220,10 @@ export class Game {
     this.state = 'kickoff';
     this.timer = MATCH.kickoffDelay;
     this.ball.reset(0, 0);
+    // every kickoff, each goal still in play is shielded again
+    this.ball.shields = new Set(FIELD.shields ? GOALS.map((g) => g.team).filter((t) => this.alive[t]) : []);
+    this.shieldBroken = {};
+    this.pitch.setShields(this.ball.shields);
     this.possessor = null;
     this.placeAll();
     for (const x of this.athletes) { x.frozen = true; x.char.stopEmotes(); }
@@ -353,6 +357,19 @@ export class Game {
       this.clock += dt;
       // how long the ball has been sitting dead (used by the CPUs to unstick play)
       this.idleT = this.ball.speed < 0.15 && !this.possessor ? (this.idleT || 0) + dt : 0;
+      // a broken shield grows back if nobody scores on that goal in time
+      if (FIELD.shields && this.shieldBroken) {
+        for (const g of GOALS) {
+          const t = g.team, at = this.shieldBroken[t];
+          if (at === undefined || this.ball.shields.has(t) || !this.alive[t]) continue;
+          const dLine = g.line - g.sign * (g.axis === 'x' ? this.ball.pos.x : this.ball.pos.z);
+          if (this.time - at > 12 && dLine > 1) {
+            this.ball.shields.add(t); this.pitch.setShields(this.ball.shields);
+            this.sfx.post(4);
+            delete this.shieldBroken[t];
+          }
+        }
+      }
     } else if (this.state === 'goal') {
       this.timer -= rawDt;
       if (this.timer <= 0) {
@@ -411,6 +428,19 @@ export class Game {
       }
       case 'goal': if (this.state === 'play') this.goal(e.team); break;
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
+      case 'shield':
+        (this.shieldBroken || (this.shieldBroken = {}))[e.team] = this.time;
+        this.sfx.post(14); this.sfx.board(16); this.sfx.ooh();
+        this.shake = Math.max(this.shake, 0.12);
+        this.pitch.breakShield(e.team);
+        this.emit({ e: 'shield', t: e.team });
+        for (let k = -2; k <= 2; k++) {
+          const g = GOALS[e.team], A = g.axis;
+          const p = { x: e.x, y: e.y, z: e.z }; if (A === 'x') p.z += k * 0.6; else p.x += k * 0.6;
+          this.fx('spark', p, { x: g.inward.x, z: g.inward.z }, 6, 4);
+        }
+        this.banner('护盾碎了！', `${this.athletes[e.team].label} 的球门现在没有保护`);
+        break;
       case 'bumper': this.sfx.post(Math.min(14, e.v + 4)); this.pitch.pulse('bumper', e.x, e.z); this.emit({ e: 'pulse', k: 'bumper', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.05); break;
       case 'spring': this.sfx.bounce(6); this.sfx.kick(0.15); this.pitch.pulse('spring', e.x, e.z); this.emit({ e: 'pulse', k: 'spring', x: e.x, z: e.z }); break;
       case 'portal':
@@ -567,7 +597,7 @@ export class Game {
     const b = this.ball, q = b.spinQ;
     const snap = {
       k: 's', t: r(this.time, 1000), st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
-      c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label),
+      c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label), sh: [...this.ball.shields],
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
       a: this.athletes.map((a) => [
         r(a.pos.x, 1000), r(a.pos.z, 1000), r(a.vel.x), r(a.vel.z), r(a.facing, 1000),
@@ -649,6 +679,7 @@ export class Game {
       if (changed) this.ui.onScore(this);
     }
     if (s1.lb) s1.lb.forEach((n, i) => { this.athletes[i].label = n; });
+    if (s1.sh) { const key = s1.sh.join(','); if (key !== this._shKey) { this._shKey = key; const set = new Set(s1.sh); for (const t of this.ball.shields) if (!set.has(t)) this.pitch.breakShield(t); this.ball.shields = set; this.pitch.setShields(set, true); } }
     // events whose time has come
     const due = [];
     this.pendingEvents = this.pendingEvents.filter((e) => (e.t <= renderT ? (due.push(e), false) : true));
@@ -708,6 +739,7 @@ export class Game {
       case 'sq': this.ball.squash({ x: e.d[0], y: e.d[1], z: e.d[2] }, e.a); break;
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
+      case 'shield': this.pitch.breakShield(e.t); break;
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }

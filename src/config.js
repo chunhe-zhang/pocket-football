@@ -109,7 +109,7 @@ export const MAPS = {
   // Kick it hard and see where it ends up.
   track: {
     name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
-    lives: 3, kickoff: 3, follow: false, square: true,
+    lives: 3, kickoff: 3, follow: false, square: true, shields: true,   // goals start behind a barrier that has to be broken first
     islands: [],
     bumpers: [...rot4({ x: 2.8, z: 6.8, r: 0.6, sq: true }), ...rot4({ x: 0, z: 4.7, r: 0.55, sq: true })],   // jelly blocks
     pads: [],
@@ -167,7 +167,7 @@ export function setMap(name) {
   FIELD.vortices = m.vortices.map((c) => ({ ...c }));
   FIELD.wheels = m.wheels.map((c) => ({ ...c }));
   FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
-  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square;
+  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields;
   GOALS.length = 0; TEAMS.forEach((_, i) => GOALS.push(goalInfo(i)));
   OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true, sq: !!b.sq });
   _nav = null;

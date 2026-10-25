@@ -108,7 +108,7 @@ export class UI {
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
     for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
-      ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。大脚一踢，球自己会找到某个门。每人 3 条命。'
+      ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
@@ -242,6 +242,7 @@ export class UI {
       t.el.classList.toggle('me', type === 'self' || (type === 'human' && g.role !== 'guest'));
     });
     this._drawMinimap(g);
+    g.athletes.forEach((a, i) => { const c = $(`#chip${i}`); if (c) c.classList.toggle('shielded', !!g.ball.shields?.has(i)); });
     const ni = $('#netinfo');
     if (this.net && g.role !== 'local') ni.textContent = `房间 ${this.net.code} · 延迟 ${Math.round(this.net.rtt)} ms`;
     else ni.textContent = '';

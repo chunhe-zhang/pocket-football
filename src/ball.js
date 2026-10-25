@@ -110,6 +110,7 @@ export class Ball {
     this.events = [];
     this.goalTeam = -1;                    // index of the goal the ball is sitting in
     this.closedGoals = new Set();          // goals of knocked-out players are boarded up
+    this.shields = new Set();              // goals behind an energy barrier: the first hit breaks it, bouncing the ball away
 
     // root (position) → squash node (deforms along an impact axis) → spinning mesh
     this.root = new THREE.Group();
@@ -282,7 +283,8 @@ export class Ball {
       const g = goalIndexFor(A, side);
       if (g !== this.goalTeam && Math.abs(p[A]) > H) return;
     }
-    const mouth = Math.abs(p[B]) < FIELD.goalHalfW - R * 0.2 && p.y < FIELD.goalH - R * 0.2 && !this.closedGoals.has(goalIndexFor(A, side));
+    const gi = goalIndexFor(A, side);
+    const mouth = Math.abs(p[B]) < FIELD.goalHalfW - R * 0.2 && p.y < FIELD.goalH - R * 0.2 && !this.closedGoals.has(gi) && !this.shields.has(gi);
     const inside = Math.abs(p[A]) > H;
     if (!inside && !mouth) {
       // never let a ball that is inside the other axis' goal be bounced by this wall
@@ -290,6 +292,14 @@ export class Ball {
       p[A] = side * (H - R);
       if (v[A] * side > 0) {
         const s = Math.abs(v[A]);
+        // the goal's barrier: the hit shatters it and the ball is flung back out
+        if (this.shields.has(gi) && Math.abs(p[B]) < FIELD.goalHalfW && p.y < FIELD.goalH && s > 0.8) {
+          this.shields.delete(gi);
+          v[A] = -side * (s * 0.95 + 3); v[B] *= 0.9; v.y = Math.max(v.y, 1.5);
+          this.events.push({ type: 'shield', team: gi, v: s, x: p.x, y: p.y, z: p.z });
+          this.events.push({ type: 'squash', n: A === 'x' ? [1, 0, 0] : [0, 0, 1], a: 0.2 });
+          return;
+        }
         v[A] = -v[A] * BALL.wallBounce - side * (s > 6 ? BALL.wallKick : 0);
         v[B] *= 0.96;
         if (s > 1.5) this.events.push({ type: 'board', v: s });

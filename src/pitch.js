@@ -181,6 +181,7 @@ export class Pitch {
     this.scene.add(this.root);
     this.goalNets = {}; this.seals = {}; this.pulses = []; this.padMats = []; this.bumperMeshes = []; this.springMeshes = [];
     this.devices = [];   // portals / boosts / vortices / wheels: { kind, x, z, spin, k, ... }
+    this.shields = {};   // team -> { mesh, mat, k, target, flash }
     const { tex, sx, sz } = grassTexture();
     const pitch = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, alphaTest: 0.5 }));
     pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true; this.root.add(pitch);
@@ -193,6 +194,7 @@ export class Pitch {
     this._buildPads();
     this._buildSprings();
     this._buildDevices();
+    this._buildShields();
     this._buildFlowers();
     this._buildTrees();
     if (!this.petals) this._buildPetals();
@@ -721,6 +723,55 @@ export class Pitch {
     }
   }
 
+  /** energy barriers across the goal mouths (方块乐园): a shimmering hex wall in the owner's colour */
+  _buildShields() {
+    if (!FIELD.shields) return;
+    for (const g of GOALS) {
+      const W = 2 * FIELD.goalHalfW, Hh = FIELD.goalH;
+      const mat = new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        uniforms: { uColor: { value: new THREE.Color(TEAMS[g.team].color) }, uTime: { value: 0 }, uK: { value: 0 }, uFlash: { value: 0 }, uSize: { value: new THREE.Vector2(W, Hh) } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uK; uniform float uFlash; uniform vec2 uSize; varying vec2 vUv;
+          float hexLine(vec2 p) {
+            p *= vec2(1.0, 1.1547);
+            vec2 a = mod(p, vec2(1.0, 1.732)) - vec2(0.5, 0.866);
+            vec2 b = mod(p - vec2(0.5, 0.866), vec2(1.0, 1.732)) - vec2(0.5, 0.866);
+            vec2 h = dot(a, a) < dot(b, b) ? a : b;
+            h = abs(h);
+            float d = max(dot(h, vec2(0.5, 0.866)), h.x);
+            return smoothstep(0.42, 0.5, d);
+          }
+          void main(){
+            vec2 p = vUv * uSize * 2.2;
+            float line = hexLine(p);
+            float wave = 0.5 + 0.5 * sin(p.x * 0.8 - uTime * 3.0 + p.y);
+            float edge = smoothstep(0.86, 1.0, vUv.y) + smoothstep(0.08, 0.0, vUv.y) * 0.6;
+            vec3 col = mix(uColor, vec3(1.0), 0.45 * line + uFlash);
+            float a = (0.2 + 0.6 * line * (0.55 + 0.45 * wave) + 0.5 * edge) * uK + uFlash * 0.9;
+            gl_FragColor = vec4(col, min(a, 0.95));
+          }`,
+      });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, Hh), mat);
+      mesh.position.set(g.centre.x + g.inward.x * 0.03, Hh / 2, g.centre.z + g.inward.z * 0.03);
+      mesh.rotation.y = g.axis === 'x' ? Math.PI / 2 : 0;
+      mesh.renderOrder = 3;
+      this.root.add(mesh);
+      this.shields[g.team] = { mesh, mat, k: 0, target: 0, flash: 0 };
+    }
+  }
+
+  /** which goals are shielded (fades the walls in / out) */
+  setShields(set, quiet = false) {
+    for (const [t, s] of Object.entries(this.shields)) { s.target = set.has(+t) ? 1 : 0; if (quiet && !s.target) s.k = Math.min(s.k, 0.3); }
+  }
+
+  /** a shield shatters: white flash, then it's gone */
+  breakShield(team) {
+    const s = this.shields[team]; if (!s) return;
+    s.target = 0; s.flash = 1;
+  }
+
   /** a bumper or bounce pad reacting to the ball */
   pulse(kind, x, z) {
     if (kind === 'portal' || kind === 'boost' || kind === 'vortex' || kind === 'wheel') {
@@ -738,6 +789,13 @@ export class Pitch {
   update(dt, t) {
     this.time = t;
     for (const tex of this.padMats || []) tex.offset.y -= dt * 1.6;
+    for (const s of Object.values(this.shields || {})) {
+      s.k += (s.target - s.k) * Math.min(1, dt * (s.target ? 3 : 6));
+      s.flash = Math.max(0, s.flash - dt * 2.5);
+      s.mat.uniforms.uK.value = s.k; s.mat.uniforms.uFlash.value = s.flash; s.mat.uniforms.uTime.value = t;
+      s.mesh.visible = s.k > 0.01 || s.flash > 0.01;
+      if (s.flash > 0) s.mesh.scale.set(1, 1 + s.flash * 0.08, 1); else s.mesh.scale.set(1, 1, 1);
+    }
     for (const d of this.devices || []) {
       if (d.spinner) d.spinner.rotation.z += dt * d.rate * (1 + d.k * 4);
       if (d.k > 0) {
