@@ -1,23 +1,33 @@
 // Scripted "simple human": waits for passes, dribbles towards the best goal, shoots inside 9 m.
-window.__humanRun = (secs = 240) => {
+window.__humanRun = (secs = 240, passMode = false) => {
   const g = window.__game, me = g.athletes.find((a, i) => g.controllers[i].type === 'human') || g.athletes[0];
-  const c = { pass: 0, recv: 0, shots: 0, goals: [], tr: [] };
+  const c = { pass: 0, recv: 0, shots: 0, goals: [], tr: [], myPass: 0, myPassHit: 0, whiff: 0, kicks: 0 };
   g.input.intent = (scheme, out) => out;   // the script drives the human's intent directly
   for (const a of g.athletes) {
     const oc = a._contact.bind(a);
     a._contact = (ft) => { const t = a.kick && a.kick.type; oc(ft); if (t === 'pass' && a.kick && a.kick.hit) c.pass++; };
   }
+  const ok = g.onKick.bind(g), ow = g.onWhiff.bind(g);
+  g.onKick = (a, k, v) => { if (a === me) { c.kicks++; if (k.type === 'pass') c.myPassHit++; } ok(a, k, v); };
+  g.onWhiff = (a) => { if (a === me) { c.whiff++; c.wlog = c.wlog || []; c.wlog.push(c._rel); } ow(a); };
+  const orel = me._release.bind(me);
+  me._release = () => { const b = g.ball; c._rel = { d: +Math.hypot(b.pos.x - me.pos.x, b.pos.z - me.pos.z).toFixed(2), y: +b.pos.y.toFixed(2), bv: +b.speed.toFixed(1), mv: +me.vel.length().toFixed(1), type: me.chargeType }; orel(); c._rel.appr = !!(me.kick && me.kick.approach); };
+  let passHold = 0;
   const og = g.goal.bind(g);
   g.goal = (t) => { c.goals.push([g.time.toFixed(0), 'in' + t, 'by' + (g.ball.lastTouch ? g.ball.lastTouch.team : -1)]); og(t); };
   let hold = 0, had = false;
   for (let s = 0; s < 60 * secs && !g.endShown; s++) {
     const it = me.intent;
-    it.kick = false; it.tackle = false; it.sprint = false;
+    it.kick = false; it.tackle = false; it.sprint = false; it.pass = false;
     if (!me.out) {
       const mine = g.possessor === me;
       if (mine && !had) c.recv++;
       had = mine;
-      if (mine || hold > 0) {
+      if (passMode && (passHold > 0 || (mine && hold === 0 && me.mate && Math.random() < 0.02))) {
+        if (passHold === 0) { passHold = 1 + Math.floor(Math.random() * 45); c.myPass++; }
+        it.pass = passHold > 1; passHold--;
+        if (!it.pass) passHold = 0;
+      } else if (mine || hold > 0) {
         const t = me.goalTarget();
         const dx = t.x - me.pos.x, dz = t.z - me.pos.z, d = Math.hypot(dx, dz);
         it.move.set(dx / d, dz / d);

@@ -168,12 +168,13 @@ export class Ball {
     this._hit.clear();
     const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
     const h = dt / steps;
-    for (let i = 0; i < steps; i++) this._step(h);
+    for (let i = 0; i < steps; i++) this._step(h, (i + 1) / steps);
     this.sync(dt);
     return this.events;
   }
 
-  _step(h) {
+  /** @param u how far through the frame this substep ends (bodies are swept from their last pose) */
+  _step(h, u = 1) {
     const p = this.pos, v = this.vel, w = this.spin;
     const grounded = p.y <= R + 0.002 && Math.abs(v.y) < 0.35;
     if (!grounded) {
@@ -220,19 +221,31 @@ export class Ball {
     this._corners();
     this._obstacles();
     this._goalFrames();
-    this._bodies();
+    this._bodies(u);
   }
 
   // the ball meets heads, chests, thighs, shins and boots as real spheres
-  _bodies() {
-    const p = this.pos, v = this.vel;
+  // limbs are capsules (pos → b); everything moves from its previous pose to the
+  // current one over the frame, so a fast-swinging leg can't skip past the ball
+  _bodies(u = 1) {
+    const p = this.pos, v = this.vel, A = this._ca || (this._ca = new THREE.Vector3()), B = this._cb || (this._cb = new THREE.Vector3());
+    const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
-      const dx = p.x - c.pos.x, dy = p.y - c.pos.y, dz = p.z - c.pos.z;
+      A.copy(c.prev).lerp(c.pos, u);
+      let s = 0;
+      if (c.b) {
+        B.copy(c.prevB).lerp(c.b, u);
+        const ex = B.x - A.x, ey = B.y - A.y, ez = B.z - A.z, L2 = ex * ex + ey * ey + ez * ez;
+        s = L2 > 1e-8 ? Math.max(0, Math.min(1, ((p.x - A.x) * ex + (p.y - A.y) * ey + (p.z - A.z) * ez) / L2)) : 0;
+        Q.set(A.x + ex * s, A.y + ey * s, A.z + ez * s);
+        CV.copy(c.vel).lerp(c.velB, s);
+      } else { Q.copy(A); CV.copy(c.vel); }
+      const dx = p.x - Q.x, dy = p.y - Q.y, dz = p.z - Q.z;
       const d = Math.hypot(dx, dy, dz), min = R + c.r;
       if (d >= min || d < 1e-6) continue;
       const nx = dx / d, ny = dy / d, nz = dz / d;
-      p.set(c.pos.x + nx * min, Math.max(R, c.pos.y + ny * min), c.pos.z + nz * min);
-      const rvx = v.x - c.vel.x, rvy = v.y - c.vel.y, rvz = v.z - c.vel.z;
+      p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
+      const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
       const vn = rvx * nx + rvy * ny + rvz * nz;
       if (vn >= 0) continue;
       const j = -(1 + c.e) * vn;

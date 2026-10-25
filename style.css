@@ -168,3 +168,7 @@ button { font-family: var(--font); cursor: pointer; }
 #tags .tag-el.side .lbl { box-shadow: 0 0 0 2px var(--sc); }
 #tags .tag-el.side.me .lbl { box-shadow: 0 0 0 2px var(--sc), 0 0 0 4px #fff; }
 #lobby-slots li em .side-badge { color: var(--sc); }
+/* pass charge: cool colours, soft → driven */
+#tags .meter.pass i { background: linear-gradient(90deg, #8af0a6 0, #4fd8ff 60px, #3d7dff 110px); background-size: 110px 100%; }
+#tags .meter.pass.full { animation-name: meterpulsepass; }
+@keyframes meterpulsepass { from { border-color: #fff; } to { border-color: #4fd8ff; box-shadow: 0 0 12px rgba(79, 216, 255, 0.9); } }

@@ -277,7 +277,7 @@ export class Game {
 
   // ------------------------------------------------------------ callbacks --
   onKick(ath, k, vel) {
-    if (k.type === 'pass') { this.sfx.kick(0.25); return; }
+    if (k.type === 'pass') { this.sfx.kick(0.2 + 0.35 * k.power); return; }
     const p = k.power;
     this.sfx.kick(p);
     if (p > 0.55 && k.type === 'kick') {
@@ -426,7 +426,13 @@ export class Game {
           loser.knock(new THREE.Vector3(nx * sgn, 0, nz * sgn), closing * 0.6);
           this.sfx.bump(closing);
         }
-        a.vel.multiplyScalar(0.96); b.vel.multiplyScalar(0.96);
+        // inelastic contact: whatever closing speed is left is shared out, so players lean
+        // into and slide round each other instead of overlapping and jittering apart
+        else if (closing > 0 && !a.slide && !b.slide && !a.dive && !b.dive) {
+          const j = closing * 0.5;
+          a.vel.x -= nx * j; a.vel.z -= nz * j; b.vel.x += nx * j; b.vel.z += nz * j;
+        }
+        a.vel.multiplyScalar(0.985); b.vel.multiplyScalar(0.985);
       }
     }
   }
@@ -512,10 +518,11 @@ export class Game {
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
       a: this.athletes.map((a) => [
         r(a.pos.x, 1000), r(a.pos.z, 1000), r(a.vel.x), r(a.vel.z), r(a.facing, 1000),
-        a.charging ? r(a.charge) : -1, r(a.stamina), a.exhausted ? 1 : 0,
-        a.kick ? [r(a.kick.t, 1000), r(a.kick.dur, 1000), r(a.kick.aim.x, 1000), r(a.kick.aim.z, 1000), a.kick.hit ? 1 : 0, a.kick.approach ? 1 : 0, a.kick.type === 'chip' ? 1 : 0] : 0,
+        a.charging ? r(a.charge) : a.armed ? r(a.armed.power) : -1, r(a.stamina), a.exhausted ? 1 : 0,
+        a.kick ? [r(a.kick.t, 1000), r(a.kick.dur, 1000), r(a.kick.aim.x, 1000), r(a.kick.aim.z, 1000), a.kick.hit ? 1 : 0, a.kick.approach ? 1 : 0, a.kick.type === 'chip' ? 1 : a.kick.type === 'pass' ? 2 : 0] : 0,
         a.touch ? [r(a.touch.t, 1000), r(a.touch.dur, 1000), a.touch.side === 'Left' ? 1 : 0] : 0,
         r(a.trapT, 1000), r(a.holdW), r(a.turnRate),
+        (a.armed ? a.armed.type : a.chargeType) === 'pass' ? 2 : (a.armed ? a.armed.type : a.chargeType) === 'chip' ? 1 : 0,
       ]),
       ev: this.events,
     };
@@ -608,11 +615,13 @@ export class Game {
       let df = A1[4] - A0[4]; while (df > Math.PI) df -= Math.PI * 2; while (df < -Math.PI) df += Math.PI * 2;
       a.facing = A0[4] + df * u;
       a.charging = A1[5] >= 0; a.charge = Math.max(0, A1[5]);
+      a.chargeType = A1[13] === 2 ? 'pass' : A1[13] === 1 ? 'chip' : 'kick';
+      a.char.windup = a.charging ? a.charge : 0;
       a.stamina = A1[6]; a.exhausted = !!A1[7];
       const K = A1[8];
       if (K) {
         if (!a.kick) a.kick = { aim: new THREE.Vector3(), resolved: true };
-        Object.assign(a.kick, { t: K[0], dur: K[1], contactT: K[1] * 0.33, hit: !!K[4], approach: K[5] ? true : null, type: K[6] ? 'chip' : 'kick' });
+        Object.assign(a.kick, { t: K[0], dur: K[1], contactT: K[1] * 0.33, hit: !!K[4], approach: K[5] ? true : null, type: K[6] === 1 ? 'chip' : K[6] === 2 ? 'pass' : 'kick' });
         a.kick.aim.set(K[2], 0, K[3]);
       } else a.kick = null;
       const T = A1[9];

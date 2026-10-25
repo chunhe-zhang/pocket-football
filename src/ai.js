@@ -41,14 +41,14 @@ export class AIController {
       const s = this.shooting;
       s.hold -= dt;
       const bd = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z);
-      if (me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; this.shooting = null; it.kick = it.lob = false; return; }
+      if (me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.passTo = null; this.shooting = null; it.kick = it.lob = it.pass = false; return; }
       it.move.copy(s.aim);
-      it.kick = !s.lob && s.hold > 0; it.lob = s.lob && s.hold > 0; it.sprint = false;
+      it.kick = !s.lob && !s.pass && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = !!s.pass && s.hold > 0; it.sprint = false;
       if (s.hold <= 0 && !me.charging) this.shooting = null;
       return;
     }
-    if (me.passTo) { it.kick = false; me.passTo = null; }
-    it.kick = false; it.lob = false;
+    if (me.passTo && !me.charging) me.passTo = null;
+    it.kick = false; it.lob = false; it.pass = false;
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
     // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
     if (this._keeper()) return;
@@ -151,7 +151,7 @@ export class AIController {
           const d = Math.hypot(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z);
           if (d > 2) {
             me.passTo = rcv;
-            this.shooting = { hold: 0.06, aim: new THREE.Vector2(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z).normalize(), lob: false };
+            this._passTo(rcv, 0.08 + Math.random() * 0.15);
             return;
           }
           // too close for a pass: just step away from them with the ball first
@@ -303,7 +303,11 @@ export class AIController {
     if (gd < this.cfg.shootRange * 0.6) want *= 0.3;                       // in range myself: just shoot
     if (Math.random() >= want) return false;
     me.passTo = mate;
-    this.shooting = { hold: 0.06, aim: new THREE.Vector2(mate.pos.x - me.pos.x, mate.pos.z - me.pos.z).normalize(), lob: false };
+    // a mate running into space towards goal gets the ball played ahead of them
+    const mv = Math.hypot(mate.vel.x, mate.vel.z);
+    const runIn = mv > 3 && ((mt.x - mate.pos.x) * mate.vel.x + (mt.z - mate.pos.z) * mate.vel.z) / (mv * (mateGd || 1)) > 0.5;
+    const power = runIn && Math.random() < 0.3 + 0.5 * this.cfg.skill ? 0.45 + Math.random() * 0.3 : 0.05 + Math.random() * 0.2 + (d > 10 ? 0.1 : 0);
+    this._passTo(mate, power);
     this.passCD = 1.2;
     return true;
   }
@@ -320,6 +324,12 @@ export class AIController {
     let z = holder.pos.z + (gz / gl) * ahead + (gx / gl) * side * 3.2;
     x = clamp(x, -H + 1.2, H - 1.2); z = clamp(z, -H + 1.2, H - 1.2);
     this._goTo(x, z, 0.8, 3);
+  }
+
+  /** charge a pass to `rcv` up to `power` (0..1), then let go */
+  _passTo(rcv, power) {
+    const me = this.me;
+    this.shooting = { hold: 0.04 + power * 0.7, aim: new THREE.Vector2(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z).normalize(), pass: true };
   }
 
   _shoot(tgt, gd, lob) {

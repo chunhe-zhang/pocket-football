@@ -85,11 +85,34 @@ const CHIP = (c) => ({
   drop:   [[0, 0], [0.2, -0.05], [c, -0.09], [0.75, -0.03], [1, 0]],
 });
 
+// side-foot pass: short backswing, leg turned out so the inside of the boot faces the target,
+// body over the ball, a compact follow-through towards the receiver
+const PASS = (c) => ({
+  thigh:   [[0, 0], [0.22, -0.4], [c - 0.06, -0.06], [c, 0.3], [c + 0.14, 0.62], [0.74, 0.2], [1, 0]],
+  knee:    [[0, 0], [0.22, 0.85], [c - 0.06, 0.55], [c, 0.18], [c + 0.14, 0.14], [0.74, 0.25], [1, 0]],
+  legOut:  [[0, 0], [0.22, 0.24], [c, 0.3], [c + 0.14, 0.2], [0.74, 0.06], [1, 0]],
+  footTurn:[[0, 0], [0.22, 0.85], [c, 1.05], [c + 0.14, 0.9], [0.74, 0.3], [1, 0]],
+  foot:    [[0, 0], [c, -0.12], [1, 0]],
+  supKnee: [[0, 0], [0.22, 0.3], [c, 0.36], [0.74, 0.12], [1, 0]],
+  supThigh:[[0, 0], [0.22, 0.12], [c, 0.17], [0.74, 0.05], [1, 0]],
+  lean:    [[0, 0], [0.22, 0.12], [c, 0.1], [c + 0.14, 0.03], [1, 0]],
+  twist:   [[0, 0], [0.22, -0.2], [c, 0.05], [c + 0.14, 0.16], [1, 0]],
+  armOutL: [[0, 0], [0.22, 0.45], [c, 0.62], [0.74, 0.25], [1, 0]],
+  armOutR: [[0, 0], [0.22, 0.22], [c, 0.32], [1, 0]],
+  drop:    [[0, 0], [c, -0.05], [1, 0]],
+  headUp:  [[0, 0], [c, -0.22], [1, 0]],
+});
+
 const TOUCH = {
   thigh: [[0, 0], [0.35, 0.42], [0.6, 0.3], [1, 0]],
   knee:  [[0, 0], [0.25, 0.55], [0.45, 0.3], [1, 0]],
   foot:  [[0, 0], [0.4, -0.25], [1, 0]],
+  supKnee:[[0, 0], [0.5, 0.18], [1, 0]],          // sit into the standing leg to reach the ball
+  lean:  [[0, 0], [0.5, 0.08], [1, 0]],
+  drop:  [[0, 0], [0.5, -0.025], [1, 0]],
+  headUp:[[0, 0], [0.5, -0.12], [1, 0]],          // eyes on the ball for the touch
   armOutL:[[0, 0], [0.4, 0.25], [1, 0]],
+  armOutR:[[0, 0], [0.4, 0.12], [1, 0]],
 };
 
 const TRAP = {
@@ -247,6 +270,8 @@ export class Character {
     }
 
     this.phase = 0; this.speed = 0;
+    this.windup = 0; this._wu = 0;      // charging a shot / pass: 0..1
+    this.accel = 0; this._prevSpeed = 0; this._lean = 0;
     this.gestures = [];
     this.look = { yaw: 0, pitch: 0 };
     this.lookTarget = null;
@@ -321,8 +346,9 @@ export class Character {
     let g;
     switch (name) {
       case 'kick': g = new Gesture('kick', opts.duration ?? ANIM.kickDuration, KICK(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
+      case 'pass': g = new Gesture('pass', opts.duration ?? ANIM.kickDuration, PASS(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
       case 'chip': g = new Gesture('chip', opts.duration ?? ANIM.kickDuration, CHIP(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
-      case 'touch': g = new Gesture('touch', ANIM.touchDuration, TOUCH, { fadeIn: 0.04, fadeOut: 0.08, ...opts }); break;
+      case 'touch': g = new Gesture('touch', opts.duration ?? ANIM.touchDuration, TOUCH, { fadeIn: 0.04, fadeOut: 0.08, ...opts }); break;
       case 'trap': g = new Gesture('trap', 0.42, TRAP, { fadeIn: 0.05, fadeOut: 0.15, ...opts }); break;
       case 'celebrate': g = new Gesture('celebrate', 0.9, CELEBRATE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
       case 'deject': g = new Gesture('deject', 3, DEJECT, { loop: true, fadeIn: 0.6, fadeOut: 0.4, ...opts }); break;
@@ -334,7 +360,7 @@ export class Character {
       case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
+    const LEG = ['kick', 'chip', 'pass', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);
@@ -353,7 +379,7 @@ export class Character {
 
   emote(name, w = 1) { if (name in this.emoteTargets) this.emoteTargets[name] = w; }
 
-  get busyLeg() { return this.gestures.some((g) => (g.name === 'kick' || g.name === 'chip') && !g.done); }
+  get busyLeg() { return this.gestures.some((g) => (g.name === 'kick' || g.name === 'chip' || g.name === 'pass') && !g.done); }
 
   footPos(side = 'R', out = new THREE.Vector3()) {
     return (side === 'R' ? this.bones.toeR : this.bones.toeL).getWorldPosition(out);
@@ -369,19 +395,24 @@ export class Character {
   bodySpheres(out = []) {
     const b = this.bones;
     if (!this._sph) {
-      const mk = (part, side, r) => ({ part, side, r, pos: new THREE.Vector3() });
+      const mk = (part, side, r) => ({ part, side, r, pos: new THREE.Vector3(), b: null });
       this._sph = [mk('head', 0, 0.12), mk('chest', 0, 0.15), mk('hips', 0, 0.15),
         mk('thigh', 'R', 0.085), mk('thigh', 'L', 0.085), mk('shin', 'R', 0.065), mk('shin', 'L', 0.065),
         mk('foot', 'R', 0.065), mk('foot', 'L', 0.065), mk('hand', 'R', 0.11), mk('hand', 'L', 0.11)];
+      // limbs are capsules: pos = one end, b = the other end
+      for (const i of [3, 4, 5, 6, 7, 8]) this._sph[i].b = new THREE.Vector3();
+      this._sph[3].r = this._sph[4].r = 0.08; this._sph[5].r = this._sph[6].r = 0.06; this._sph[7].r = this._sph[8].r = 0.055;
     }
     const s = this._sph, t = _a, u = _b;
     b.head.getWorldPosition(s[0].pos); s[0].pos.y += 0.08;
     (b.spine2 || b.spine1).getWorldPosition(s[1].pos);
     b.hips.getWorldPosition(s[2].pos);
-    const mid = (A, B, o, k = 0.5) => { A.getWorldPosition(t); B.getWorldPosition(u); o.copy(t).lerp(u, k); };
-    mid(b.upLegR, b.legR, s[3].pos); mid(b.upLegL, b.legL, s[4].pos);
-    mid(b.legR, b.footR, s[5].pos, 0.55); mid(b.legL, b.footL, s[6].pos, 0.55);
-    mid(b.footR, b.toeR, s[7].pos, 0.6); mid(b.footL, b.toeL, s[8].pos, 0.6);
+    // segment between two bones, pulled in a little at the joints so neighbours overlap cleanly
+    const seg = (A, B, x, k0 = 0.08, k1 = 0.92) => { A.getWorldPosition(t); B.getWorldPosition(u); x.pos.copy(t).lerp(u, k0); x.b.copy(t).lerp(u, k1); };
+    seg(b.upLegR, b.legR, s[3], 0.12, 1); seg(b.upLegL, b.legL, s[4], 0.12, 1);
+    seg(b.legR, b.footR, s[5], 0, 0.9); seg(b.legL, b.footL, s[6], 0, 0.9);
+    seg(b.footR, b.toeR, s[7], 0, 1.15); seg(b.footL, b.toeL, s[8], 0, 1.15);
+    for (const i of [7, 8]) { s[i].pos.y = Math.max(s[i].pos.y, 0.05); s[i].b.y = Math.max(s[i].b.y, 0.045); }
     b.handR.getWorldPosition(s[9].pos); b.handL.getWorldPosition(s[10].pos);
     for (const x of s) out.push(x);
     return out;
@@ -453,8 +484,15 @@ export class Character {
     // --- procedural layers ----------------------------------------------------
     const f = this.forward, r = this.right, b = this.bones;
     this.turnVel += (turnRate - this.turnVel) * Math.min(1, dt * 8);
-    const lean = clamp(speed / 7, 0, 1) * 0.16;
-    this._rot(b.spine, r, -lean);
+    // lean with speed, plus into acceleration (forward) and against braking (back)
+    if (dt > 0) {
+      const acc = (speed - this._prevSpeed) / dt;
+      this.accel += (clamp(acc, -30, 30) - this.accel) * Math.min(1, dt * 10);
+    }
+    this._prevSpeed = speed;
+    const lean = clamp(speed / 7, 0, 1) * 0.16 + clamp(this.accel * 0.012, -0.16, 0.12);
+    this._lean += (lean - this._lean) * Math.min(1, dt * 12);
+    this._rot(b.spine, r, -this._lean);
     this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18));
 
     const ch = {};
@@ -491,6 +529,22 @@ export class Character {
     this._rot(b.armR, r, ch[R ? 'armFwdR' : 'armFwdL'] || 0);
     this._rot(b.foreL, f, ch.elbowL || 0);
     this._rot(b.foreR, f, -(ch.elbowR || 0));
+    // wind-up while charging: torso turns away and leans back a touch, arms open, and
+    // (when not running) the striking leg cocks back; it fades as the strike takes over
+    this._wu += ((ch.thigh === undefined ? this.windup : 0) - this._wu) * Math.min(1, dt * 12);
+    const wu = this._wu;
+    if (wu > 0.01) {
+      const still = clamp(1 - speed / 3.2, 0, 1);
+      this._rot(b.spine1, r, 0.07 * wu);
+      this._rot(b.spine, UP, -0.22 * wu);
+      this._rot(b.armL, f, 0.55 * wu);
+      this._rot(b.armR, f, -0.25 * wu);
+      this._rot(b.upLegR, r, -0.38 * wu * still);
+      this._rot(b.legR, r, -0.7 * wu * still);
+      this._rot(b.upLegL, r, 0.1 * wu * still);
+      this._rot(b.legL, r, -0.22 * wu * still);
+      this.root.position.y += -0.03 * wu * still;
+    }
     this.group.updateMatrixWorld(true);
 
     // feet reach for the ball (kick contact, touches, sole traps)

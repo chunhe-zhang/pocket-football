@@ -14,7 +14,7 @@ const HELP = {
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
-    <b>传球（2v2）</b><span><kbd>I</kbd> 或 <kbd>Q</kbd>：把球传到队友脚下</span>
+    <b>传球（2v2）</b><span>按住 <kbd>I</kbd> 或 <kbd>Q</kbd> 蓄力：轻点传到队友脚下，蓄得越满越快，并且传到队友前面的空当（直塞）</span>
     <b>铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲；在自己的禁区里变成扑救，按方向键选扑哪边</span>
     <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
@@ -220,10 +220,14 @@ export class UI {
         t.el.classList.toggle('side', !!s);
         if (s) t.el.style.setProperty('--sc', s.css);
       }
-      t.meter.style.display = a.charging ? '' : 'none';
-      t.fill.style.width = `${Math.round(a.charge * 100)}%`;
-      t.pct.textContent = a.charging ? `${Math.round(a.charge * 100)}%` : '';
-      t.meter.classList.toggle('full', a.charging && a.charge >= 1);
+      const showing = a.charging || a.armed;
+      const cv = a.armed ? a.armed.power : a.charge;
+      t.meter.style.display = showing ? '' : 'none';
+      t.fill.style.width = `${Math.round(cv * 100)}%`;
+      const isPass = a.chargeType === 'pass';
+      t.pct.textContent = showing ? `${isPass ? '传球 ' : ''}${Math.round(cv * 100)}%` : '';
+      t.meter.classList.toggle('full', showing && cv >= 1);
+      t.meter.classList.toggle('pass', isPass);
       const type = g.controllers[i]?.type;
       const human = type === 'human' || type === 'remote' || type === 'self';
       t.stam.style.display = human ? '' : 'none';

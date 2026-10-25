@@ -41,6 +41,7 @@ export const PLAYER = {
   turnRate: 11,
   chargeTime: 0.8,       // seconds to reach full power
   chargeAutoRelease: 0.35,
+  passChargeTime: 0.7,   // a pass fills its bar a little quicker
   staminaDrain: 0.32,
   staminaRegen: 0.2,
   shotSpeed: [11, 25],   // base + power * k (m/s)
