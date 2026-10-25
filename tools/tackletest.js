@@ -20,7 +20,7 @@ window.__tackle = (from = 'front', skill = null, n = 12) => {
       if (!poked && d < 1.5) { D.intent.tackle = true; poked = true; t0 = s; if (skill) A.intent.tackle = true; }
       if (skill && t0 >= 0 && s === t0 - 1) A.intent.tackle = true;
       window.__step(1, 1 / 60, false);
-      if (D.poke && D.poke.done) { log.push([D.poke.ok, A.skill ? A.skill.type : (A._lastSkill || '-'), +Math.hypot(g.ball.pos.x - D.pos.x, g.ball.pos.z - D.pos.z).toFixed(2)]); break; }
+      if (D.poke && D.poke.done) { log.push([D.poke.ok, A.trick ? A.trick.type : (A._lastSkill || '-'), +Math.hypot(g.ball.pos.x - D.pos.x, g.ball.pos.z - D.pos.z).toFixed(2)]); break; }
       if (poked && !D.poke && s > t0 + 2) { log.push(['nopoke', D.slide ? 'slide' : D.dive ? 'dive' : '?', +d.toFixed(2)]); break; }
     }
     for (let s = 0; s < 20; s++) { A.intent.move.set(1, 0); D.intent.move.set(0, 0); D.intent.tackle = A.intent.tackle = false; window.__step(1, 1 / 60, false); }

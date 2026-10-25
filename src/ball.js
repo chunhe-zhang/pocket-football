@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt } from './config.js';
 
-const { goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;   // goals are the same on every map
+const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -221,7 +221,7 @@ export class Ball {
     this._corners();
     this._obstacles();
     if (FIELD.islands.length) this._islands();
-    if (FIELD.pads.length || FIELD.springs.length) this._features(h);
+    if (FIELD.pads.length || FIELD.springs.length || FIELD.portals.length || FIELD.boosts.length || FIELD.vortices.length || FIELD.wheels.length) this._features(h);
     this._goalFrames();
     this._bodies(u);
   }
@@ -273,7 +273,7 @@ export class Ball {
       const g = goalIndexFor(A, side);
       if (g !== this.goalTeam && Math.abs(p[A]) > H) return;
     }
-    const mouth = Math.abs(p[B]) < GW - R * 0.2 && p.y < GH - R * 0.2 && !this.closedGoals.has(goalIndexFor(A, side));
+    const mouth = Math.abs(p[B]) < FIELD.goalHalfW - R * 0.2 && p.y < FIELD.goalH - R * 0.2 && !this.closedGoals.has(goalIndexFor(A, side));
     const inside = Math.abs(p[A]) > H;
     if (!inside && !mouth) {
       // never let a ball that is inside the other axis' goal be bounced by this wall
@@ -290,8 +290,8 @@ export class Ball {
     }
     if (inside) {
       let hitNet = 0;
-      if (Math.abs(p[B]) > GW - R) { const sb = Math.sign(p[B]); p[B] = sb * (GW - R); if (v[B] * sb > 0) { hitNet = Math.max(hitNet, Math.abs(v[B])); v[B] *= -BALL.netDamp; v[A] *= 0.7; } }
-      if (p.y > GH - R) { p.y = GH - R; if (v.y > 0) { hitNet = Math.max(hitNet, v.y); v.y *= -BALL.netDamp; } }
+      if (Math.abs(p[B]) > FIELD.goalHalfW - R) { const sb = Math.sign(p[B]); p[B] = sb * (FIELD.goalHalfW - R); if (v[B] * sb > 0) { hitNet = Math.max(hitNet, Math.abs(v[B])); v[B] *= -BALL.netDamp; v[A] *= 0.7; } }
+      if (p.y > FIELD.goalH - R) { p.y = FIELD.goalH - R; if (v.y > 0) { hitNet = Math.max(hitNet, v.y); v.y *= -BALL.netDamp; } }
       if (Math.abs(p[A]) > H + GD - R) {
         p[A] = side * (H + GD - R);
         if (v[A] * side > 0) {
@@ -301,7 +301,7 @@ export class Ball {
         }
       }
       if (hitNet > 2) this.events.push({ type: 'net', v: hitNet });
-      if (this.goalTeam < 0 && Math.abs(p[A]) > H + R && Math.abs(p[B]) < GW && p.y < GH) {
+      if (this.goalTeam < 0 && Math.abs(p[A]) > H + R && Math.abs(p[B]) < FIELD.goalHalfW && p.y < FIELD.goalH) {
         this.goalTeam = goalIndexFor(A, side);
         this.events.push({ type: 'goal', team: this.goalTeam });
       }
@@ -401,6 +401,58 @@ export class Ball {
       }
     }
     if (this._sprung > 0) this._sprung -= h;
+    const cd = this._devCD || (this._devCD = {});
+    for (const k in cd) if (cd[k] > 0) cd[k] -= h;
+    const gs = Math.hypot(v.x, v.z);
+    // teleport: in one disc, out of the one diagonally opposite, same speed, same direction
+    if (p.y < 1.3 && (cd.portal || 0) <= 0) {
+      for (const pt of FIELD.portals) {
+        if (Math.hypot(p.x - pt.x, p.z - pt.z) > pt.r) continue;
+        const out = FIELD.portals.find((q) => q.idx === (pt.idx + 2) % 4) || pt;
+        const ux = gs > 0.2 ? v.x / gs : (out.x > 0 ? -1 : 1) * 0.7, uz = gs > 0.2 ? v.z / gs : (out.z > 0 ? -1 : 1) * 0.7;
+        p.x = out.x + ux * (out.r + R + 0.08); p.z = out.z + uz * (out.r + R + 0.08);
+        if (gs < 2.5) { v.x = ux * 2.5; v.z = uz * 2.5; }            // never leave a ball sitting inside one
+        clampToArena(p, R);
+        cd.portal = 0.45;
+        this.events.push({ type: 'portal', from: [pt.x, pt.z], to: [out.x, out.z], x: out.x, z: out.z, v: gs });
+        this.trail.reset(p);
+        break;
+      }
+    }
+    // speed ring: anything rolling or flying low through it comes out a lot faster
+    if (p.y < 0.9 && gs > 1) {
+      for (const b of FIELD.boosts) {
+        const key = 'boost' + b.idx;
+        if ((cd[key] || 0) > 0 || Math.hypot(p.x - b.x, p.z - b.z) > b.r) continue;
+        const k = Math.min(1.7, 26 / gs);
+        v.x *= k; v.z *= k;
+        cd[key] = 0.6;
+        this.events.push({ type: 'boost', x: b.x, z: b.z, v: gs * k });
+      }
+    }
+    // whirlpool: swings the ball round (anticlockwise seen from above) and flings it off at a new angle
+    if (p.y < 0.7) {
+      for (const w of FIELD.vortices) {
+        const dx = p.x - w.x, dz = p.z - w.z, d = Math.hypot(dx, dz);
+        if (d > w.r || d < 0.05) continue;
+        const tx = -dz / d, tz = dx / d, f = 26 * (1 - d / w.r * 0.5);
+        v.x += (tx * f - dx / d * 4) * h; v.z += (tz * f - dz / d * 4) * h;
+        const s = Math.hypot(v.x, v.z); if (s > 18) { v.x *= 18 / s; v.z *= 18 / s; }
+        if ((cd['vortex' + w.idx] || 0) <= 0) { cd['vortex' + w.idx] = 0.8; this.events.push({ type: 'vortex', x: w.x, z: w.z }); }
+      }
+    }
+    // wheel of fortune: same speed, any direction at all
+    if (p.y < 0.9) {
+      for (const w of FIELD.wheels) {
+        const key = 'wheel' + w.idx;
+        if ((cd[key] || 0) > 0 || Math.hypot(p.x - w.x, p.z - w.z) > w.r) continue;
+        const sp = Math.max(gs, 7), a = Math.random() * Math.PI * 2;
+        v.x = Math.cos(a) * sp; v.z = Math.sin(a) * sp;
+        p.x = w.x + Math.cos(a) * (w.r * 0.3); p.z = w.z + Math.sin(a) * (w.r * 0.3);
+        cd[key] = 0.5;
+        this.events.push({ type: 'wheel', x: w.x, z: w.z, v: sp });
+      }
+    }
   }
 
   _goalFrames() {
@@ -410,9 +462,9 @@ export class Ball {
       if (Math.abs(Math.abs(p[A]) - H) > R + postR + 0.05) continue;
       const s = Math.sign(p[A]) || 1;
       const pt = (a, y, b) => (A === 'x' ? [s * H, y, b] : [b, y, s * H]);
-      this._capsule(...pt(0, 0, -GW), ...pt(0, GH, -GW));
-      this._capsule(...pt(0, 0, GW), ...pt(0, GH, GW));
-      this._capsule(...pt(0, GH, -GW), ...pt(0, GH, GW));
+      this._capsule(...pt(0, 0, -FIELD.goalHalfW), ...pt(0, FIELD.goalH, -FIELD.goalHalfW));
+      this._capsule(...pt(0, 0, FIELD.goalHalfW), ...pt(0, FIELD.goalH, FIELD.goalHalfW));
+      this._capsule(...pt(0, FIELD.goalH, -FIELD.goalHalfW), ...pt(0, FIELD.goalH, FIELD.goalHalfW));
     }
   }
 

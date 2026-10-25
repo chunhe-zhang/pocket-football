@@ -412,6 +412,15 @@ export class Game {
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
       case 'bumper': this.sfx.post(Math.min(14, e.v + 4)); this.pitch.pulse('bumper', e.x, e.z); this.emit({ e: 'pulse', k: 'bumper', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.05); break;
       case 'spring': this.sfx.bounce(6); this.sfx.kick(0.15); this.pitch.pulse('spring', e.x, e.z); this.emit({ e: 'pulse', k: 'spring', x: e.x, z: e.z }); break;
+      case 'portal':
+        this.sfx.slide(); this.sfx.post(3);
+        this.pitch.pulse('portal', e.from[0], e.from[1]); this.pitch.pulse('portal', e.to[0], e.to[1]);
+        this.emit({ e: 'pulse', k: 'portal', x: e.from[0], z: e.from[1] }); this.emit({ e: 'pulse', k: 'portal', x: e.to[0], z: e.to[1] });
+        this.fx('grass', this.ball.pos, { x: 0, z: 0 }, 8, 2);
+        break;
+      case 'boost': this.sfx.kick(0.6); this.pitch.pulse('boost', e.x, e.z); this.emit({ e: 'pulse', k: 'boost', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.04); break;
+      case 'vortex': this.sfx.slide(); this.pitch.pulse('vortex', e.x, e.z); this.emit({ e: 'pulse', k: 'vortex', x: e.x, z: e.z }); break;
+      case 'wheel': this.sfx.post(6); this.pitch.pulse('wheel', e.x, e.z); this.emit({ e: 'pulse', k: 'wheel', x: e.x, z: e.z }); break;
       case 'body': {
         const a = e.who;
         if (a.completeReceive(e.part)) break;
@@ -645,7 +654,11 @@ export class Game {
     for (const e of due) this._applyEvent(e);
     // ball
     const b = this.ball, B0 = s0.b, B1 = s1.b;
-    b.pos.set(L(B0[0], B1[0]), L(B0[1], B1[1]), L(B0[2], B1[2]));
+    // a teleport: jump, don't slide across the pitch
+    const jump = Math.hypot(B1[0] - B0[0], B1[2] - B0[2]) > 3;
+    if (jump) b.pos.set(B1[0], B1[1], B1[2]); else b.pos.set(L(B0[0], B1[0]), L(B0[1], B1[1]), L(B0[2], B1[2]));
+    if (jump && !this._jumped) b.trail.reset(b.pos);
+    this._jumped = jump;
     b.vel.set(B1[3], B1[4], B1[5]);
     const q0 = new THREE.Quaternion(B0[6], B0[7], B0[8], B0[9]), q1 = new THREE.Quaternion(B1[6], B1[7], B1[8], B1[9]);
     b.spinQ.slerpQuaternions(q0, q1, u);

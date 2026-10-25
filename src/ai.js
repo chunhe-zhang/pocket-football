@@ -207,7 +207,7 @@ export class AIController {
       const dir = to.clone().normalize();
       if (!clear) { const r = route(me.pos.x, me.pos.z, tgt.x, tgt.z); dir.set(r.x - me.pos.x, r.z - me.pos.z).normalize(); }
       // a defender closing in: try to beat them with a skill move
-      if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.skill && Math.random() < 0.22 + 0.4 * this.cfg.skill) {
+      if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.trick && Math.random() < 0.22 + 0.4 * this.cfg.skill) {
         const bx = blocker.pos.x - me.pos.x, bz = blocker.pos.z - me.pos.z, bd = Math.hypot(bx, bz);
         const f = me.forward, r = me.rightDir;
         const sideOf = (bx * r.x + bz * r.z) > 0 ? -1 : 1;   // go away from the side they're on

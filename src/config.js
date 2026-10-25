@@ -9,6 +9,10 @@ export const FIELD = {
   bumpers: [],      // pinball mushrooms: { x, z, r }
   pads: [],         // speed strips: { x, z, len, wid, dx, dz }
   springs: [],      // bounce pads: { x, z, r }
+  portals: [],      // teleport discs, paired with the one opposite: { x, z, r, idx }
+  boosts: [],       // speed rings
+  vortices: [],     // whirlpools
+  wheels: [],       // wheels of fortune
   boxDepth: 2.8,    // penalty box in front of each goal (where you may dive)
   boxHalfW: 2.7,
   halfL: 12,        // kept for code that thinks in length/width
@@ -87,19 +91,29 @@ export const MATCH = {
 };
 
 // ---- maps ------------------------------------------------------------------------------
+/** the same device in all four quarters: rotate (x, z) by 90° steps round the centre */
+const rot4 = (o) => [0, 1, 2, 3].map((k) => {
+  let { x, z } = o;
+  for (let n = 0; n < k; n++) [x, z] = [-z, x];
+  return { ...o, x, z, idx: k };
+});
+const circleIsland = (o) => ({ ax: o.x, az: o.z, bx: o.x, bz: o.z, r: o.r });
+
 export const MAPS = {
-  classic: { name: '经典圆场', hx: 12, hz: 12, cornerR: 8.8, islands: [], bumpers: [], pads: [], springs: [] },
-  // a big racetrack: two long flower-bed islands with a passage between them, four goals
-  // round the outside, speed strips on the straights, bumpers in the lanes and bounce pads
+  classic: { name: '经典圆场', hx: 12, hz: 12, cornerR: 8.8, goalHalfW: 1.6, goalH: 1.7, boxHalfW: 2.7, boxDepth: 2.8,
+    islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
+  // 机关乐园: a big near-circle full of round gadgets, every one repeated in all four quarters
+  // (a 90° turn maps the arena onto itself, so every goal faces exactly the same layout)
   track: {
-    name: '花园跑道', hx: 27, hz: 14, cornerR: 12,
-    islands: [{ ax: -15, az: 0, bx: -7, bz: 0, r: 4.6 }, { ax: 7, az: 0, bx: 15, bz: 0, r: 4.6 }],
-    bumpers: [{ x: -11, z: 9.3, r: 0.55 }, { x: 11, z: 9.3, r: 0.55 }, { x: -11, z: -9.3, r: 0.55 }, { x: 11, z: -9.3, r: 0.55 }],
-    pads: [
-      { x: -18, z: 9.3, len: 5.5, wid: 3.2, dx: -1, dz: 0 }, { x: 18, z: 9.3, len: 5.5, wid: 3.2, dx: -1, dz: 0 },
-      { x: -18, z: -9.3, len: 5.5, wid: 3.2, dx: 1, dz: 0 }, { x: 18, z: -9.3, len: 5.5, wid: 3.2, dx: 1, dz: 0 },
-    ],
-    springs: [{ x: 0, z: 5.6, r: 0.95 }, { x: 0, z: -5.6, r: 0.95 }],
+    name: '机关乐园', hx: 22, hz: 22, cornerR: 17, goalHalfW: 2.0, goalH: 1.85, boxHalfW: 3.1, boxDepth: 3.0,
+    islands: rot4({ x: 6.2, z: 6.2, r: 2.3 }).map(circleIsland),          // round flower beds round the centre circle
+    bumpers: rot4({ x: 11.6, z: 4.2, r: 0.6 }),                             // pinball mushrooms
+    pads: [],
+    springs: rot4({ x: 5, z: 0, r: 0.9 }),                                  // bounce pads on the way to each goal
+    portals: rot4({ x: 11.6, z: 11.6, r: 1.15 }),                           // each one leads to the diagonally opposite one
+    boosts: rot4({ x: 11.5, z: 0, r: 1.1 }),                                // speed rings in front of each goal
+    vortices: rot4({ x: 4.4, z: 12, r: 1.9 }),                              // whirlpools that swing the ball round
+    wheels: rot4({ x: 15.2, z: 7.6, r: 1.25 }),                             // wheels of fortune: off it goes in a random direction
   },
 };
 
@@ -139,6 +153,11 @@ export function setMap(name) {
   FIELD.bumpers = m.bumpers.map((c) => ({ ...c }));
   FIELD.pads = m.pads.map((c) => ({ ...c }));
   FIELD.springs = m.springs.map((c) => ({ ...c }));
+  FIELD.portals = m.portals.map((c) => ({ ...c }));
+  FIELD.boosts = m.boosts.map((c) => ({ ...c }));
+  FIELD.vortices = m.vortices.map((c) => ({ ...c }));
+  FIELD.wheels = m.wheels.map((c) => ({ ...c }));
+  FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
   GOALS.length = 0; TEAMS.forEach((_, i) => GOALS.push(goalInfo(i)));
   OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true });
   _nav = null;
@@ -218,7 +237,13 @@ function navGraph() {
   const nodes = [];
   for (const c of FIELD.islands) {
     // a ring of waypoints round each island, a body-width or so off its edge
-    const ex = c.bx - c.ax, ez = c.bz - c.az, L = Math.hypot(ex, ez) || 1, ux = ex / L, uz = ez / L, nx = -uz, nz = ux;
+    const ex = c.bx - c.ax, ez = c.bz - c.az, L0 = Math.hypot(ex, ez);
+    if (L0 < 0.01) {
+      const off = c.r + 1.5;
+      for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2 + Math.PI / 8; nodes.push({ x: c.ax + Math.cos(a) * off, z: c.az + Math.sin(a) * off }); }
+      continue;
+    }
+    const L = L0, ux = ex / L, uz = ez / L, nx = -uz, nz = ux;
     const off = c.r + 1.7;
     for (const k of [0.15, 0.5, 0.85]) for (const s of [-1, 1]) nodes.push({ x: c.ax + ex * k + nx * off * s, z: c.az + ez * k + nz * off * s });
     for (const [px, pz, sx, sz] of [[c.ax, c.az, -ux, -uz], [c.bx, c.bz, ux, uz]]) {

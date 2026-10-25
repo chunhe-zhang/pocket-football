@@ -108,7 +108,7 @@ export class UI {
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
     for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
-      ? '超大的花园跑道：绕着两座花坛跑，中间有近路；加速带顺着箭头跑更快，弹力蘑菇会把球弹飞，踩到弹跳垫的球会飞起来。镜头跟着你走，左下角有小地图。'
+      ? '超大的近似圆形乐园，球门更宽，满场圆形机关（每种四个，对每个人都一样）：传送门、加速圈、漩涡、命运转盘、弹力蘑菇、弹跳垫。随便一脚，球可能从意想不到的地方进门。镜头跟着你走，左下角有小地图。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。可以传球给队友；最后还有人在场的一队获胜。`
@@ -265,7 +265,16 @@ export class UI {
     ctx.fillStyle = 'rgba(90, 190, 95, 0.75)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.5; ctx.stroke();
     // flower beds
     ctx.lineCap = 'round';
-    for (const c of FIELD.islands) { ctx.strokeStyle = '#ff9ecb'; ctx.lineWidth = c.r * 2 * s; ctx.beginPath(); ctx.moveTo(X(c.ax), Y(c.az)); ctx.lineTo(X(c.bx), Y(c.bz)); ctx.stroke(); }
+    for (const c of FIELD.islands) {
+      ctx.fillStyle = ctx.strokeStyle = '#ff9ecb';
+      if (Math.hypot(c.bx - c.ax, c.bz - c.az) < 0.01) { ctx.beginPath(); ctx.arc(X(c.ax), Y(c.az), c.r * s, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.lineWidth = c.r * 2 * s; ctx.beginPath(); ctx.moveTo(X(c.ax), Y(c.az)); ctx.lineTo(X(c.bx), Y(c.bz)); ctx.stroke(); }
+    }
+    const dot = (o, col, k = 1) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(o.x), Y(o.z), Math.max(2.2, o.r * s * k), 0, Math.PI * 2); ctx.fill(); };
+    for (const o of FIELD.portals) dot(o, o.idx % 2 ? '#ff6ad5' : '#b45cff');
+    for (const o of FIELD.boosts) dot(o, '#ff8a2a');
+    for (const o of FIELD.vortices) dot(o, '#3b9bff');
+    for (const o of FIELD.wheels) dot(o, '#ffffff');
     ctx.lineCap = 'butt';
     for (const p of FIELD.pads) { ctx.fillStyle = 'rgba(80,220,255,0.7)'; ctx.save(); ctx.translate(X(p.x), Y(p.z)); ctx.rotate(Math.atan2(p.dz, p.dx)); ctx.fillRect(-p.len * s / 2, -p.wid * s / 2, p.len * s, p.wid * s); ctx.restore(); }
     for (const b of FIELD.bumpers) { ctx.fillStyle = '#ff4f7b'; ctx.beginPath(); ctx.arc(X(b.x), Y(b.z), Math.max(2, b.r * s * 1.4), 0, Math.PI * 2); ctx.fill(); }
