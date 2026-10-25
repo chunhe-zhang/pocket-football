@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, OBSTACLES, inOwnBox, clampToArena, pushOutOfObstacles, route, islandBlocks } from './config.js';
+import { FIELD, OBSTACLES, PLAYER, BALL, inOwnBox, clampToArena, pushOutOfObstacles, route, islandBlocks } from './config.js';
 
 const LEVELS = {
   // 女朋友模式: slow, sleepy, never tackles, rarely saves, shoots softly and wide (and feeds the humans)
@@ -47,19 +47,35 @@ export class AIController {
 
   update(dt) {
     const me = this.me, g = this.game, ball = g.ball, it = me.intent;
+    it.analog = true;                       // a CPU aims exactly where it means to
     if (this.shooting) {
       const s = this.shooting;
       s.hold -= dt;
       const bd = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z);
-      if (me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.passTo = null; this.shooting = null; it.kick = it.lob = it.pass = false; return; }
+      if (!s.header && me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.intendTo = null; this.shooting = null; it.kick = it.lob = false; return; }
       it.move.copy(s.aim);
-      it.kick = !s.lob && !s.pass && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = !!s.pass && s.hold > 0; it.sprint = false;
+      it.kick = !s.lob && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = false; it.sprint = false;
       if (s.hold <= 0 && !me.charging) this.shooting = null;
       return;
     }
-    if (me.passTo && !me.charging) me.passTo = null;
     it.kick = false; it.lob = false; it.pass = false;
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
+    this.headCD = Math.max(0, (this.headCD || 0) - dt);
+    // a ball in the air near me: go up for it (at goal if it's on, else away from my own goal)
+    if (!me.header && this.headCD <= 0 && ball.pos.y > 0.9 && Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) < 4 && me._headerChance()) {
+      const near = g.live.filter((a) => a !== me && Math.hypot(ball.pos.x - a.pos.x, ball.pos.z - a.pos.z) < Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) - 0.4);
+      if (!near.length && Math.random() < 0.35 + 0.6 * this.cfg.skill) {
+        const tgt = me.goalTarget(), gd = Math.hypot(tgt.x - me.pos.x, tgt.z - me.pos.z);
+        const aim = gd < 13 && !islandBlocks(me.pos.x, me.pos.z, tgt.x, tgt.z, 0.2)
+          ? new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z)
+          : new THREE.Vector2(me.home.inward.x, me.home.inward.z).rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * 1.2);
+        aim.normalize().rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * this.cfg.aimNoise * 0.3);
+        this.shooting = { hold: 0.03, aim, header: true };
+        this.headCD = 1.2;
+        it.move.copy(aim); it.kick = true;
+        return;
+      }
+    }
     // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
     if (this._keeper()) return;
     // sold a dummy: lurch the wrong way for a moment
@@ -183,8 +199,7 @@ export class AIController {
             return;
           }
           if (d > 2) {
-            me.passTo = rcv;
-            this._passTo(rcv, 0.08 + Math.random() * 0.15);
+            this._kickTo(rcv, 0.08 + Math.random() * 0.15);
             return;
           }
           // too close for a pass: just step away from them with the ball first
@@ -211,14 +226,9 @@ export class AIController {
         const bx = blocker.pos.x - me.pos.x, bz = blocker.pos.z - me.pos.z, bd = Math.hypot(bx, bz);
         const f = me.forward, r = me.rightDir;
         const sideOf = (bx * r.x + bz * r.z) > 0 ? -1 : 1;   // go away from the side they're on
-        const roll = Math.random();
-        const mv = new THREE.Vector2();
-        let sprint = false;
-        if (bd < 1.3 && roll < 0.25) mv.set(-f.x, -f.z);                                         // drag-back
-        else if (roll < 0.7) mv.set(r.x * sideOf, r.z * sideOf);                                 // drag past
-        else if (bd > 1.6 && me.stamina > 0.4 && roll < 0.85) { mv.set(f.x, f.z); sprint = true; } // knock it past
-        // else: step-over feint (no stick)
-        plan.skillMove = mv; plan.skillSprint = sprint; plan.tackle = true;
+        void bd; void f;
+        const mv = new THREE.Vector2(r.x * sideOf, r.z * sideOf);   // 闪身步 away from them
+        plan.skillMove = mv; plan.skillSprint = false; plan.tackle = true;
         plan.move.copy(mv.lengthSq() ? mv : new THREE.Vector2(f.x, f.z));
         return;
       }
@@ -275,8 +285,11 @@ export class AIController {
     if (fresh && lt !== me && lt.passedTo === me && g.sameSide(lt.team, me.team)) {
       const run = 5.2 * this.cfg.speed;
       let px = bp.x, pz = bp.z;
+      const lofted = bp.y > 0.8 || ball.vel.y > 1.5;
       for (let t = 0; t <= 2.6; t += 0.1) {
         const q = ball.predict(t);
+        // a cross: be where it comes down through head height
+        if (lofted && (q.y > 2.1 || (q.y < 1.2 && t < 1.8))) { if (q.y > 2.1) continue; }
         px = q.x; pz = q.z;
         if (Math.hypot(q.x - me.pos.x, q.z - me.pos.z) <= run * t + 0.4) break;
       }
@@ -367,12 +380,13 @@ export class AIController {
     if (human && mateFree && mateGd < gd + 2) want = Math.max(want, 0.6);  // humans love getting the ball
     if (gd < this.cfg.shootRange * 0.6) want *= 0.3;                       // in range myself: just shoot
     if (Math.random() >= want) return false;
-    me.passTo = mate;
+    // team-mate up near goal and a fair way off: float a cross onto their head (挑射)
+    if (mateGd < 8 && d > 8 && d < 20 && Math.random() < 0.3 + 0.4 * this.cfg.skill) { this._crossTo(mate); this.passCD = 1.4; return true; }
     // a mate running into space towards goal gets the ball played ahead of them
     const mv = Math.hypot(mate.vel.x, mate.vel.z);
     const runIn = mv > 3 && ((mt.x - mate.pos.x) * mate.vel.x + (mt.z - mate.pos.z) * mate.vel.z) / (mv * (mateGd || 1)) > 0.5;
     const power = runIn && Math.random() < 0.3 + 0.5 * this.cfg.skill ? 0.45 + Math.random() * 0.3 : 0.05 + Math.random() * 0.2 + (d > 10 ? 0.1 : 0);
-    this._passTo(mate, power);
+    this._kickTo(mate, power);
     this.passCD = 1.2;
     return true;
   }
@@ -391,10 +405,32 @@ export class AIController {
     this._goTo(q.x, q.z, 0.8, 3);
   }
 
-  /** charge a pass to `rcv` up to `power` (0..1), then let go */
-  _passTo(rcv, power) {
+  /**
+   * A pass is just a 爆射 aimed at someone: pick where to put it (feet, or ahead of them for
+   * `lead` 0..1) and the charge that gives the right pace, then strike it.
+   */
+  _kickTo(rcv, lead) {
     const me = this.me;
-    this.shooting = { hold: 0.04 + power * 0.7, aim: new THREE.Vector2(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z).normalize(), pass: true };
+    const t = me.passLead(rcv, lead);
+    const [s0, s1] = PLAYER.shotSpeed;
+    const p = clamp(Math.pow(Math.max(0, t.speed - s0) / s1, 1 / 1.15), 0.04, 1);
+    const aim = new THREE.Vector2(t.x - me.pos.x, t.z - me.pos.z).normalize();
+    aim.rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * this.cfg.aimNoise * 0.12);
+    me.intendTo = rcv;
+    this.shooting = { hold: 0.02 + p * PLAYER.chargeTime, aim };
+  }
+
+  /** 挑射 cross: a chip weighted to drop around a team-mate's head */
+  _crossTo(rcv) {
+    const me = this.me;
+    const tx = rcv.pos.x + rcv.vel.x * 0.9, tz = rcv.pos.z + rcv.vel.z * 0.9;
+    const d = Math.hypot(tx - me.pos.x, tz - me.pos.z);
+    // chip speed 8 + 10p at ~0.65 rad: range ≈ v²·sin(2e)/g, with a bit lost to drag
+    let best = 0.3, err = Infinity;
+    for (let p = 0.05; p <= 1; p += 0.05) { const v = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p, e = 0.6 + 0.14 * p; const r = (v * v * Math.sin(2 * e) / BALL.gravity) * 0.82; if (Math.abs(r - d) < err) { err = Math.abs(r - d); best = p; } }
+    const aim = new THREE.Vector2(tx - me.pos.x, tz - me.pos.z).normalize();
+    me.intendTo = rcv;
+    this.shooting = { hold: 0.02 + best * PLAYER.chargeTime, aim, lob: true };
   }
 
   _shoot(tgt, gd, lob) {

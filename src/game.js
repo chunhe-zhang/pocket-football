@@ -295,7 +295,7 @@ export class Game {
   onKick(ath, k, vel) {
     if (k.type === 'pass') { this.sfx.kick(0.2 + 0.35 * k.power); return; }
     const p = k.power;
-    this.sfx.kick(p);
+    if (k.type !== 'header') this.sfx.kick(p);
     if (p > 0.55 && k.type === 'kick') {
       this.hitstop = 0.035 + 0.04 * p; this.shake = Math.max(this.shake, 0.08 + 0.18 * p);
       this.emit({ e: 'shake', v: this.shake });
@@ -549,7 +549,7 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     const it = this.athletes[i].intent;
-    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = !!d.p;
+    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = false; it.analog = !!d.an;
   }
 
   /** host: a remote player left mid-game — a CPU takes over their goal */
@@ -618,10 +618,10 @@ export class Game {
     if (me) {
       this.input.intent('solo', me.intent);
       this.inputT -= dt;
-      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.pass}`;
+      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog}`;
       if (this.inputT <= 0 || sig !== this._lastSig) {
         this.inputT = 0.05; this._lastSig = sig;
-        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, p: it.pass ? 1 : 0 });
+        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0 });
       }
     }
     const S = this.snaps;

@@ -32,7 +32,8 @@ export class Athlete {
     this.faceT = 0;
     this.slide = null; this.slideCD = 0; this._prevTackle = false;
     this.poke = null;        // standing tackle in progress
-    this.trick = null;       // skill move in progress (feint / drag / dragback / knock)
+    this.trick = null;       // sidestep (闪身步) in progress
+    this.header = null;      // going for a header
     this.skillCD = 0; this.burstT = 0;
     this.stats.tackles = 0; this.stats.skills = 0;
     this.dive = null;
@@ -62,7 +63,7 @@ export class Athlete {
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
     this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
-    this.poke = null; this.trick = null; this.burstT = 0;
+    this.poke = null; this.trick = null; this.burstT = 0; this.header = null;
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
     this._sync(0);
@@ -85,14 +86,28 @@ export class Athlete {
 
   /** Direction the player wants to play the ball in. */
   aimDir(out = new THREE.Vector3()) {
-    if (this.charging && this.chargeType === 'pass') {
-      const r = this.passTo || this.mate;
-      if (r) { const t = this.passLead(r, this.charge); out.set(t.x - this.pos.x, 0, t.z - this.pos.z); if (out.lengthSq() > 1e-4) return out.normalize(); }
-    }
+    // no auto-aim: while charging, the aim is the angle the player has dialled in
+    if ((this.charging || this.armed) && this.aimAng !== undefined) return out.set(Math.sin(this.aimAng), 0, Math.cos(this.aimAng));
     const m = this.intent.move;
     if (m.lengthSq() > 0.09) out.set(m.x, 0, m.y).normalize();
-    else out.copy(this.goalTarget()).sub(this.pos).setY(0).normalize();
+    else out.copy(this.forward);
     return out;
+  }
+
+  /**
+   * Fine aim while charging. The first frame takes the stick direction (or where I face);
+   * after that a digital stick (keyboard) turns the aim gradually towards where it points,
+   * so a tap nudges it a few degrees, while an analog stick (pad / touch / CPU) sets it directly.
+   */
+  _steerAim(dt, first) {
+    const m = this.intent.move, has = m.lengthSq() > 0.09;
+    const want = has ? Math.atan2(m.x, m.y) : null;
+    if (first) { this.aimAng = want ?? this.facing; return; }
+    if (want === null) return;
+    if (this.intent.analog) { this.aimAng = want; return; }
+    const d = wrapAngle(want - this.aimAng);
+    const rate = 1.9;                                    // rad/s: about 110°/s, ~2° per frame
+    this.aimAng = wrapAngle(this.aimAng + clamp(d, -rate * dt, rate * dt));
   }
 
   /**
@@ -154,20 +169,25 @@ export class Athlete {
       }
     }
 
-    // ---- charging / release (shot, chip, or a pass to my team-mate) ---------------
-    const canPass = !!(this.passTo || this.mate);
-    const wantShot = it.kick || it.lob, wantPass = it.pass && canPass;
+    // ---- charging / release: 爆射 (kick) or 挑射 (chip); a ball in the air gets headed ------
+    const wantShot = it.kick || it.lob;
+    const pressedKick = it.kick && !this._prevKick, pressedLob = it.lob && !this._prevLob;
+    this._prevKick = it.kick; this._prevLob = it.lob;
+    if (this.header) this._headerMotionTick(dt);
     if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0) { this.charging = false; this.charge = 0; }
-    else if (!this.kick) {
-      if ((wantShot || wantPass) && !this.charging && g.state !== 'menu') {
+    else if (!this.kick && !this.header) {
+      if ((pressedKick || pressedLob) && !this.charging && g.state === 'play' && this._headerChance()) {
+        this._startHeader(pressedLob);
+      } else if (wantShot && !this.charging && g.state !== 'menu') {
         this.charging = true; this.charge = 0; this.chargeHold = 0; this.armed = null;
-        this.chargeType = it.lob ? 'chip' : it.kick ? 'kick' : 'pass';
+        this.chargeType = it.lob ? 'chip' : 'kick';
+        this._steerAim(dt, true);
       }
       if (this.charging) {
         if (it.lob && this.chargeType === 'kick') this.chargeType = 'chip';
-        const isPass = this.chargeType === 'pass';
-        const held = isPass ? it.pass : wantShot;
-        this.charge = Math.min(1, this.charge + dt / (isPass ? PLAYER.passChargeTime : PLAYER.chargeTime));
+        this._steerAim(dt, false);
+        const held = wantShot;
+        this.charge = Math.min(1, this.charge + dt / PLAYER.chargeTime);
         if (this.charge >= 1) this.chargeHold += dt;
         this.char.face('angry', 0.15 + 0.35 * this.charge);
         if (!held || this.chargeHold > PLAYER.chargeAutoRelease) { this.char.face('angry', 0); this._release(); }
@@ -218,6 +238,12 @@ export class Athlete {
       const desired = this._v.set(it.move.x, 0, it.move.y);
       if (mag > 0.05) desired.normalize().multiplyScalar(target * (mag < 0.25 ? mag / 0.25 : 1)); else desired.set(0, 0, 0);
       if (this.trick) this._skillMove(desired, target);
+      if (this.header && !this.header.hit && !this.frozen && this.header.spot) {
+        const sp = (it.sprint && !this.exhausted ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul;
+        desired.set(this.header.spot.x - this.pos.x, 0, this.header.spot.z - this.pos.z);
+        const dl = desired.length();
+        if (dl > 0.03) desired.multiplyScalar(Math.min(sp, dl * 7) / dl); else desired.set(0, 0, 0);
+      }
       if (this.armed && !this.frozen) {
         // meet the ball: the earliest point on its path I can get behind in time
         const sp = (it.sprint && !this.exhausted ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul;
@@ -239,6 +265,7 @@ export class Athlete {
       // facing
       let want = null;
       if (this.trick) want = this._skillFacing();
+      else if (this.header && !this.header.hit) { const d = this.header.aim; want = Math.atan2(d.x, d.z); }
       else if (this.charging) { const d = this.aimDir(this._w); want = Math.atan2(d.x, d.z); }
       else if (this.armed && this.vel.length() < 2) { const d = this.armedAim(this._w); want = Math.atan2(d.x, d.z); }
       else if (this.receive && this.vel.length() < 3.5) {
@@ -298,6 +325,7 @@ export class Athlete {
       const lower = leg || c.part === 'thigh' || c.part === 'hips';
       c.active = !(leg && (controlling || this.ignoreBall > 0 || (this.kick && !this.kick.resolved) || this.touch || this.holdW > 0.05 || this.poke)) && !(lower && this.dribbling);
       if (this.slide && leg && c.side === 'R') c.active = false;
+      if (this.header && (!this.header.hit || this.header.t < this.header.hitT + 0.3) && (c.part === 'head' || c.part === 'chest')) c.active = false;
       // hands only count during a dive (no handball otherwise); a diving keeper is all reach
       if (c.part === 'hand') c.active = !!this.dive && this.dive.t < 0.75;
       // a fully stretched keeper covers more than the bare skeleton suggests (gloves, sleeves, body)
@@ -407,7 +435,7 @@ export class Athlete {
     if (this.frozen) return;
     this.stunT = clamp(0.35 + strength * 0.05, 0.4, 0.75);
     this.vel.copy(dir).multiplyScalar(1 + strength * 0.2);
-    this.kick = null; this.armed = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null; this.dive = null; this.poke = null; this.trick = null;
+    this.kick = null; this.armed = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null; this.dive = null; this.poke = null; this.trick = null; this.header = null;
     this.char.play('stagger', { duration: this.stunT + 0.15 });
     this.char.face('surprised', 0.8); this.faceT = 0.6;
     this.game.rumble(this, 0.8, 140);
@@ -511,14 +539,20 @@ export class Athlete {
     const g = this.game, it = this.intent, f = this.forward.clone(), r = this.rightDir.clone();
     const m = it.move, mag = Math.hypot(m.x, m.y);
     const fwd = mag > 0.3 ? (m.x * f.x + m.y * f.z) / mag : 0, lat = mag > 0.3 ? (m.x * r.x + m.y * r.z) / mag : 0;
-    let type = 'feint', side = Math.random() < 0.5 ? 1 : -1;
-    if (mag > 0.3 && it.sprint && fwd > 0.3 && !this.exhausted) type = 'knock';
-    else if (mag > 0.3 && fwd < -0.5) type = 'dragback';
-    else if (mag > 0.3 && Math.abs(lat) > 0.45) { type = 'drag'; side = lat > 0 ? 1 : -1; }
-    const dur = { feint: 0.5, drag: 0.34, dragback: 0.5, knock: 0.25 }[type];
+    // 闪身步: one move — a quick hop sideways taking the ball with you. Which side: where the
+    // stick leans, else away from the nearest opponent
+    void fwd;
+    const type = 'drag';
+    let side = Math.abs(lat) > 0.25 ? (lat > 0 ? 1 : -1) : 0;
+    if (!side) {
+      let near = null, nd = 5;
+      for (const o of g.live) { if (o === this || g.sameSide(o.team, this.team)) continue; const d = Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z); if (d < nd) { nd = d; near = o; } }
+      side = near ? (((near.pos.x - this.pos.x) * r.x + (near.pos.z - this.pos.z) * r.z) > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
+    }
+    const dur = 0.32;
     this.trick = { type, t: 0, dur, side, f, r, done: false };
-    this.skillCD = type === 'knock' ? 0.6 : 0.85;
-    this.stamina = Math.max(0, this.stamina - (type === 'knock' ? 0.08 : 0.05));
+    this.skillCD = 0.7;
+    this.stamina = Math.max(0, this.stamina - 0.05);
     this.touch = null; this.stats.skills++;
     const foot = type === 'drag' ? (side > 0 ? 'Left' : 'Right') : side > 0 ? 'Right' : 'Left';
     this.trick.foot = foot;
@@ -534,7 +568,7 @@ export class Athlete {
       this.char.play('touch', { side: foot, amp: 1.25, duration: 0.3 });
       g.sfx.kick(0.25);
     } else {
-      this.char.play(type === 'feint' ? 'stepover' : type, { side: foot, duration: dur });
+      this.char.play('sidestep', { side: side > 0 ? 'Right' : 'Left', duration: dur + 0.08 });
       g.sfx.touch();
     }
     if (type === 'feint') {
@@ -553,7 +587,7 @@ export class Athlete {
   _skillMove(desired, target) {
     const s = this.trick;
     if (s.type === 'feint') desired.copy(s.f).multiplyScalar(Math.min(target, 1.6));
-    else if (s.type === 'drag') desired.copy(s.r).multiplyScalar(s.side * 5).addScaledVector(s.f, 1.4);
+    else if (s.type === 'drag') desired.copy(s.r).multiplyScalar(s.side * 5.6).addScaledVector(s.f, Math.min(target, 2.2));
     else if (s.type === 'dragback') desired.copy(s.f).multiplyScalar(s.t < 0.2 ? 0 : -2.6);
   }
   _skillFacing() {
@@ -570,10 +604,70 @@ export class Athlete {
     }
   }
 
+  // ---- headers ----------------------------------------------------------------------------
+  /** is there a ball in the air I could get my head to soon? */
+  _headerChance() {
+    const b = this.game.ball;
+    if (b.pos.y < 0.8 && b.vel.y < 1.5) return false;           // on the ground: that's a kick
+    return !!this._headerSpot(PLAYER.runSpeed * this.speedMul);
+  }
+  /** the first moment in the next 0.8 s the ball is at head height within my reach */
+  _headerSpot(speed) {
+    const b = this.game.ball, q = this._r;
+    for (let t = 0; t <= 0.8; t += 0.033) {
+      b.predict(t, q);
+      if (q.y < 1.05 || q.y > 2.45) continue;
+      const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z);
+      if (d <= 0.45 + speed * t) return { x: q.x, z: q.z, y: q.y, t };
+    }
+    return null;
+  }
+  _startHeader(soft) {
+    const aim = this.aimDir(new THREE.Vector3());
+    this.header = { t: 0, soft, hit: false, jumped: false, spot: null, aim };
+    this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.armed = null;
+  }
+  _headerMotionTick(dt) {
+    const h = this.header, g = this.game, ball = g.ball;
+    h.t += dt;
+    if (h.hit) { if (h.t > h.hitT + 0.35) this.header = null; return; }
+    // keep the aim live from the stick until contact
+    const m = this.intent.move; if (m.lengthSq() > 0.09) h.aim.set(m.x, 0, m.y).normalize();
+    const spot = this._headerSpot((this.intent.sprint ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul);
+    if (spot) {
+      // stand just behind where the ball will be, relative to where I'm heading it
+      h.spot = { x: spot.x - h.aim.x * 0.12, z: spot.z - h.aim.z * 0.12 };
+      if (!h.jumped && spot.t < (spot.y > 1.7 ? 0.3 : 0.2)) {
+        h.jumped = true;
+        this.char.play(spot.y > 1.7 ? 'jumpHeader' : 'header', { duration: spot.y > 1.7 ? 0.7 : 0.5, contact: 0.42 });
+      }
+    }
+    // the moment the head meets the ball
+    const head = this.colliders?.find((c) => c.part === 'head');
+    if (head && head.pos.distanceTo(ball.pos) < R + 0.21) {
+      h.hit = true; h.hitT = h.t;
+      const rel = Math.hypot(ball.vel.x - this.vel.x, ball.vel.y, ball.vel.z - this.vel.z);
+      const sp = h.soft ? 5.5 + rel * 0.1 : clamp(8.5 + rel * 0.4 + Math.hypot(this.vel.x, this.vel.z) * 0.5, 9, 22);
+      const el = h.soft ? 0.85 : (ball.pos.y > 1.8 ? -0.12 : 0.04);
+      ball.vel.set(h.aim.x * sp * Math.cos(el), Math.sin(el) * sp, h.aim.z * sp * Math.cos(el));
+      ball.spin.multiplyScalar(0.2);
+      ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.25; this.ignoreBall = 0.2; this.stats.touches++;
+      g.sfx.head(rel + 6);
+      g.squashBall(h.aim, 0.1 + rel / 80);
+      g.fx('spark', ball.pos, { x: h.aim.x, z: h.aim.z }, 8, 2.5);
+      g.rumble(this, 0.5, 70);
+      if (!h.jumped) this.char.play('header', { duration: 0.45, contact: 0.3 });
+      // a header at a goal counts as a shot
+      g.onKick(this, { type: 'header', power: sp / 22 }, ball.vel);
+      return;
+    }
+    if (h.t > 1.0 || (!spot && h.t > 0.25)) this.header = null;   // missed it
+  }
+
   // ---- receiving -------------------------------------------------------------------
   /** see a ball coming and get the right body part ready for it */
   _anticipate() {
-    if (this.receive || this.kick || this.armed || this.charging || this.slide || this.poke || this.trick || this.stunT > 0 || this.frozen) return;
+    if (this.receive || this.kick || this.armed || this.charging || this.slide || this.poke || this.trick || this.header || this.stunT > 0 || this.frozen) return;
     const ball = this.game.ball;
     const dx = ball.pos.x - this.pos.x, dz = ball.pos.z - this.pos.z;
     const wx = ball.vel.x - this.vel.x, wz = ball.vel.z - this.vel.z;
@@ -713,32 +807,20 @@ export class Athlete {
    * `aim` = the raw aim direction (stick, or towards the goal); not modified.
    */
   shotPlan(type, power, aim) {
-    const out = this._plan || (this._plan = { aim: new THREE.Vector3(), target: new THREE.Vector3(), goal: null, perfect: false, tb: 0 });
+    const out = this._plan || (this._plan = { aim: new THREE.Vector3(), target: new THREE.Vector3(), goal: null, perfect: false });
     out.aim.copy(aim); out.goal = null;
     out.perfect = power >= Athlete.SWEET[0] && power <= Athlete.SWEET[1];
-    let goal = null, bestDot = 0.7, goalDist = 0;
-    for (const gg of this.targets) {
-      const dx = gg.centre.x - this.pos.x, dz = gg.centre.z - this.pos.z, d = Math.hypot(dx, dz);
-      const dot = (aim.x * dx + aim.z * dz) / (d || 1);
-      if (d < 18 && dot > bestDot) { bestDot = dot; goal = gg; goalDist = d; }
+    // which goal line does this aim cross first? (for the preview only: the aim is never changed)
+    let best = Infinity;
+    for (const gg of GOALS) {
+      if (gg.team === this.team) continue;
+      const A = gg.axis, line = gg.sign * gg.line;
+      if (Math.abs(aim[A]) < 0.05) continue;
+      const t = (line - this.pos[A]) / aim[A];
+      if (t <= 0 || t > 40 || t >= best) continue;
+      best = t; out.goal = gg;
+      out.target.set(this.pos.x + aim.x * t, 0, this.pos.z + aim.z * t);
     }
-    if (!goal) return out;
-    const A = goal.axis, B = A === 'x' ? 'z' : 'x', line = goal.sign * goal.line;
-    const lim = FIELD.goalHalfW - 0.24;
-    let tb;
-    if (this.intent.move.lengthSq() > 0.09 && Math.abs(aim[A]) > 0.1) tb = this.pos[B] + aim[B] * ((line - this.pos[A]) / aim[A]);
-    else {
-      // no stick: the far post
-      if (this._farFor !== goal.team || Math.abs(this.pos[B]) > 0.3) { this._farFor = goal.team; this._far = -Math.sign(this.pos[B] || (Math.random() - 0.5)); }
-      tb = this._far * (lim - 0.1);
-    }
-    tb = clamp(tb, -lim, lim);
-    out.goal = goal; out.tb = tb;
-    out.target.set(A === 'x' ? line : tb, 0, A === 'x' ? tb : line);
-    const ideal = this._r.copy(out.target).sub(this.pos).setY(0).normalize();
-    // outside the sweet window, the pull onto the spot fades with distance
-    const assist = out.perfect ? 1 : (0.55 * this.skill + 0.2) * clamp(1.25 - goalDist / 14, 0.2, 1) * (type === 'chip' ? 0.6 : 1);
-    out.aim.lerp(ideal, assist).normalize();
     return out;
   }
 
@@ -747,7 +829,7 @@ export class Athlete {
     const p = power;
     let speed, elev;
     if (type === 'chip') { speed = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p; elev = 0.6 + 0.14 * p; }
-    else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * p; elev = 0.03 + 0.15 * Math.pow(p, 1.4); }
+    else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * Math.pow(p, 1.15); elev = 0.02 + 0.15 * Math.pow(p, 1.4); }
     speed += Math.max(0, this.vel.x * aim.x + this.vel.z * aim.z) * 0.55;
     return { speed, elev };
   }
@@ -802,20 +884,20 @@ export class Athlete {
     const aim = this.aimDir(new THREE.Vector3());
     // a pass: aimed at where the team-mate will be, weighted to arrive at a comfortable pace
     let passSpeed = 0;
-    this.passTarget = null;
-    if (type === 'pass') {
-      const rcv = this.passTo && !this.passTo.out ? this.passTo : this.mate;
-      if (rcv) {
-        const t = this.passLead(rcv, power);
-        aim.set(t.x - this.pos.x, 0, t.z - this.pos.z).normalize();
-        passSpeed = t.speed; this.passTarget = rcv;
-      } else passSpeed = 6 + 10 * power;            // team-mate gone: a plain ground pass where I'm aiming
+    // no auto-targeting: the ball goes exactly where I aimed. If that's at a team-mate
+    // (or the player a CPU meant to feed), they know it's coming for them.
+    this.passTarget = this.intendTo && !this.intendTo.out ? this.intendTo : null;
+    this.intendTo = null; this.passTo = null;
+    if (!this.passTarget) {
+      let best = 0.975;
+      for (const o of g.live) {
+        if (o === this || !(g.sameSide(o.team, this.team))) continue;
+        const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+        const c = (dx * aim.x + dz * aim.z) / (d || 1);
+        if (d < 26 && c > best) { best = c; this.passTarget = o; }
+      }
     }
-    this.passTo = null;
-
-    // aim: shots at a goal go to the spot on the goal line the player picked
-    let perfect = false;
-    if (type === 'kick' || type === 'chip') { const plan = this.shotPlan(type, power, aim); aim.copy(plan.aim); perfect = plan.perfect; }
+    const perfect = power >= Athlete.SWEET[0] && power <= Athlete.SWEET[1];
     if (perfect) { this.lastPerfectT = g.time; g.onPerfect?.(this); }
 
     const dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : type === 'pass' ? 0.86 - 0.08 * power : 1.0);
@@ -823,8 +905,8 @@ export class Athlete {
     this.kick = { type, power, aim, t: 0, dur, contactT, hit: false, resolved: false, passSpeed, perfect, over: power > 0.95 && type !== 'pass' };
     this.receive = null; this.touch = null;
     this.kick.approach = this._approachTarget(contactT, aim);
-    // passes are side-footed; a hard driven pass swings more like a strike
-    if (type === 'pass') this.char.play(power > 0.75 ? 'kick' : 'pass', { duration: dur, side: 'Right', amp: power > 0.75 ? 0.75 : 0.8 + 0.4 * power });
+    // a soft 爆射 (a pass, really) is side-footed; anything firmer is a full swing
+    if (type === 'kick' && power < 0.3) this.char.play('pass', { duration: dur, side: 'Right', amp: 0.8 + 0.6 * power });
     else this.char.play(type, { duration: dur, side: 'Right', amp: 0.85 + 0.3 * power });
   }
 
@@ -888,7 +970,7 @@ export class Athlete {
     const volley = ball.pos.y > R + 0.15;
     if (k.type === 'chip') { speed = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p; elev = 0.6 + 0.14 * p; }
     else if (k.type === 'pass') { speed = k.passSpeed; elev = 0.02; }
-    else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * p; elev = 0.03 + 0.15 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
+    else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * Math.pow(p, 1.15); elev = 0.02 + 0.15 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
     if (k.type !== 'pass') {
       speed *= 0.82 + 0.18 * quality;
       // running into the shot adds pace
@@ -903,18 +985,19 @@ export class Athlete {
     }
     // shot error: rushed / mishit / power shots are less accurate
     const gd = this.goalTarget().distanceTo(this.pos);
-    let err = ((1 - quality) * 0.1 + Math.pow(p, 3) * 0.06 * (1.3 - this.skill) + gd * 0.004) * (Math.random() * 2 - 1);
+    // small errors only: the aim is the player's, so the ball should go (almost) exactly there
+    let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
     if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so
     if (k.perfect && footTouched) { err *= 0.15; slice *= 0.3; }       // pin-point: released in the sweet window
     if (k.over) { err *= 1.6; elev += Math.random() * 0.05; }          // leathered: power over control
-    const dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.06);
+    const dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.025);
     elev += (1 - quality) * 0.05 * (Math.random() - 0.3);
     const vel = dir.multiplyScalar(Math.cos(elev) * speed); vel.y = Math.sin(elev) * speed;
     // spin: lateral input at contact = curl; chips get backspin, drives get topspin
     const m = this.intent.move;
     const r2 = new THREE.Vector3().crossVectors(k.aim, UP);
     let lateral = 0;
-    if (m.lengthSq() > 0.09) lateral = -(m.x * r2.x + m.y * r2.z); // + = towards player's left
+    void m;                                                         // the stick aims; curl comes from where the boot met the ball
     const spin = new THREE.Vector3();
     if (k.type === 'pass') { lateral = 0; spin.addScaledVector(r2, -speed / R * 0.5); }   // rolls true along the grass
     else if (k.type === 'chip') spin.addScaledVector(r2, 28 * p);
@@ -923,11 +1006,12 @@ export class Athlete {
     ball.strike(vel, spin, this);
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
+    if (p > 0.4 && footTouched) g.fx('spark', ball.pos, { x: dir.x, z: dir.z }, Math.round(4 + 10 * p), 2 + 4 * p);
     if (p > 0.55 && k.type !== 'pass') g.fx('grass', this.char.anklePos('L', this._fb), { x: -k.aim.x, z: -k.aim.z }, Math.round(6 + 10 * p), 1.5 + p * 2);
     g.rumble(this, k.type === 'pass' ? 0.2 + 0.3 * p : 0.3 + 0.7 * p, 60 + 80 * p);
     this.char.face('aa', 0.6 + 0.4 * p); this.faceT = 0.35;
     this.lastTouchTime = g.time;
-    this.passT = k.type === 'pass' ? g.time : -1;
+    this.passT = this.passTarget ? g.time : -1;
     this.touchCD = 0.35;
     this.stats.touches++;
     g.onKick(this, k, vel);
@@ -944,7 +1028,7 @@ export class Athlete {
     const dist = Math.hypot(rx, rz);
     const by = ball.pos.y;
 
-    if (this.stunT > 0 || this.slide || this.dive || this.poke) { this.dribbling = false; return false; }
+    if (this.stunT > 0 || this.slide || this.dive || this.poke || (this.header && !this.header.hit)) { this.dribbling = false; return false; }
     this._anticipate();
     // a receive in progress owns the ball's arrival
     if (this.receive) {

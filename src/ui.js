@@ -10,23 +10,23 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const HELP = {
   1: `<div class="grid">
     <b>移动</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键</span>
-    <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚；在蓄力条的金色框里松手是“完美”射门，球会准确飞向球门上的瞄准圈</span>
-    <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
+    <b>爆射</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚。轻点就是传球（往队友那边踢），蓄满是重炮。没有自动瞄准：踢向哪里由你定</span>
+    <b>瞄准</b><span>蓄力时第一下的方向定大方向，之后按住方向键准星会慢慢转过去，点一下转一点，想打多细的角度都行（手柄、手机摇杆直接指哪打哪）。地上的小点和门上的圈是球会飞的路线</span>
+    <b>完美射门</b><span>在蓄力条的金色框里松手：没有偏差；蓄满再松手力量最大但会偏、会往上飘</span>
+    <b>挑射 / 传中</b><span>按住 <kbd>K</kbd> 蓄力，挑高球，可以吊门，也可以把球传到队友头上让他顶</span>
+    <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：跑过去起跳头球（朝方向键方向）；按 <kbd>K</kbd> 是轻轻往上顶</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
-    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
-    <b>传球（2v2）</b><span>按住 <kbd>I</kbd> 或 <kbd>Q</kbd> 蓄力：轻点传到队友脚下，蓄得越满越快，并且传到队友前面的空当（直塞）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
-    <b>过人</b><span>带球时按 <kbd>L</kbd>：不按方向是踩单车假动作，左右是拉球变向，向后是拉回转身，冲刺加向前是趟球加速</span>
-    <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
-    <b>弧线球</b><span>出脚瞬间按住左右方向</span>
+    <b>闪身步</b><span>带球时按 <kbd>L</kbd>：带着球往旁边一闪（按左右选方向，不按就往远离对手的一边），这一下对手很难抢到</span>
+    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 抢断/过人 · <kbd>R</kbd> 传球 · <kbd>左Shift</kbd> 冲刺</span>
-    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 抢断/过人 · <kbd>,</kbd> 传球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 爆射/头球 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
+    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 爆射/头球 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 抢断/闪身步 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b>P3</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 抢断/过人 · Y 传球 · RB 冲刺</span>
+    <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 爆射/头球 · B 挑射 · X 抢断/闪身步 · RB 冲刺</span>
     <b>P4</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 抢断 / 冲刺 / 传球</b><span>右侧按钮；带球时“抢断”键是过人动作（传球只在 2v2 里有）</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>挑射 / 抢断 / 冲刺</b><span>右侧按钮；带球时“抢断”键是闪身步</span></div>',
 };
 
 export class UI {
@@ -111,7 +111,7 @@ export class UI {
       ? '超大的近似圆形乐园，球门更宽，满场圆形机关（每种四个，对每个人都一样）：传送门、加速圈、漩涡、命运转盘、弹力蘑菇、弹跳垫。随便一脚，球可能从意想不到的地方进门。镜头跟着你走，左下角有小地图。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
-      ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。可以传球给队友；最后还有人在场的一队获胜。`
+      ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';
   }
 
@@ -144,11 +144,11 @@ export class UI {
     const solo = this.settings.net === 'online' || this.settings.humans === 1;
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     const team = this.game.teamMode;
-    $('#btn-pass').classList.toggle('hidden', !team);
+    $('#btn-pass').classList.add('hidden');
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 抢断 · 带球时过人　·　<b>Shift</b> 冲刺${team ? '　·　<b>I</b> 传球' : ''}`
-      : `P1：WASD + F/G${team ? ' · R 传球' : ''}　·　P2：方向键 + Enter / /${team ? ' · , 传球' : ''}　·　P3/P4：手柄${team ? ' · Y 传球' : ''}`;
+      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　蓄力时按方向键微调瞄准`
+      : `P1：WASD + F 爆射 / G 挑射 / H 抢断　·　P2：方向键 + Enter / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
   }
