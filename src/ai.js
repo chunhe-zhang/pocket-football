@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { FIELD, OBSTACLES, inOwnBox } from './config.js';
 
 const LEVELS = {
-  // 超简单: slow, sleepy, never tackles, rarely saves, shoots softly and wide
-  baby:   { react: 0.6,  speed: 0.62, sprint: false, skill: 0.1,  shootRange: 5,   charge: [0.2, 0.45], aimNoise: 0.9, guard: 0.1, noTackle: true },
+  // 女朋友模式: slow, sleepy, never tackles, rarely saves, shoots softly and wide (and feeds the humans)
+  gf:   { react: 0.6,  speed: 0.62, sprint: false, skill: 0.1,  shootRange: 5,   charge: [0.2, 0.45], aimNoise: 0.9, guard: 0.1, noTackle: true },
   easy:   { react: 0.45, speed: 0.72, sprint: false, skill: 0.25, shootRange: 6.5, charge: [0.3, 0.6], aimNoise: 0.6, guard: 0.25, noTackle: true },
   normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.65 },
   hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 0.9 },
@@ -29,7 +29,7 @@ export class AIController {
   }
 
   setLevel(level) {
-    this.cfg = LEVELS[level] || LEVELS.baby;
+    this.cfg = LEVELS[level] || LEVELS.normal;
     this.me.skill = this.cfg.skill;
     this.me.speedMul = this.cfg.speed;
   }

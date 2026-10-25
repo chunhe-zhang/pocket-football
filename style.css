@@ -154,3 +154,6 @@ button { font-family: var(--font); cursor: pointer; }
 #scoreboard .chip.out { opacity: 0.45; filter: grayscale(0.7); }
 #scoreboard .chip .ga { color: #ff8fb6; }
 #scoreboard .chip.out .ga { font-size: 15px; color: var(--muted); }
+
+.level-note { margin: -2px 0 6px 62px; font-size: 14px; }
+@media (max-width: 560px) { .level-note { margin-left: 0; } }

@@ -30,7 +30,7 @@ const HELP = {
 export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
-    this.settings = { net: 'local', humans: 1, level: 'baby', assist: 'on', duration: 180 };
+    this.settings = { net: 'local', humans: 1, level: 'gf', duration: 180 };
     this.muted = false;
     this.tags = [];
     this.net = null;
@@ -142,7 +142,7 @@ export class UI {
     this.sfx.init();
     this._showHud();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, assist: this.settings.assist !== 'off', slots: null });
+    this.game.start({ humans: this.settings.humans, level: this.settings.level, slots: null });
   }
 
   again() {
@@ -337,6 +337,6 @@ export class UI {
     const g = this.game;
     g.role = 'host'; g.net = this.net;
     for (const a of g.athletes) a.puppet = false;
-    g.start({ level: this.settings.level, assist: this.settings.assist !== 'off', slots });
+    g.start({ level: this.settings.level, slots });
   }
 }

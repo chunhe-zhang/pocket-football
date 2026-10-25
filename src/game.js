@@ -56,7 +56,7 @@ export class Game {
     this.possessor = null;
     this.possession = TEAMS.map(() => 0);
     this.crowdT = 0;
-    this.settings = { humans: 1, level: 'baby', assist: true, duration: MATCH.defaultDuration };
+    this.settings = { humans: 1, level: 'gf', duration: MATCH.defaultDuration };
     this.role = 'local';
     this.net = null;
     this.events = []; this.snapT = 0;
@@ -160,7 +160,7 @@ export class Game {
       a.label = s.name || TEAMS[i].cpuName;
       if (s.kind === 'local') return { type: 'human', scheme: s.scheme };
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
-      return { type: 'ai', ai: new AIController(a, this, level, assist !== false) };
+      return { type: 'ai', ai: new AIController(a, this, level, level === 'gf') };
     });
     this.endShown = false;
     this.ui.onScore(this);
@@ -463,7 +463,7 @@ export class Game {
   remoteLeft(id) {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
-    this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level, this.settings.assist !== false) };
+    this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level, this.settings.level === 'gf') };
     this.athletes[i].label = TEAMS[i].cpuName;
     if (this.slots?.[i]) this.slots[i] = { kind: 'cpu', name: TEAMS[i].cpuName };
   }
