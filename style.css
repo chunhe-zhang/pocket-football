@@ -79,7 +79,8 @@ button { font-family: var(--font); cursor: pointer; }
 #tags .meter { position: relative; width: 110px; height: 14px; margin: 4px auto 0; border-radius: 7px; background: rgba(0, 0, 0, 0.55);
   overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.85); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
 #tags .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7cf07c 0, #ffd23f 55px, #ff4d3d 110px); background-size: 110px 100%; }
-#tags .meter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255, 255, 255, 0.5); }
+#tags .meter::after { content: ""; position: absolute; top: -1px; bottom: -1px; left: 62%; width: 24%; border: 2px solid rgba(255, 210, 63, 0.98); border-radius: 4px; box-sizing: border-box; }
+#tags .meter.pass::after { display: none; }
 #tags .meter .pct { position: absolute; inset: 0; font-size: 11px; line-height: 10px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
 #tags .meter.full { animation: meterpulse 0.18s infinite alternate; }
 @keyframes meterpulse { from { border-color: #fff; } to { border-color: #ff4d3d; box-shadow: 0 0 12px rgba(255, 77, 61, 0.9); } }
@@ -172,3 +173,13 @@ button { font-family: var(--font); cursor: pointer; }
 #tags .meter.pass i { background: linear-gradient(90deg, #8af0a6 0, #4fd8ff 60px, #3d7dff 110px); background-size: 110px 100%; }
 #tags .meter.pass.full { animation-name: meterpulsepass; }
 @keyframes meterpulsepass { from { border-color: #fff; } to { border-color: #4fd8ff; box-shadow: 0 0 12px rgba(79, 216, 255, 0.9); } }
+
+.map-note { margin: -2px 0 6px 62px; font-size: 14px; }
+@media (max-width: 560px) { .map-note { margin-left: 0; } }
+#minimap { position: absolute; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); width: 240px; height: 132px;
+  border-radius: 12px; background: rgba(10, 16, 30, 0.45); border: 1px solid rgba(255, 255, 255, 0.25); pointer-events: none; }
+@media (max-width: 700px) { #minimap { width: 168px; height: 92px; left: auto; right: 10px; top: 64px; bottom: auto; } }
+#tags .perf { display: none; font-size: 16px; font-weight: 800; color: #ffd23f; text-shadow: 0 0 6px rgba(0, 0, 0, 0.7), 0 1px 0 #6a4a00; letter-spacing: 1px; }
+#tags .tag-el.perfect .perf { display: block; animation: perfpop 0.7s ease-out; }
+@keyframes perfpop { from { transform: scale(1.6); opacity: 0; } 20% { transform: scale(1); opacity: 1; } to { transform: translateY(-8px); opacity: 0.2; } }
+@media (prefers-reduced-motion: reduce) { #tags .tag-el.perfect .perf { animation: none; } }

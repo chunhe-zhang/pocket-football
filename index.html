@@ -37,13 +37,14 @@
     <div id="tags"></div>
     <div id="keyhint"></div>
     <div id="netinfo"></div>
+    <canvas id="minimap" class="hidden" width="240" height="132"></canvas>
   </div>
 
   <div id="touch" class="hidden">
     <div id="stick"><div id="knob"></div></div>
     <div id="btns">
       <button id="btn-pass" class="hidden">传球</button>
-      <button id="btn-tackle">铲球</button>
+      <button id="btn-tackle">抢断</button>
       <button id="btn-sprint">冲刺</button>
       <button id="btn-lob">挑射</button>
       <button id="btn-kick">射门</button>
@@ -70,6 +71,14 @@
           </div>
         </div>
         <p class="note" id="humans-note">其余位置由电脑补上。</p>
+        <div class="row">
+          <label>地图</label>
+          <div class="seg" data-key="map">
+            <button data-v="classic" class="on">经典圆场</button>
+            <button data-v="track">花园跑道</button>
+          </div>
+        </div>
+        <p class="note map-note">小巧的圆形球场，一眼看全场。</p>
         <div class="row">
           <label>模式</label>
           <div class="seg" data-key="mode">
@@ -121,6 +130,14 @@
       <p class="note" id="lobby-hint">把房间号发给朋友，在“联机对战”里输入即可加入。</p>
       <ol id="lobby-slots"></ol>
       <div id="lobby-host">
+        <div class="row">
+          <label>地图</label>
+          <div class="seg" data-key="map">
+            <button data-v="classic" class="on">经典圆场</button>
+            <button data-v="track">花园跑道</button>
+          </div>
+        </div>
+        <p class="note map-note">小巧的圆形球场，一眼看全场。</p>
         <div class="row">
           <label>模式</label>
           <div class="seg" data-key="mode">

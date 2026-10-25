@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, SIDES } from './config.js';
+import { TEAMS, SIDES, FIELD, GOALS } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -10,28 +10,29 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const HELP = {
   1: `<div class="grid">
     <b>移动</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键</span>
-    <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚</span>
+    <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚；在蓄力条的金色框里松手是“完美”射门，球会准确飞向球门上的瞄准圈</span>
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>传球（2v2）</b><span>按住 <kbd>I</kbd> 或 <kbd>Q</kbd> 蓄力：轻点传到队友脚下，蓄得越满越快，并且传到队友前面的空当（直塞）</span>
-    <b>铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲；在自己的禁区里变成扑救，按方向键选扑哪边</span>
+    <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
+    <b>过人</b><span>带球时按 <kbd>L</kbd>：不按方向是踩单车假动作，左右是拉球变向，向后是拉回转身，冲刺加向前是趟球加速</span>
     <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 铲球 · <kbd>R</kbd> 传球 · <kbd>左Shift</kbd> 冲刺</span>
-    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 铲球 · <kbd>,</kbd> 传球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 抢断/过人 · <kbd>R</kbd> 传球 · <kbd>左Shift</kbd> 冲刺</span>
+    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 抢断/过人 · <kbd>,</kbd> 传球 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b>P3</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 铲球 · Y 传球 · RB 冲刺</span>
+    <b>P3</b><span>手柄 1：左摇杆移动 · A 射门 · B 挑射 · X 抢断/过人 · Y 传球 · RB 冲刺</span>
     <b>P4</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 铲球 / 冲刺 / 传球</b><span>右侧按钮（传球只在 2v2 里有）</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动</span><b>射门</b><span>按住蓄力，松开出脚</span><b>挑射 / 抢断 / 冲刺 / 传球</b><span>右侧按钮；带球时“抢断”键是过人动作（传球只在 2v2 里有）</span></div>',
 };
 
 export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
-    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', duration: 180 };
+    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', map: 'classic', duration: 180 };
     this.muted = false;
     this.tags = [];
     this.net = null;
@@ -48,6 +49,7 @@ export class UI {
         const key = seg.dataset.key, v = b.dataset.v;
         for (const s2 of document.querySelectorAll(`.seg[data-key="${key}"]`)) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
         this.settings[key] = key === 'duration' || key === 'humans' ? +v : v;
+        if (key === 'map' && this.game.state === 'menu') this.game.applyMap(v);
         this._refreshMenu();
         if (this.lobby) { this._renderLobby(); this._broadcastLobby(); }
       });
@@ -80,7 +82,7 @@ export class UI {
     const tagsRoot = $('#tags');
     this.tags = game.athletes.map((a, i) => {
       const el = document.createElement('div'); el.className = 'tag-el';
-      el.innerHTML = `<span class="lbl" style="background:${TEAMS[i].css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
+      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${TEAMS[i].css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
       tagsRoot.appendChild(el);
       return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
     });
@@ -105,6 +107,9 @@ export class UI {
     const people = online ? (this.lobby ? this.lobby.slots.length : (this.guestLobby?.slots.length || 1)) : n;
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
+    for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
+      ? '超大的花园跑道：绕着两座花坛跑，中间有近路；加速带顺着箭头跑更快，弹力蘑菇会把球弹飞，踩到弹跳垫的球会飞起来。镜头跟着你走，左下角有小地图。'
+      : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。可以传球给队友；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';
@@ -142,7 +147,7 @@ export class UI {
     $('#btn-pass').classList.toggle('hidden', !team);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球（禁区内扑救）　·　<b>Shift</b> 冲刺${team ? '　·　<b>I</b> 传球' : ''}`
+      ? `按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 抢断 · 带球时过人　·　<b>Shift</b> 冲刺${team ? '　·　<b>I</b> 传球' : ''}`
       : `P1：WASD + F/G${team ? ' · R 传球' : ''}　·　P2：方向键 + Enter / /${team ? ' · , 传球' : ''}　·　P3/P4：手柄${team ? ' · Y 传球' : ''}`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -151,7 +156,7 @@ export class UI {
   startLocal() {
     this.sfx.init();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, slots: null });
+    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, slots: null });
     this._showHud();
   }
 
@@ -228,6 +233,7 @@ export class UI {
       t.pct.textContent = showing ? `${isPass ? '传球 ' : ''}${Math.round(cv * 100)}%` : '';
       t.meter.classList.toggle('full', showing && cv >= 1);
       t.meter.classList.toggle('pass', isPass);
+      t.el.classList.toggle('perfect', g.time - (a.lastPerfectT ?? -9) < 0.7);
       const type = g.controllers[i]?.type;
       const human = type === 'human' || type === 'remote' || type === 'self';
       t.stam.style.display = human ? '' : 'none';
@@ -235,9 +241,55 @@ export class UI {
       t.stam.classList.toggle('low', a.exhausted || a.stamina < 0.25);
       t.el.classList.toggle('me', type === 'self' || (type === 'human' && g.role !== 'guest'));
     });
+    this._drawMinimap(g);
     const ni = $('#netinfo');
     if (this.net && g.role !== 'local') ni.textContent = `房间 ${this.net.code} · 延迟 ${Math.round(this.net.rtt)} ms`;
     else ni.textContent = '';
+  }
+
+  onMapChange(g) { $('#minimap').classList.toggle('hidden', !(g.bigMap && g.state !== 'menu')); }
+
+  /** big map: a little overview of the whole arena */
+  _drawMinimap(g) {
+    const cv = $('#minimap');
+    const show = g.bigMap && g.state !== 'menu';
+    cv.classList.toggle('hidden', !show);
+    if (!show) return;
+    const ctx = cv.getContext('2d'), W = cv.width, Hh = cv.height, pad = 8;
+    const s = Math.min((W - 2 * pad) / (2 * FIELD.hx), (Hh - 2 * pad) / (2 * FIELD.hz));
+    const X = (x) => W / 2 + x * s, Y = (z) => Hh / 2 + z * s;
+    ctx.clearRect(0, 0, W, Hh);
+    // arena
+    const r = FIELD.cornerR * s, x0 = X(-FIELD.hx), x1 = X(FIELD.hx), y0 = Y(-FIELD.hz), y1 = Y(FIELD.hz);
+    ctx.beginPath(); ctx.moveTo(x0 + r, y0); ctx.arcTo(x1, y0, x1, y1, r); ctx.arcTo(x1, y1, x0, y1, r); ctx.arcTo(x0, y1, x0, y0, r); ctx.arcTo(x0, y0, x1, y0, r); ctx.closePath();
+    ctx.fillStyle = 'rgba(90, 190, 95, 0.75)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // flower beds
+    ctx.lineCap = 'round';
+    for (const c of FIELD.islands) { ctx.strokeStyle = '#ff9ecb'; ctx.lineWidth = c.r * 2 * s; ctx.beginPath(); ctx.moveTo(X(c.ax), Y(c.az)); ctx.lineTo(X(c.bx), Y(c.bz)); ctx.stroke(); }
+    ctx.lineCap = 'butt';
+    for (const p of FIELD.pads) { ctx.fillStyle = 'rgba(80,220,255,0.7)'; ctx.save(); ctx.translate(X(p.x), Y(p.z)); ctx.rotate(Math.atan2(p.dz, p.dx)); ctx.fillRect(-p.len * s / 2, -p.wid * s / 2, p.len * s, p.wid * s); ctx.restore(); }
+    for (const b of FIELD.bumpers) { ctx.fillStyle = '#ff4f7b'; ctx.beginPath(); ctx.arc(X(b.x), Y(b.z), Math.max(2, b.r * s * 1.4), 0, Math.PI * 2); ctx.fill(); }
+    for (const sp of FIELD.springs) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(X(sp.x), Y(sp.z), Math.max(2, sp.r * s), 0, Math.PI * 2); ctx.fill(); }
+    // goals
+    for (const go of GOALS) {
+      const open = g.alive ? g.alive[go.team] : true;
+      ctx.strokeStyle = open ? TEAMS[go.team].css : 'rgba(255,255,255,0.5)'; ctx.lineWidth = 4;
+      const gw = FIELD.goalHalfW * s;
+      ctx.beginPath();
+      if (go.axis === 'x') { ctx.moveTo(X(go.centre.x), Y(-FIELD.goalHalfW)); ctx.lineTo(X(go.centre.x), Y(FIELD.goalHalfW)); }
+      else { ctx.moveTo(X(-FIELD.goalHalfW), Y(go.centre.z)); ctx.lineTo(X(FIELD.goalHalfW), Y(go.centre.z)); }
+      ctx.stroke(); void gw;
+    }
+    // players and ball
+    g.athletes.forEach((a, i) => {
+      if (a.out) return;
+      const type = g.controllers[i]?.type, me = type === 'self' || (type === 'human' && g.role !== 'guest');
+      ctx.fillStyle = TEAMS[i].css; ctx.beginPath(); ctx.arc(X(a.pos.x), Y(a.pos.z), me ? 5 : 4, 0, Math.PI * 2); ctx.fill();
+      if (me) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+      if (g.side) { ctx.fillStyle = SIDES[g.side[i]].css; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(SIDES[g.side[i]].icon, X(a.pos.x), Y(a.pos.z) - 7); }
+    });
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(X(g.ball.pos.x), Y(g.ball.pos.z), 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
 
   showEnd(g, res) {
@@ -326,7 +378,10 @@ export class UI {
     const g = this.game;
     if (d.k === 'lobby') {
       this.guestLobby.slots = d.slots;
-      if (d.settings) { this.guestLobby.settings = d.settings; }
+      if (d.settings) {
+        this.guestLobby.settings = d.settings;
+        if (d.settings.map && g.state === 'menu') g.applyMap(d.settings.map);   // preview the host's map
+      }
       if (g.role === 'guest') { g.role = 'local'; g.state = 'menu'; }
       this._hideAll(); this._showLobby(false);
       return;
@@ -368,7 +423,7 @@ export class UI {
 
   _broadcastLobby() {
     if (!this.lobby || !this.net) return;
-    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind }) => ({ name, id, kind })), settings: { level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, duration: this.settings.duration } });
+    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind }) => ({ name, id, kind })), settings: { level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration } });
   }
 
   startOnline() {
@@ -378,7 +433,7 @@ export class UI {
     const g = this.game;
     g.role = 'host'; g.net = this.net;
     for (const a of g.athletes) a.puppet = false;
-    g.start({ level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, slots });
+    g.start({ level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, slots });
     this._showHud();
   }
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, OBSTACLES, inOwnBox } from './config.js';
+import { FIELD, OBSTACLES, inOwnBox, clampToArena, pushOutOfObstacles, route, islandBlocks } from './config.js';
 
 const LEVELS = {
   // 女朋友模式: slow, sleepy, never tackles, rarely saves, shoots softly and wide (and feeds the humans)
@@ -10,7 +10,9 @@ const LEVELS = {
 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const H = FIELD.half;
+const _q = new THREE.Vector3();
+/** a reachable spot: inside the boards, off the flower beds and bumpers */
+const legal = (x, z, m = 0.6) => { _q.set(x, 0, z); clampToArena(_q, m); pushOutOfObstacles(_q, m); return _q; };
 
 /**
  * Free-for-all CPU: everyone defends their own goal and may score in any other.
@@ -27,6 +29,14 @@ export class AIController {
     this.shooting = null;
     this.dodge = 0; this.dodgeSide = 1;
     this.passCD = 0;        // don't ping the ball straight back the moment it arrives
+    this.fooledT = 0;       // bit on a feint: stepping the wrong way
+  }
+
+  /** a feint worked on me: lurch the wrong way for a moment */
+  fool(carrier, side) {
+    if (Math.random() < this.cfg.skill * 0.35) return;     // the best defenders sometimes read it
+    this.fooledT = 0.42 + 0.4 * (1 - this.cfg.skill);
+    this.fooledBy = carrier; this.fooledSide = -side * (Math.random() < 0.8 ? 1 : -1);
   }
 
   setLevel(level) {
@@ -52,6 +62,17 @@ export class AIController {
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
     // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
     if (this._keeper()) return;
+    // sold a dummy: lurch the wrong way for a moment
+    if (this.fooledT > 0) {
+      this.fooledT -= dt;
+      const c = this.fooledBy;
+      if (c) {
+        const dx = c.pos.x - me.pos.x, dz = c.pos.z - me.pos.z, l = Math.hypot(dx, dz) || 1;
+        it.move.set((-dz / l) * this.fooledSide + (dx / l) * 0.2, (dx / l) * this.fooledSide + (dz / l) * 0.2);
+        it.sprint = false; it.tackle = false;
+        return;
+      }
+    }
     this.think -= dt;
     this.passCD = Math.max(0, this.passCD - dt);
     if (g.possessor !== me) this._had = false; else if (!this._had) { this._had = true; this.passCD = Math.max(this.passCD, 0.5); }
@@ -60,6 +81,8 @@ export class AIController {
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
     it.sprint = this.plan.sprint && this.cfg.sprint;
     it.tackle = this.plan.tackle; this.plan.tackle = false;
+    // a skill move reads the stick on the frame the button goes down
+    if (this.plan.skillMove) { it.move.copy(this.plan.skillMove); it.sprint = !!this.plan.skillSprint; this.plan.skillMove = null; }
   }
 
   _isHuman(a) {
@@ -128,7 +151,11 @@ export class AIController {
 
   _goTo(x, z, arriveR = 0.6, sprintBeyond = 3) {
     const me = this.me, plan = this.plan;
-    plan.move.set(x - me.pos.x, z - me.pos.z);
+    // round the islands rather than into them
+    const r = FIELD.islands.length ? route(me.pos.x, me.pos.z, x, z) : null;
+    const via = r && (r.x !== x || r.z !== z);
+    plan.move.set((via ? r.x : x) - me.pos.x, (via ? r.z : z) - me.pos.z);
+    if (via) { const l = plan.move.length() || 1; plan.move.divideScalar(l); plan.sprint = (r.dist > sprintBeyond); return; }
     const d = plan.move.length();
     if (d < 0.05) plan.move.set(0, 0); else plan.move.normalize().multiplyScalar(Math.min(1, d / arriveR));
     plan.sprint = d > sprintBeyond;
@@ -149,6 +176,12 @@ export class AIController {
         const rcv = this._humanToFeed();
         if (rcv) {
           const d = Math.hypot(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z);
+          if (d > 2 && islandBlocks(me.pos.x, me.pos.z, rcv.pos.x, rcv.pos.z, 0.25)) {
+            // a flower bed in the way: carry it round first
+            const r = route(me.pos.x, me.pos.z, rcv.pos.x, rcv.pos.z);
+            plan.move.set(r.x - me.pos.x, r.z - me.pos.z).normalize();
+            return;
+          }
           if (d > 2) {
             me.passTo = rcv;
             this._passTo(rcv, 0.08 + Math.random() * 0.15);
@@ -168,9 +201,27 @@ export class AIController {
         const rx = a.pos.x - me.pos.x, rz = a.pos.z - me.pos.z, d = Math.hypot(rx, rz);
         return d < 2.6 && (rx * to.x + rz * to.y) / (d * gd || 1) > 0.5;
       });
-      if (gd < this.cfg.shootRange && (Math.random() < 0.55 || gd < 6)) { this._shoot(tgt, gd, false); return; }
-      if (blocker && gd < 13 && Math.random() < 0.1 * this.cfg.skill) { this._shoot(tgt, gd, true); return; }
+      const clear = !islandBlocks(me.pos.x, me.pos.z, tgt.x, tgt.z, 0.2);
+      if (clear && gd < this.cfg.shootRange && (Math.random() < 0.55 || gd < 6)) { this._shoot(tgt, gd, false); return; }
+      if (clear && blocker && gd < 13 && Math.random() < 0.1 * this.cfg.skill) { this._shoot(tgt, gd, true); return; }
       const dir = to.clone().normalize();
+      if (!clear) { const r = route(me.pos.x, me.pos.z, tgt.x, tgt.z); dir.set(r.x - me.pos.x, r.z - me.pos.z).normalize(); }
+      // a defender closing in: try to beat them with a skill move
+      if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.skill && Math.random() < 0.22 + 0.4 * this.cfg.skill) {
+        const bx = blocker.pos.x - me.pos.x, bz = blocker.pos.z - me.pos.z, bd = Math.hypot(bx, bz);
+        const f = me.forward, r = me.rightDir;
+        const sideOf = (bx * r.x + bz * r.z) > 0 ? -1 : 1;   // go away from the side they're on
+        const roll = Math.random();
+        const mv = new THREE.Vector2();
+        let sprint = false;
+        if (bd < 1.3 && roll < 0.25) mv.set(-f.x, -f.z);                                         // drag-back
+        else if (roll < 0.7) mv.set(r.x * sideOf, r.z * sideOf);                                 // drag past
+        else if (bd > 1.6 && me.stamina > 0.4 && roll < 0.85) { mv.set(f.x, f.z); sprint = true; } // knock it past
+        // else: step-over feint (no stick)
+        plan.skillMove = mv; plan.skillSprint = sprint; plan.tackle = true;
+        plan.move.copy(mv.lengthSq() ? mv : new THREE.Vector2(f.x, f.z));
+        return;
+      }
       if (blocker) {
         if (this.dodge <= 0) {
           const side = (blocker.pos.x - me.pos.x) * -dir.y + (blocker.pos.z - me.pos.z) * dir.x > 0 ? -1 : 1;
@@ -180,8 +231,10 @@ export class AIController {
         plan.sprint = true;
       }
       this.dodge -= this.cfg.react;
-      if (Math.abs(me.pos.z) > H - 1.2) dir.y -= Math.sign(me.pos.z) * 0.6;
-      if (Math.abs(me.pos.x) > H - 1.2) dir.x -= Math.sign(me.pos.x) * 0.6;
+      // keep off the boards and the flower beds while running with it
+      const ahead = legal(me.pos.x + dir.x * 1.4, me.pos.z + dir.y * 1.4, 1.0);
+      dir.set(ahead.x - me.pos.x, ahead.z - me.pos.z);
+      if (dir.lengthSq() < 0.04) dir.set(-me.pos.x, -me.pos.z);
       plan.move.copy(dir.normalize());
       return;
     }
@@ -205,8 +258,8 @@ export class AIController {
         if (Math.abs(denom) > 0.01) {
           const t = ((lineX - bp.x) * home.inward.x + (lineZ - bp.z) * home.inward.z) / denom;
           if (t > 0 && t < 2) {
-            const px = clamp(bp.x + v.x * t, -H + 0.5, H - 0.5), pz = clamp(bp.z + v.z * t, -H + 0.5, H - 0.5);
-            this._goTo(px, pz, 0.3, 0.5); plan.sprint = true; return;
+            const q = legal(bp.x + v.x * t, bp.z + v.z * t, 0.5);
+            this._goTo(q.x, q.z, 0.3, 0.5); plan.sprint = true; return;
           }
         }
       }
@@ -234,14 +287,25 @@ export class AIController {
     if (fresh && lt === me && me.passedTo && !me.passedTo.out) { this._support(me.passedTo); return; }
     // 2v2: my team-mate has it: get into space to receive (unless the ball is by my own goal)
     if (mateHas && toHome > 6) { this._support(holder); return; }
-    if (!this.cfg.noTackle && !mateHas && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
-      const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
-      plan.move.set(tx, tz).normalize();
-      plan.tackle = true;
-      return;
+    if (!this.cfg.noTackle && !mateHas && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
+      // is the carrier shielding it? the better defenders step round to the ball's side first
+      const bx = bp.x - holder.pos.x, bz = bp.z - holder.pos.z, mx = me.pos.x - holder.pos.x, mz = me.pos.z - holder.pos.z;
+      const shielded = (bx * mx + bz * mz) / ((Math.hypot(bx, bz) * Math.hypot(mx, mz)) || 1) < -0.2;
+      if (shielded && this.cfg.skill > 0.6 && Math.random() < this.cfg.skill * 0.8) {
+        const bl = Math.hypot(bx, bz) || 1;
+        const q = legal(bp.x + (bx / bl) * 0.7, bp.z + (bz / bl) * 0.7, 0.4);
+        this._goTo(q.x, q.z, 0.3, 1.5); return;
+      }
+      const poke = myDist < 1.6;
+      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.2 * this.cfg.skill)) {
+        const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
+        plan.move.set(tx, tz).normalize();
+        plan.tackle = true;
+        return;
+      }
     }
     // the ball has been sitting dead for a while: the nearest CPU goes and gets it
-    if ((g.idleT || 0) > 4 && !holder) {
+    if ((g.idleT || 0) > (g.bigMap ? 2.5 : 4) && !holder) {
       const cpus = g.live.filter((a) => !this._isHuman(a));
       const nearest = cpus.reduce((x, y) => (Math.hypot(bp.x - y.pos.x, bp.z - y.pos.z) < Math.hypot(bp.x - x.pos.x, bp.z - x.pos.z) ? y : x), cpus[0]);
       if (nearest === me) { this._goTo(bp.x, bp.z, 0.3, 2); return; }
@@ -270,7 +334,8 @@ export class AIController {
     const dist = clamp(toHome * 0.35, 1.2, 4.5);
     const dx = bp.x - home.centre.x, dz = bp.z - home.centre.z, dl = Math.hypot(dx, dz) || 1;
     const gx = home.centre.x + (dx / dl) * dist, gz = home.centre.z + (dz / dl) * dist;
-    this._goTo(clamp(gx, -H + 0.6, H - 0.6), clamp(gz, -H + 0.6, H - 0.6), 0.8, 3.5);
+    const q = legal(gx, gz, 0.6);
+    this._goTo(q.x, q.z, 0.8, 3.5);
   }
 
   /** an opponent standing close to the line from a to b */
@@ -289,7 +354,7 @@ export class AIController {
     if (!mate || this.passCD > 0 || mate.stunT > 0 || mate.slide || mate.dive) return false;
     const d = Math.hypot(mate.pos.x - me.pos.x, mate.pos.z - me.pos.z);
     if (d < 2.5 || d > 16) return false;
-    if (this._laneBlocked(me.pos.x, me.pos.z, mate.pos.x, mate.pos.z)) return false;
+    if (this._laneBlocked(me.pos.x, me.pos.z, mate.pos.x, mate.pos.z) || islandBlocks(me.pos.x, me.pos.z, mate.pos.x, mate.pos.z, 0.2)) return false;
     const mt = mate.goalTarget();
     const mateGd = Math.hypot(mt.x - mate.pos.x, mt.z - mate.pos.z);
     const pressure = g.live.some((o) => o !== mate && o !== me && Math.hypot(o.pos.x - me.pos.x, o.pos.z - me.pos.z) < 1.8);
@@ -322,8 +387,8 @@ export class AIController {
     const ahead = Math.min(6, gl * 0.6);
     let x = holder.pos.x + (gx / gl) * ahead + (-gz / gl) * side * 3.2;
     let z = holder.pos.z + (gz / gl) * ahead + (gx / gl) * side * 3.2;
-    x = clamp(x, -H + 1.2, H - 1.2); z = clamp(z, -H + 1.2, H - 1.2);
-    this._goTo(x, z, 0.8, 3);
+    const q = legal(x, z, 1.2);
+    this._goTo(q.x, q.z, 0.8, 3);
   }
 
   /** charge a pass to `rcv` up to `power` (0..1), then let go */

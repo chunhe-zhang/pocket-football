@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES } from './config.js';
 
-const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
-const CC = H - RC; // centre of each corner arc, on both axes
+const { goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;   // goals are the same on every map
 
 function canvasTex(w, h, draw, { repeat = null } = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -30,36 +29,53 @@ function drawBlossom(g, x, y, r, petal, centre, petals = 5, rot = Math.random() 
 const PINKS = ['#ff9ecb', '#ffb7d9', '#ff7fb8', '#ffd1e6', '#f7a8ff', '#ffffff', '#ff6fa8'];
 
 function grassTexture() {
-  const margin = 1.6, ppm = 80;
-  const wm = (H + margin) * 2;
-  const w = Math.round(wm * ppm);
-  const tex = canvasTex(w, w, (g) => {
-    const stripes = 12;
+  const HX = FIELD.hx, HZ = FIELD.hz, RC = FIELD.cornerR;
+  const margin = 1.6;
+  const wmx = (HX + margin) * 2, wmz = (HZ + margin) * 2;
+  const ppm = Math.min(80, 4096 / Math.max(wmx, wmz));
+  const w = Math.round(wmx * ppm), hgt = Math.round(wmz * ppm);
+  const tex = canvasTex(w, hgt, (g) => {
+    const stripes = Math.round(wmx / 2.1);
     for (let i = 0; i < stripes; i++) {
       g.fillStyle = i % 2 ? '#4fbf55' : '#5ccc5e';
-      g.fillRect((i * w) / stripes, 0, w / stripes + 1, w);
+      g.fillRect((i * w) / stripes, 0, w / stripes + 1, hgt);
     }
-    for (let j = 0; j < stripes; j++) {
+    const stripesZ = Math.round(wmz / 2.1);
+    for (let j = 0; j < stripesZ; j++) {
       g.fillStyle = j % 2 ? 'rgba(255,255,255,0.03)' : 'rgba(0,40,0,0.035)';
-      g.fillRect(0, (j * w) / stripes, w, w / stripes + 1);
+      g.fillRect(0, (j * hgt) / stripesZ, w, hgt / stripesZ + 1);
     }
-    const img = g.getImageData(0, 0, w, w), d = img.data;
+    const img = g.getImageData(0, 0, w, hgt), d = img.data;
     for (let p = 0; p < d.length; p += 4) {
       const n = (Math.random() - 0.5) * 18;
       d[p] += n * 0.5; d[p + 1] += n; d[p + 2] += n * 0.4;
     }
     g.putImageData(img, 0, 0);
-    const X = (x) => (x + H + margin) * ppm, Y = (z) => (z + H + margin) * ppm;
+    const X = (x) => (x + HX + margin) * ppm, Y = (z) => (z + HZ + margin) * ppm;
     // the turf follows the rounded boards; outside it the meadow shows through
-    const rounded = (half, r) => {
+    const rounded = (hx, hz, r) => {
       g.beginPath();
-      g.moveTo(X(-half + r), Y(-half)); g.lineTo(X(half - r), Y(-half)); g.arcTo(X(half), Y(-half), X(half), Y(-half + r), r * ppm);
-      g.lineTo(X(half), Y(half - r)); g.arcTo(X(half), Y(half), X(half - r), Y(half), r * ppm);
-      g.lineTo(X(-half + r), Y(half)); g.arcTo(X(-half), Y(half), X(-half), Y(half - r), r * ppm);
-      g.lineTo(X(-half), Y(-half + r)); g.arcTo(X(-half), Y(-half), X(-half + r), Y(-half), r * ppm);
+      g.moveTo(X(-hx + r), Y(-hz)); g.lineTo(X(hx - r), Y(-hz)); g.arcTo(X(hx), Y(-hz), X(hx), Y(-hz + r), r * ppm);
+      g.lineTo(X(hx), Y(hz - r)); g.arcTo(X(hx), Y(hz), X(hx - r), Y(hz), r * ppm);
+      g.lineTo(X(-hx + r), Y(hz)); g.arcTo(X(-hx), Y(hz), X(-hx), Y(hz - r), r * ppm);
+      g.lineTo(X(-hx), Y(-hz + r)); g.arcTo(X(-hx), Y(-hz), X(-hx + r), Y(-hz), r * ppm);
       g.closePath();
     };
-    g.save(); rounded(H + 0.35, RC + 0.35); g.globalCompositeOperation = 'destination-in'; g.fillStyle = '#000'; g.fill(); g.restore();
+    g.save(); rounded(HX + 0.35, HZ + 0.35, RC + 0.35); g.globalCompositeOperation = 'destination-in'; g.fillStyle = '#000'; g.fill(); g.restore();
+    // track map: dashed lane line round the islands, like a running track
+    if (FIELD.islands.length) {
+      g.save();
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 0.08 * ppm; g.setLineDash([0.9 * ppm, 0.7 * ppm]);
+      const mid = (FIELD.islands[0].r + FIELD.hz) / 2;
+      rounded(HX - (HZ - mid), mid, Math.max(1, RC - (HZ - mid))); g.stroke();
+      g.restore();
+      // soft shadow at the foot of each flower bed
+      for (const c of FIELD.islands) {
+        g.save(); g.strokeStyle = 'rgba(30,70,30,0.35)'; g.lineWidth = 0.5 * ppm; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(X(c.ax), Y(c.az)); g.lineTo(X(c.bx), Y(c.bz));
+        g.lineWidth = (c.r * 2 + 0.4) * ppm; g.stroke(); g.restore();
+      }
+    }
     // team-coloured goal areas
     for (const goal of GOALS) {
       const t = TEAMS[goal.team];
@@ -77,7 +93,7 @@ function grassTexture() {
     }
     // boundary
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.09 * ppm;
-    rounded(H, RC); g.stroke();
+    rounded(HX, HZ, RC); g.stroke();
     // rainbow centre circle
     const segs = 72, cr = 2.4 * ppm;
     g.lineWidth = 0.18 * ppm;
@@ -88,7 +104,7 @@ function grassTexture() {
     g.fillStyle = '#fff'; g.beginPath(); g.arc(X(0), Y(0), 0.16 * ppm, 0, Math.PI * 2); g.fill();
 
   });
-  return { tex, size: wm };
+  return { tex, sx: wmx, sz: wmz };
 }
 
 function netTexture(cells = 8) {
@@ -145,10 +161,37 @@ export class Pitch {
     this.seals = {};
     this.wind = { value: 0 };
     this.excite = 0;
-    this._build();
+    this.pulses = [];
+    this._buildStatic();
+    this.setMap();
   }
 
-  _build() {
+  /** (re)build everything that depends on the arena shape */
+  setMap() {
+    if (this.root) {
+      this.scene.remove(this.root);
+      this.root.traverse((o) => { o.geometry?.dispose?.(); for (const m of [].concat(o.material || [])) { m.map?.dispose?.(); m.dispose?.(); } });
+    }
+    this.root = new THREE.Group();
+    this.scene.add(this.root);
+    this.goalNets = {}; this.seals = {}; this.pulses = []; this.padMats = []; this.bumperMeshes = []; this.springMeshes = [];
+    const { tex, sx, sz } = grassTexture();
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, alphaTest: 0.5 }));
+    pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true; this.root.add(pitch);
+    this._buildBoards();
+    this._buildPlanters();
+    this._buildFence();
+    for (const g of GOALS) { this._buildGoal(g); this._buildSeal(g); }
+    this._buildIslands();
+    this._buildBumpers();
+    this._buildPads();
+    this._buildSprings();
+    this._buildFlowers();
+    this._buildTrees();
+    if (!this.petals) this._buildPetals();
+  }
+
+  _buildStatic() {
     const s = this.scene;
 
     // pastel sky dome
@@ -170,36 +213,25 @@ export class Pitch {
     }, { repeat: [40, 40] });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ map: meadowTex }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; s.add(ground);
-
-    // pitch
-    const { tex, size } = grassTexture();
-    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, alphaTest: 0.5 }));
-    pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true; s.add(pitch);
-
-    this._buildBoards();
-    this._buildPlanters();
-    this._buildFence();
-    for (const g of GOALS) { this._buildGoal(g); this._buildSeal(g); }
-    this._buildFlowers();
-    this._buildTrees();
-    this._buildPetals();
   }
 
   _buildBoards() {
-    const BH = FIELD.boardH, T = 0.12;
+    const BH = FIELD.boardH, T = 0.12, RC = FIELD.cornerR, CX = FIELD.hx - RC, CZ = FIELD.hz - RC;
     const tex = flowerBoardTexture();
     const face = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 });
     const top = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const withRepeat = (len) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 5, 1); const f = face.clone(); f.map = t; f.emissiveMap = t; return f; };
-    const seg = CC - GW; // from the goal post to where the corner curve starts
     for (const goal of GOALS) {
+      // from the goal post to where the corner curve starts
+      const seg = (goal.axis === 'x' ? CZ : CX) - GW;
+      if (seg < 0.05) continue;
       for (const z of [-1, 1]) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(seg, BH, T), [top, top, top, top, withRepeat(seg), withRepeat(seg)]);
         m.castShadow = true; m.receiveShadow = true;
         const along = z * (GW + seg / 2);
-        if (goal.axis === 'x') { m.rotation.y = Math.PI / 2; m.position.set(goal.sign * (H + T / 2), BH / 2, along); }
-        else m.position.set(along, BH / 2, goal.sign * (H + T / 2));
-        this.scene.add(m);
+        if (goal.axis === 'x') { m.rotation.y = Math.PI / 2; m.position.set(goal.sign * (goal.line + T / 2), BH / 2, along); }
+        else m.position.set(along, BH / 2, goal.sign * (goal.line + T / 2));
+        this.root.add(m);
       }
     }
     // curved corner boards (quarter cylinders) with a white rim
@@ -209,13 +241,13 @@ export class Pitch {
       const geo = new THREE.CylinderGeometry(RC + T / 2, RC + T / 2, BH, 32, 1, true, start, Math.PI / 2);
       const mat = withRepeat(arcLen); mat.side = THREE.DoubleSide;
       const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true;
-      m.position.set(sx * CC, BH / 2, sz * CC); this.scene.add(m);
+      m.position.set(sx * CX, BH / 2, sz * CZ); this.root.add(m);
       const rim = new THREE.Mesh(new THREE.TorusGeometry(RC + T / 2, 0.04, 6, 32, Math.PI / 2), top);
       rim.rotation.x = Math.PI / 2; rim.rotation.z = -start + Math.PI / 2 - Math.PI / 2;
-      rim.position.set(sx * CC, BH, sz * CC);
+      rim.position.set(sx * CX, BH, sz * CZ);
       // torus arc runs from +x towards +y in its own plane; after the x-rotation +y maps to -z
       rim.rotation.set(Math.PI / 2, 0, Math.atan2(sz, sx) - Math.PI / 4);
-      this.scene.add(rim);
+      this.root.add(rim);
     }
   }
 
@@ -226,7 +258,7 @@ export class Pitch {
     const soil = new THREE.MeshLambertMaterial({ color: 0x7a5236 });
     const leaf = new THREE.MeshLambertMaterial({ color: 0x5fb35f, flatShading: true });
     const petals = [0xff6fa8, 0xffd23f, 0xffffff, 0xb17cff, 0xff9ecb].map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
-    for (const [i, o] of OBSTACLES.entries()) {
+    for (const [i, o] of OBSTACLES.filter((x) => !x.bumper).entries()) {
       const g = new THREE.Group(); g.position.set(o.x, 0, o.z);
       const body = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r * 0.82, o.h, 28), pot);
       body.position.y = o.h / 2; body.castShadow = true; body.receiveShadow = true; g.add(body);
@@ -243,38 +275,39 @@ export class Pitch {
         const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.075, 0), petals[(k + i) % petals.length]);
         fl.position.set(Math.cos(a) * rr * 1.05, o.h + 0.16 + (k % 2) * 0.05, Math.sin(a) * rr * 1.05); g.add(fl);
       }
-      this.scene.add(g);
+      this.root.add(g);
     }
   }
 
   _buildFence() {
     // light netting on the far side and both ends (straight runs + curved corners); camera side open
     const tex = netTexture(10); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    const FH = 2.6, base = FIELD.boardH, h = FH - base;
+    const FH = 2.6, base = FIELD.boardH, h = FH - base, RC = FIELD.cornerR, CX = FIELD.hx - RC, CZ = FIELD.hz - RC, HX = FIELD.hx, HZ = FIELD.hz;
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
     const postMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const net = (geo, len) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 0.6, h / 0.6); const m = new THREE.Mesh(geo, mat.clone()); m.material.map = t; return m; };
-    const panel = (len, x, z, rotY) => { const m = net(new THREE.PlaneGeometry(len, h), len); m.position.set(x, base + h / 2, z); m.rotation.y = rotY; this.scene.add(m); };
-    panel(2 * CC, 0, -H - 0.2, 0);
-    panel(2 * CC, -H - 0.2, 0, Math.PI / 2);
-    panel(2 * CC, H + 0.2, 0, Math.PI / 2);
+    const panel = (len, x, z, rotY) => { if (len < 0.1) return; const m = net(new THREE.PlaneGeometry(len, h), len); m.position.set(x, base + h / 2, z); m.rotation.y = rotY; this.root.add(m); };
+    panel(2 * CX, 0, -HZ - 0.2, 0);
+    panel(2 * CZ, -HX - 0.2, 0, Math.PI / 2);
+    panel(2 * CZ, HX + 0.2, 0, Math.PI / 2);
     const arcLen = (Math.PI / 2) * (RC + 0.2);
     for (const [sx, sz] of [[-1, -1], [1, -1]]) {
       const start = Math.atan2(sx, sz) - Math.PI / 4;
       const m = net(new THREE.CylinderGeometry(RC + 0.2, RC + 0.2, h, 24, 1, true, start, Math.PI / 2), arcLen);
-      m.position.set(sx * CC, base + h / 2, sz * CC); this.scene.add(m);
+      m.position.set(sx * CX, base + h / 2, sz * CZ); this.root.add(m);
     }
     const postGeo = new THREE.CylinderGeometry(0.04, 0.04, FH, 8);
-    const post = (x, z) => { const p = new THREE.Mesh(postGeo, postMat); p.position.set(x, FH / 2, z); this.scene.add(p); };
-    for (let a = -CC; a <= CC + 0.01; a += 3) { post(a, -H - 0.22); post(-H - 0.22, a); post(H + 0.22, a); }
+    const post = (x, z) => { const p = new THREE.Mesh(postGeo, postMat); p.position.set(x, FH / 2, z); this.root.add(p); };
+    for (let a = -CX; a <= CX + 0.01; a += 3) post(a, -HZ - 0.22);
+    for (let a = -CZ; a <= CZ + 0.01; a += 3) { post(-HX - 0.22, a); post(HX + 0.22, a); }
     for (const [sx, sz] of [[-1, -1], [1, -1]]) for (const k of [0.25, 0.5, 0.75]) {
       const ang = Math.atan2(sx, sz) - Math.PI / 4 + k * Math.PI / 2;
-      post(sx * CC + Math.sin(ang) * (RC + 0.22), sz * CC + Math.cos(ang) * (RC + 0.22));
+      post(sx * CX + Math.sin(ang) * (RC + 0.22), sz * CZ + Math.cos(ang) * (RC + 0.22));
     }
   }
 
   _buildGoal(goal) {
-    const g = new THREE.Group();
+    const g = new THREE.Group(), H = goal.line;
     // built as if the goal were on the +x side, then rotated into place
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
     const tint = new THREE.MeshStandardMaterial({ color: TEAMS[goal.team].color, roughness: 0.5 });
@@ -304,7 +337,7 @@ export class Pitch {
     // rotate +x into this goal's outward direction
     const out = { x: -goal.inward.x, z: -goal.inward.z };
     g.rotation.y = Math.atan2(-out.z, out.x);
-    this.scene.add(g);
+    this.root.add(g);
     g.updateMatrixWorld(true);
     this.goalNets[goal.team] = { back: backNet, rest: backNet.geometry.attributes.position.array.slice(), bulge: 0, at: new THREE.Vector3() };
   }
@@ -332,7 +365,7 @@ export class Pitch {
     g.position.set(goal.centre.x - goal.inward.x * 0.08, 0, goal.centre.z - goal.inward.z * 0.08);
     g.rotation.y = along === 'z' ? 0 : Math.PI / 2;
     g.visible = false;
-    this.scene.add(g);
+    this.root.add(g);
     this.seals[goal.team] = { g, h: Hh, k: 0, target: 0 };
   }
 
@@ -368,7 +401,7 @@ export class Pitch {
     merge(geo, geo2);
     this.flowerMats = [];
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
-    const perVariant = 1300;
+    const area = (FIELD.hx + 15) * (FIELD.hz + 15) * 4, perVariant = Math.min(3200, Math.round(1300 * area / 2916));
     for (const [petal, centre] of variants) {
       const mat = new THREE.MeshLambertMaterial({ map: flowerSprite(petal, centre), alphaTest: 0.5, side: THREE.DoubleSide });
       mat.onBeforeCompile = (sh) => {
@@ -383,22 +416,22 @@ export class Pitch {
       const inst = new THREE.InstancedMesh(both, mat, perVariant);
       let n = 0, guard = 0;
       while (n < perVariant && guard++ < perVariant * 20) {
-        p.set(rnd(-H - 15, H + 15), 0, rnd(-H - 15, H + 15));
-        const ex = Math.max(Math.abs(p.x), Math.abs(p.z));
+        p.set(rnd(-FIELD.hx - 15, FIELD.hx + 15), 0, rnd(-FIELD.hz - 15, FIELD.hz + 15));
+        const ex = Math.max(Math.abs(p.x) - FIELD.hx, Math.abs(p.z) - FIELD.hz);
         if (insideArena(p.x, p.z, 0.45)) continue;
         // keep the space behind the goals clear
         if (GOALS.some((g) => {
           const along = g.axis === 'x' ? Math.abs(p.z) : Math.abs(p.x), out = g.axis === 'x' ? p.x * g.sign : p.z * g.sign;
-          return along < GW + 0.5 && out > H - 0.1 && out < H + GD + 0.5;
+          return along < GW + 0.5 && out > g.line - 0.1 && out < g.line + GD + 0.5;
         })) continue;
         // denser close to the pitch
-        if (Math.random() > 1.25 - (ex - H) / 16) continue;
+        if (Math.random() > 1.25 - ex / 16) continue;
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI);
         const k = rnd(0.7, 1.35); sc.set(k, k * rnd(0.85, 1.2), k);
         m4.compose(p, q, sc); inst.setMatrixAt(n++, m4);
       }
       inst.count = n;
-      this.scene.add(inst);
+      this.root.add(inst);
     }
   }
 
@@ -407,8 +440,8 @@ export class Pitch {
     const blossomMats = [0xffb3d1, 0xff9cc6, 0xffc9e0].map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
     const spots = [];
     for (let i = 0; i < 22; i++) {
-      const a = (i / 22) * Math.PI * 2 + rnd(-0.08, 0.08), r = rnd(H + 13, H + 22);
-      spots.push([Math.cos(a) * r, Math.sin(a) * r]);
+      const a = (i / 22) * Math.PI * 2 + rnd(-0.08, 0.08), k = rnd(13, 22);
+      spots.push([Math.cos(a) * (FIELD.hx + k), Math.sin(a) * (FIELD.hz + k)]);
     }
     for (const [x, z] of spots) {
       const tree = new THREE.Group();
@@ -421,7 +454,7 @@ export class Pitch {
       }
       tree.position.set(x, 0, z); tree.rotation.y = Math.random() * 6;
       const s = rnd(0.9, 1.3); tree.scale.setScalar(s);
-      this.scene.add(tree);
+      this.root.add(tree);
     }
   }
 
@@ -429,7 +462,7 @@ export class Pitch {
     const n = 420, pos = new Float32Array(n * 3);
     this.petalData = [];
     for (let i = 0; i < n; i++) {
-      const p = { x: rnd(-H - 14, H + 14), y: rnd(0, 9), z: rnd(-H - 14, H + 14), sx: rnd(0.2, 0.6), sy: rnd(0.25, 0.6), ph: Math.random() * 10 };
+      const p = { x: rnd(-26, 26), y: rnd(0, 9), z: rnd(-26, 26), sx: rnd(0.2, 0.6), sy: rnd(0.25, 0.6), ph: Math.random() * 10 };
       this.petalData.push(p);
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -445,14 +478,160 @@ export class Pitch {
     let i = 0;
     for (const x of [-1, 1]) for (const z of [-1, 1]) {
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 6), poleMat);
-      pole.position.set(x * (H - 0.05), 0.65, z * (H - 0.05)); this.scene.add(pole);
+      pole.position.set(x * (FIELD.hx - 0.05), 0.65, z * (FIELD.hz - 0.05)); this.root.add(pole);
       const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.28), new THREE.MeshLambertMaterial({ color: hues[i++], side: THREE.DoubleSide }));
-      flag.position.set(x * (H - 0.05) + 0.21, 1.15, z * (H - 0.05)); this.scene.add(flag);
+      flag.position.set(x * (FIELD.hx - 0.05) + 0.21, 1.15, z * (FIELD.hz - 0.05)); this.root.add(flag);
     }
+  }
+
+  // ---- track map features ----------------------------------------------------------------
+  /** raised flower beds the players run round, with a light net above so the ball's wall reads */
+  _buildIslands() {
+    if (!FIELD.islands.length) return;
+    const tex = flowerBoardTexture();
+    for (const c of FIELD.islands) {
+      const ex = c.bx - c.ax, ez = c.bz - c.az, L = Math.hypot(ex, ez), ang = Math.atan2(ez, ex);
+      const shape = new THREE.Shape();
+      shape.moveTo(-L / 2, -c.r); shape.lineTo(L / 2, -c.r);
+      shape.absarc(L / 2, 0, c.r, -Math.PI / 2, Math.PI / 2, false);
+      shape.lineTo(-L / 2, c.r);
+      shape.absarc(-L / 2, 0, c.r, Math.PI / 2, Math.PI * 1.5, false);
+      const BH = 0.55;
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: BH, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2, curveSegments: 24 });
+      geo.rotateX(-Math.PI / 2);
+      const t = tex.clone(); t.needsUpdate = true; t.repeat.set((2 * L + 2 * Math.PI * c.r) / 5, 1);
+      const side = new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.22 });
+      const topMat = new THREE.MeshLambertMaterial({ color: 0x6cbf5c });
+      const bed = new THREE.Mesh(geo, [topMat, side]);
+      bed.castShadow = true; bed.receiveShadow = true;
+      const g = new THREE.Group(); g.add(bed);
+      g.position.set((c.ax + c.bx) / 2, 0, (c.az + c.bz) / 2); g.rotation.y = -ang;
+      // flowers and a couple of blossom trees on top
+      const fl = [0xff6fa8, 0xffd23f, 0xffffff, 0xb17cff, 0xff9ecb].map((col) => new THREE.MeshLambertMaterial({ color: col, flatShading: true }));
+      const leaf = new THREE.MeshLambertMaterial({ color: 0x4fa64f, flatShading: true });
+      const bushGeo = new THREE.IcosahedronGeometry(0.28, 0), flGeo = new THREE.IcosahedronGeometry(0.12, 0);
+      for (let k = 0; k < Math.round(L * c.r * 1.6); k++) {
+        let x, z; do { x = rnd(-L / 2 - c.r, L / 2 + c.r); z = rnd(-c.r, c.r); } while (Math.hypot(Math.max(0, Math.abs(x) - L / 2), z) > c.r - 0.35);
+        const b = new THREE.Mesh(bushGeo, leaf); b.position.set(x, BH + 0.15, z); b.scale.setScalar(rnd(0.7, 1.3)); g.add(b);
+        const f = new THREE.Mesh(flGeo, fl[k % fl.length]); f.position.set(x + rnd(-0.15, 0.15), BH + 0.38, z + rnd(-0.15, 0.15)); g.add(f);
+      }
+      const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a5a44 }), bl = new THREE.MeshLambertMaterial({ color: 0xffb3d1, flatShading: true });
+      for (const x of [-L / 2, L / 2]) {
+        const tr = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 2.2, 7), trunkMat); trunk.position.y = 1.1; tr.add(trunk);
+        for (let k = 0; k < 4; k++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(rnd(0.9, 1.3), 1), bl); b.position.set(rnd(-0.7, 0.7), 2.4 + rnd(0, 0.8), rnd(-0.7, 0.7)); b.castShadow = true; tr.add(b); }
+        tr.position.set(x, BH, 0); g.add(tr);
+      }
+      // translucent net fence on the bed's edge
+      const ntex = netTexture(10); ntex.wrapS = ntex.wrapT = THREE.RepeatWrapping;
+      const perim = 2 * L + 2 * Math.PI * c.r, NH = 1.8;
+      ntex.repeat.set(perim / 0.6, NH / 0.6);
+      const pts = [];
+      for (let k = 0; k <= 64; k++) {
+        const u = k / 64 * perim;
+        let x, z;
+        if (u < L) { x = -L / 2 + u; z = -c.r; }
+        else if (u < L + Math.PI * c.r) { const a = -Math.PI / 2 + (u - L) / c.r; x = L / 2 + Math.cos(a) * c.r; z = Math.sin(a) * c.r; }
+        else if (u < 2 * L + Math.PI * c.r) { x = L / 2 - (u - L - Math.PI * c.r); z = c.r; }
+        else { const a = Math.PI / 2 + (u - 2 * L - Math.PI * c.r) / c.r; x = -L / 2 + Math.cos(a) * c.r; z = Math.sin(a) * c.r; }
+        pts.push(new THREE.Vector3(x, 0, z));
+      }
+      const pos = [], uv = [], idx = [];
+      pts.forEach((q, k) => { pos.push(q.x, BH, q.z, q.x, BH + NH, q.z); uv.push(k / 64, 0, k / 64, 1); if (k) { const a = (k - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); } });
+      const ng = new THREE.BufferGeometry();
+      ng.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); ng.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); ng.setIndex(idx);
+      const net = new THREE.Mesh(ng, new THREE.MeshBasicMaterial({ map: ntex, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+      g.add(net);
+      this.root.add(g);
+    }
+  }
+
+  /** pinball mushrooms: red caps with white spots that flash and bounce when hit */
+  _buildBumpers() {
+    const capTex = canvasTex(256, 128, (g, w, h) => {
+      g.fillStyle = '#ff4f7b'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#fff'; for (let i = 0; i < 26; i++) { g.beginPath(); g.arc(rnd(0, w), rnd(0, h * 0.75), rnd(7, 14), 0, Math.PI * 2); g.fill(); }
+    });
+    for (const b of FIELD.bumpers) {
+      const g = new THREE.Group(); g.position.set(b.x, 0, b.z);
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(b.r * 0.92, b.r, 0.62, 24), new THREE.MeshStandardMaterial({ color: 0xfff4e6, roughness: 0.6 }));
+      stem.position.y = 0.31; stem.castShadow = true; g.add(stem);
+      const capMat = new THREE.MeshStandardMaterial({ map: capTex, roughness: 0.4, emissive: 0xff2e6a, emissiveIntensity: 0 });
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(b.r * 1.45, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), capMat);
+      cap.position.y = 0.58; cap.scale.y = 0.75; cap.castShadow = true; g.add(cap);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(b.r * 1.02, 0.05, 8, 28), new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffd23f, emissiveIntensity: 0.4 }));
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.12; g.add(ring);
+      this.root.add(g);
+      this.bumperMeshes.push({ x: b.x, z: b.z, g, capMat, k: 0 });
+    }
+  }
+
+  /** speed strips: glowing chevrons that scroll in the direction they push */
+  _buildPads() {
+    for (const p of FIELD.pads) {
+      const tex = canvasTex(128, 256, (g, w, h) => {
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = 'rgba(80,220,255,0.35)'; g.fillRect(0, 0, w, h);
+        g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 16; g.lineJoin = 'round';
+        for (const y0 of [40, 168]) { g.beginPath(); g.moveTo(18, y0 + 50); g.lineTo(w / 2, y0); g.lineTo(w - 18, y0 + 50); g.stroke(); }
+      });
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, p.len / 2.2);
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(p.wid, p.len), mat);
+      m.rotation.x = -Math.PI / 2; m.rotation.z = Math.atan2(p.dx, -p.dz) + Math.PI;
+      m.position.set(p.x, 0.02, p.z); m.renderOrder = 1;
+      // the plane's +y (chevron tip) must point along the push direction
+      m.rotation.set(-Math.PI / 2, 0, Math.atan2(-p.dx, -p.dz));
+      this.root.add(m);
+      const edge = new THREE.Mesh(new THREE.PlaneGeometry(p.wid + 0.2, p.len + 0.2), new THREE.MeshBasicMaterial({ color: 0x2bb8ff, transparent: true, opacity: 0.25, depthWrite: false }));
+      edge.rotation.copy(m.rotation); edge.position.set(p.x, 0.015, p.z); this.root.add(edge);
+      this.padMats.push(tex);
+    }
+  }
+
+  /** bounce pads: a sprung disc that squashes when it launches the ball */
+  _buildSprings() {
+    for (const s of FIELD.springs) {
+      const g = new THREE.Group(); g.position.set(s.x, 0, s.z);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(s.r, s.r * 1.05, 0.08, 32), new THREE.MeshStandardMaterial({ color: 0x3b3a52, roughness: 0.6 }));
+      base.position.y = 0.04; g.add(base);
+      const top = new THREE.Group(); g.add(top);
+      for (let k = 0; k < 3; k++) {
+        const coil = new THREE.Mesh(new THREE.TorusGeometry(s.r * 0.55, 0.035, 6, 24), new THREE.MeshStandardMaterial({ color: 0xc8c8d8, metalness: 0.6, roughness: 0.3 }));
+        coil.rotation.x = Math.PI / 2; coil.position.y = 0.1 + k * 0.05; top.add(coil);
+      }
+      const discTex = canvasTex(128, 128, (c, w) => {
+        for (let r = 6; r >= 1; r--) { c.fillStyle = r % 2 ? '#ffd23f' : '#ff5f9e'; c.beginPath(); c.arc(w / 2, w / 2, (r / 6) * (w / 2 - 2), 0, Math.PI * 2); c.fill(); }
+      });
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.9, s.r * 0.9, 0.06, 32), [new THREE.MeshStandardMaterial({ color: 0xff5f9e }), new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }), new THREE.MeshStandardMaterial({ color: 0xff5f9e })]);
+      disc.position.y = 0.27; top.add(disc);
+      this.root.add(g);
+      this.springMeshes.push({ x: s.x, z: s.z, top, k: 0 });
+    }
+  }
+
+  /** a bumper or bounce pad reacting to the ball */
+  pulse(kind, x, z) {
+    const list = kind === 'bumper' ? this.bumperMeshes : this.springMeshes;
+    let best = null, bd = 2;
+    for (const m of list) { const d = Math.hypot(m.x - x, m.z - z); if (d < bd) { bd = d; best = m; } }
+    if (best) best.k = 1;
   }
 
   update(dt, t) {
     this.time = t;
+    for (const tex of this.padMats || []) tex.offset.y -= dt * 1.6;
+    for (const b of this.bumperMeshes || []) {
+      if (b.k <= 0) continue;
+      b.k = Math.max(0, b.k - dt * 3.5);
+      const s = 1 + Math.sin(b.k * Math.PI) * 0.18;
+      b.g.scale.set(s, 1 + (s - 1) * 0.5, s); b.capMat.emissiveIntensity = b.k * 1.2;
+    }
+    for (const sp of this.springMeshes || []) {
+      if (sp.k <= 0) continue;
+      sp.k = Math.max(0, sp.k - dt * 3);
+      sp.top.position.y = Math.sin((1 - sp.k) * Math.PI) * 0.18 * sp.k;
+    }
     for (const s of Object.values(this.seals)) {
       if (s.k !== s.target) {
         s.k += Math.sign(s.target - s.k) * Math.min(Math.abs(s.target - s.k), dt * 2.2);
@@ -469,8 +648,9 @@ export class Pitch {
       const gust = 1 + this.excite * 2.5;
       this.petalData.forEach((p, i) => {
         p.y -= p.sy * dt; p.x += (p.sx + Math.sin(t * 0.7 + p.ph) * 0.3) * dt * gust; p.z += Math.cos(t * 0.5 + p.ph) * 0.25 * dt * gust;
-        if (p.y < 0) { p.y = rnd(6, 10); p.x = rnd(-H - 14, H + 14); p.z = rnd(-H - 14, H + 14); }
-        if (p.x > H + 16) p.x -= 2 * H + 30;
+        const RX = FIELD.hx + 14, RZ = FIELD.hz + 14;
+        if (p.y < 0) { p.y = rnd(6, 10); p.x = rnd(-RX, RX); p.z = rnd(-RZ, RZ); }
+        if (p.x > RX + 2) p.x -= 2 * RX + 4;
         a[i * 3] = p.x; a[i * 3 + 1] = p.y; a[i * 3 + 2] = p.z;
       });
       this.petals.geometry.attributes.position.needsUpdate = true;

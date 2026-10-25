@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, setMap } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -11,7 +11,6 @@ import { Particles } from './fx.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const CAM_MODES = ['broadcast', 'high'];
-const H = FIELD.half;
 const SFX_EVENTS = new Set(['kick', 'touch', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd']);
 const SNAP_INTERVAL = 0.05; // host sends 20 snapshots a second
 const INTERP_DELAY = 0.12;  // guests render this far behind the newest snapshot
@@ -31,6 +30,7 @@ export class Game {
     this.sfx = this._recordingSfx(sfx);
     this.goals = GOALS;
     this.pitch = new Pitch(scene);
+    this._mapBuilt = true;            // the pitch is built for the current (classic) map
     this.ball = new Ball(scene, this.sfx);
     this.chargeFx = new ChargeFx(scene);
     this.particles = new Particles(scene);
@@ -68,6 +68,21 @@ export class Game {
   }
 
   get lives() { return MATCH.lives; }
+
+  /** switch arena: physics tables, scenery, kickoff spots */
+  applyMap(name) {
+    if (!MAPS[name]) name = 'classic';
+    if (FIELD.map === name && this._mapBuilt) return;
+    setMap(name);
+    this._mapBuilt = true;
+    this.pitch.setMap();
+    this.ball.reset(0, 0);
+    for (const a of this.athletes) a.place(0, 0, 0);
+    this.placeAll();
+    this.onMapChange?.();
+    this.ui.onMapChange?.(this);
+  }
+  get bigMap() { return FIELD.map !== 'classic'; }
   activeGoal(team) { return this.alive[team]; }
   get live() { return this.athletes.filter((a) => !a.out); }
   get teamMode() { return !!this.side; }
@@ -169,11 +184,12 @@ export class Game {
   start(settings) {
     Object.assign(this.settings, settings);
     const { level, duration } = this.settings;
+    this.applyMap(this.settings.map || 'classic');
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.possession = TEAMS.map(() => 0);
     this.clock = 0;
     this._resetElimination();
-    for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; }
+    for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; }
     let slots = this.settings.slots || this._localSlots(this.settings.humans);
     this.side = null;
     if (this.settings.mode === 'team') ({ slots, side: this.side } = this._assignTeams(slots, this.settings.pairing));
@@ -185,12 +201,12 @@ export class Game {
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
       return { type: 'ai', ai: new AIController(a, this, level, level === 'gf') };
     });
-    const mode = this.settings.mode;
+    const mode = this.settings.mode, map = FIELD.map;
     this.endShown = false;
     this.ui.onScore(this);
     this.kickoff();
     if (this.side) this.banner('2v2 组队', SIDES.map((s, k) => `${s.icon} ${s.name}：${this.athletes.filter((a) => this.side[a.team] === k).map((a) => a.label).join(' + ')}`).join('　'));
-    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })) });
+    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode, map }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })) });
   }
 
   _localSlots(humans) {
@@ -287,7 +303,7 @@ export class Game {
     // a shot if the ball is heading for an opponent's goal mouth
     for (const g of GOALS) {
       if (g.team === ath.team || this.sameSide(g.team, ath.team)) continue;
-      const A = g.axis, B = A === 'x' ? 'z' : 'x', line = g.sign * H;
+      const A = g.axis, B = A === 'x' ? 'z' : 'x', line = g.sign * g.line;
       if (Math.abs(vel[A]) < 0.1) continue;
       const t = (line - this.ball.pos[A]) / vel[A];
       if (t <= 0 || t > 3) continue;
@@ -302,6 +318,9 @@ export class Game {
   }
 
   onWhiff() {}
+
+  /** released a shot in the sweet window */
+  onPerfect(ath) { this.emit({ e: 'perfect', i: ath.team }); this.sfx.touch(); }
 
   // ---------------------------------------------------------------- update --
   update(rawDt) {
@@ -365,7 +384,7 @@ export class Game {
     this._updatePossession(dt);
     this.pitch.update(dt, this.time);
     this.particles.update(dt);
-    this.chargeFx.update(rawDt, this.athletes, this.time);
+    this.chargeFx.update(rawDt, this.athletes, this.time, this);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -391,6 +410,8 @@ export class Game {
       }
       case 'goal': if (this.state === 'play') this.goal(e.team); break;
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
+      case 'bumper': this.sfx.post(Math.min(14, e.v + 4)); this.pitch.pulse('bumper', e.x, e.z); this.emit({ e: 'pulse', k: 'bumper', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.05); break;
+      case 'spring': this.sfx.bounce(6); this.sfx.kick(0.15); this.pitch.pulse('spring', e.x, e.z); this.emit({ e: 'pulse', k: 'spring', x: e.x, z: e.z }); break;
       case 'body': {
         const a = e.who;
         if (a.completeReceive(e.part)) break;
@@ -451,8 +472,8 @@ export class Game {
     this.crowdT -= dt;
     if (this.crowdT > 0 || this.state !== 'play') return;
     this.crowdT = 0.5;
-    const edge = Math.max(Math.abs(this.ball.pos.x), Math.abs(this.ball.pos.z));
-    const near = 1 - clamp((H - edge) / 6, 0, 1);
+    // louder when the ball is near any goal
+    const near = 1 - clamp(Math.min(...GOALS.map((g) => Math.hypot(this.ball.pos.x - g.centre.x, this.ball.pos.z - g.centre.z))) / 6 - 0.3, 0, 1);
     this.sfx.crowd(0.04 + near * 0.05, 1.2);
   }
 
@@ -470,14 +491,36 @@ export class Game {
     const pos = this._v, look = new THREE.Vector3();
     if (this.state === 'menu') {
       const t = this.time * 0.05;
-      const S = H / 9;
+      const S = (this.bigMap ? FIELD.hx * 0.8 : FIELD.half) / 9;
       pos.set(Math.sin(t) * 19 * S, 8.5 * S, Math.cos(t) * 19 * S);
       look.set(0, 0.8, 0);
       const k = 1 - Math.exp(-dt * 2);
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
+    } else if (this.bigMap) {
+      // big map: follow my own player(s) and the ball, zooming out as they spread apart
+      const pts = [];
+      this.controllers.forEach((c, i) => { const a = this.athletes[i]; if (!a.out && (c.type === 'human' || c.type === 'self')) pts.push(a.pos); });
+      const b = this.ball.pos;
+      let minX, maxX, minZ, maxZ;
+      if (pts.length) {
+        minX = Math.min(...pts.map((p) => p.x)); maxX = Math.max(...pts.map((p) => p.x));
+        minZ = Math.min(...pts.map((p) => p.z)); maxZ = Math.max(...pts.map((p) => p.z));
+        // the ball pulls the view towards it, but never so far that I leave the screen
+        const bx = clamp(b.x, minX - 9, maxX + 9), bz = clamp(b.z, minZ - 6, maxZ + 6);
+        minX = Math.min(minX, bx); maxX = Math.max(maxX, bx); minZ = Math.min(minZ, bz); maxZ = Math.max(maxZ, bz);
+      } else { minX = -FIELD.hx; maxX = FIELD.hx; minZ = -FIELD.hz; maxZ = FIELD.hz; }
+      const ex = (maxX - minX) / 2 + 4.5, ez = (maxZ - minZ) / 2 + 3.5;
+      const fit = Math.max(ez / 9, (ex / 9) * (1.62 / aspect), 9.5 / 9);
+      let cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+      cx = clamp(cx, -FIELD.hx + 6, FIELD.hx - 6); cz = clamp(cz, -FIELD.hz + 4, FIELD.hz - 4);
+      if (CAM_MODES[this.camMode] === 'high') { pos.set(cx, 27 * fit, cz + 3.5 * fit); look.set(cx, 0, cz + 0.4); }
+      else { pos.set(cx, 17 * fit, cz + 17.5 * fit); look.set(cx, 0, cz + 1.3); }
+      const k = 1 - Math.exp(-dt * (this._camWarm ? 2.6 : 6));
+      this._camWarm = true;
+      this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     } else {
       // distance chosen so the pitch plus its goals fit the screen at this aspect
-      const fit = Math.max(1, 1.62 / aspect) * (H / 9);
+      const fit = Math.max(1, 1.62 / aspect) * (FIELD.half / 9);
       if (CAM_MODES[this.camMode] === 'high') { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
       else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
       // ease into the fixed spot when leaving the menu, then hold perfectly still
@@ -547,11 +590,12 @@ export class Game {
   startGuest(msg, myId) {
     this.role = 'guest';
     this.settings = { ...this.settings, ...msg.settings };
+    this.applyMap(this.settings.map || 'classic');
     this.slots = msg.slots;
     this.side = msg.side || null;
     this.mySlot = msg.slots.findIndex((s) => s.id === myId);
     this.controllers = msg.slots.map((s, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net' }));
-    this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.char.stopEmotes(); });
+    this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
     this._resetElimination();
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
@@ -633,7 +677,7 @@ export class Game {
     });
     this.pitch.update(dt, (this.time += dt));
     this.particles.update(dt);
-    this.chargeFx.update(dt, this.athletes, this.time);
+    this.chargeFx.update(dt, this.athletes, this.time, this);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -649,6 +693,8 @@ export class Game {
       case 'fx': this.particles.burst({ x: e.p[0], y: e.p[1], z: e.p[2] }, { x: e.d[0], z: e.d[1] }, e.n, e.s, e.k); break;
       case 'sq': this.ball.squash({ x: e.d[0], y: e.d[1], z: e.d[2] }, e.a); break;
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
+      case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
+      case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }
   }

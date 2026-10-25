@@ -103,6 +103,63 @@ const PASS = (c) => ({
   headUp:  [[0, 0], [c, -0.22], [1, 0]],
 });
 
+// standing tackle: a lunge onto the bent standing leg, the other boot stabbing at the ball
+const POKE = {
+  thigh:   [[0, 0], [0.2, 0.3], [0.38, 1.0], [0.6, 0.8], [1, 0]],
+  knee:    [[0, 0], [0.2, 0.9], [0.38, 0.15], [0.6, 0.3], [1, 0]],
+  legOut:  [[0, 0], [0.38, 0.3], [0.7, 0.2], [1, 0]],
+  footTurn:[[0, 0], [0.38, 0.7], [1, 0]],
+  supKnee: [[0, 0], [0.25, 0.5], [0.45, 0.72], [0.8, 0.3], [1, 0]],
+  supThigh:[[0, 0], [0.45, 0.3], [1, 0]],
+  lean:    [[0, 0], [0.38, 0.28], [0.8, 0.12], [1, 0]],
+  drop:    [[0, 0], [0.4, -0.14], [0.8, -0.05], [1, 0]],
+  twist:   [[0, 0], [0.38, 0.15], [1, 0]],
+  armOutL: [[0, 0], [0.38, 0.8], [1, 0]],
+  armOutR: [[0, 0], [0.38, 0.5], [1, 0]],
+};
+
+// step-over: the boot circles round the outside of the ball while the hips sell the fake
+const STEPOVER = {
+  legOut:  [[0, 0], [0.15, -0.35], [0.38, 0.95], [0.62, 0.45], [1, 0]],
+  thigh:   [[0, 0], [0.22, 0.8], [0.45, 0.55], [0.7, 0.15], [1, 0]],
+  knee:    [[0, 0], [0.22, 1.25], [0.45, 0.8], [1, 0]],
+  footTurn:[[0, 0], [0.3, -0.5], [0.5, 0.3], [1, 0]],
+  twist:   [[0, 0], [0.28, 0.5], [0.6, -0.35], [1, 0]],
+  roll:    [[0, 0], [0.35, 0.16], [0.7, -0.08], [1, 0]],          // sell it: lean the way you're not going
+  lean:    [[0, 0], [0.4, 0.14], [1, 0]],
+  drop:    [[0, 0], [0.4, -0.08], [0.75, -0.1], [1, 0]],
+  supKnee: [[0, 0], [0.4, 0.42], [1, 0]],
+  armOutL: [[0, 0], [0.3, 0.95], [0.6, 0.35], [1, 0]],
+  armOutR: [[0, 0], [0.3, 0.35], [0.6, 0.9], [1, 0]],
+  headUp:  [[0, 0], [0.4, -0.18], [1, 0]],
+};
+
+// drag (la croqueta): sole rolls the ball across with a little hop sideways
+const DRAG = {
+  thigh:   [[0, 0], [0.3, 0.35], [0.7, 0.2], [1, 0]],
+  knee:    [[0, 0], [0.3, 0.6], [1, 0]],
+  foot:    [[0, 0], [0.3, -0.35], [0.7, -0.2], [1, 0]],
+  legOut:  [[0, 0], [0.25, -0.2], [0.6, 0.35], [1, 0]],
+  hop:     [[0, 0], [0.4, 0.08], [0.7, 0.02], [1, 0]],
+  twist:   [[0, 0], [0.5, 0.2], [1, 0]],
+  lean:    [[0, 0], [0.4, 0.06], [1, 0]],
+  armOutL: [[0, 0], [0.4, 0.6], [1, 0]],
+  armOutR: [[0, 0], [0.4, 0.6], [1, 0]],
+};
+
+// drag-back: sole pulls the ball back, body pivots round to take it away
+const DRAGBACK = {
+  thigh:   [[0, 0], [0.2, 0.6], [0.4, 0.1], [0.6, -0.3], [1, 0]],
+  knee:    [[0, 0], [0.2, 0.7], [0.4, 0.4], [0.6, 0.6], [1, 0]],
+  foot:    [[0, 0], [0.2, -0.4], [0.45, -0.3], [1, 0]],
+  supKnee: [[0, 0], [0.4, 0.35], [0.7, 0.25], [1, 0]],
+  lean:    [[0, 0], [0.3, -0.08], [0.6, 0.15], [1, 0]],
+  twist:   [[0, 0], [0.45, 0.3], [1, 0]],
+  drop:    [[0, 0], [0.5, -0.06], [1, 0]],
+  armOutL: [[0, 0], [0.4, 0.65], [1, 0]],
+  armOutR: [[0, 0], [0.4, 0.45], [1, 0]],
+};
+
 const TOUCH = {
   thigh: [[0, 0], [0.35, 0.42], [0.6, 0.3], [1, 0]],
   knee:  [[0, 0], [0.25, 0.55], [0.45, 0.3], [1, 0]],
@@ -346,6 +403,10 @@ export class Character {
     let g;
     switch (name) {
       case 'kick': g = new Gesture('kick', opts.duration ?? ANIM.kickDuration, KICK(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
+      case 'poke': g = new Gesture('poke', opts.duration ?? 0.5, POKE, { fadeIn: 0.04, fadeOut: 0.12, ...opts }); break;
+      case 'stepover': g = new Gesture('stepover', opts.duration ?? 0.5, STEPOVER, { fadeIn: 0.05, fadeOut: 0.1, ...opts }); break;
+      case 'drag': g = new Gesture('drag', opts.duration ?? 0.34, DRAG, { fadeIn: 0.04, fadeOut: 0.1, ...opts }); break;
+      case 'dragback': g = new Gesture('dragback', opts.duration ?? 0.5, DRAGBACK, { fadeIn: 0.04, fadeOut: 0.12, ...opts }); break;
       case 'pass': g = new Gesture('pass', opts.duration ?? ANIM.kickDuration, PASS(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
       case 'chip': g = new Gesture('chip', opts.duration ?? ANIM.kickDuration, CHIP(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
       case 'touch': g = new Gesture('touch', opts.duration ?? ANIM.touchDuration, TOUCH, { fadeIn: 0.04, fadeOut: 0.08, ...opts }); break;
@@ -360,7 +421,7 @@ export class Character {
       case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'pass', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
+    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);

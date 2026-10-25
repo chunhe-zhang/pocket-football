@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt } from './config.js';
 
-const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
+const { goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;   // goals are the same on every map
 const R = BALL.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -220,6 +220,8 @@ export class Ball {
     this._walls('z', 'x');
     this._corners();
     this._obstacles();
+    if (FIELD.islands.length) this._islands();
+    if (FIELD.pads.length || FIELD.springs.length) this._features(h);
     this._goalFrames();
     this._bodies(u);
   }
@@ -264,7 +266,7 @@ export class Ball {
 
   // the four sides are identical: a board everywhere except a goal mouth in the middle
   _walls(A, B) {
-    const p = this.pos, v = this.vel;
+    const p = this.pos, v = this.vel, H = halfOf(A);
     if (Math.abs(p[A]) <= H - R) return;
     const side = Math.sign(p[A]) || 1;
     if (this.goalTeam >= 0) {
@@ -275,7 +277,7 @@ export class Ball {
     const inside = Math.abs(p[A]) > H;
     if (!inside && !mouth) {
       // never let a ball that is inside the other axis' goal be bounced by this wall
-      if (Math.abs(p[B]) > H) return;
+      if (Math.abs(p[B]) > halfOf(B)) return;
       p[A] = side * (H - R);
       if (v[A] * side > 0) {
         const s = Math.abs(v[A]);
@@ -313,9 +315,9 @@ export class Ball {
 
   // curved boards in the four corners
   _corners() {
-    const p = this.pos, v = this.vel, C = H - RC;
-    if (Math.abs(p.x) <= C || Math.abs(p.z) <= C) return;
-    const cx = Math.sign(p.x) * C, cz = Math.sign(p.z) * C;
+    const p = this.pos, v = this.vel, RC = FIELD.cornerR, Cx = FIELD.hx - RC, Cz = FIELD.hz - RC;
+    if (Math.abs(p.x) <= Cx || Math.abs(p.z) <= Cz) return;
+    const cx = Math.sign(p.x) * Cx, cz = Math.sign(p.z) * Cz;
     const dx = p.x - cx, dz = p.z - cz, d = Math.hypot(dx, dz), lim = RC - R;
     if (d <= lim) return;
     const nx = dx / d, nz = dz / d;
@@ -348,7 +350,12 @@ export class Ball {
       p.x = o.x + nx * (o.r + R); p.z = o.z + nz * (o.r + R);
       const vn = v.x * nx + v.z * nz;
       if (vn < 0) {
-        v.x -= 1.8 * vn * nx; v.z -= 1.8 * vn * nz;
+        if (o.bumper) {
+          // pinball mushroom: always fires the ball back out, harder than it came in
+          const out = Math.max(-vn * 1.25, 5) + 2.5;
+          v.x += (-vn + out) * nx; v.z += (-vn + out) * nz;
+          this.events.push({ type: 'bumper', v: out, x: o.x, z: o.z });
+        } else { v.x -= 1.8 * vn * nx; v.z -= 1.8 * vn * nz; }
         this.spin.multiplyScalar(0.6);
         if (-vn > 1.5) this.events.push({ type: 'board', v: -vn });
         if (-vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: -vn / 50 });
@@ -356,9 +363,50 @@ export class Ball {
     }
   }
 
+  // island flower beds: low walls all round (capsule shape)
+  _islands() {
+    const p = this.pos, v = this.vel;
+    for (const c of FIELD.islands) {
+      const q = islandClosest(c, p.x, p.z), min = c.r + R;
+      if (q.d >= min || q.d < 1e-6) continue;
+      const nx = (p.x - q.px) / q.d, nz = (p.z - q.pz) / q.d;
+      p.x = q.px + nx * min; p.z = q.pz + nz * min;
+      const vn = v.x * nx + v.z * nz;
+      if (vn < 0) {
+        const pop = -vn > 6 ? BALL.wallKick : 0;
+        v.x -= ((1 + BALL.wallBounce) * vn - pop) * nx; v.z -= ((1 + BALL.wallBounce) * vn - pop) * nz;
+        if (-vn > 1.5) this.events.push({ type: 'board', v: -vn });
+        if (-vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: -vn / 50 });
+      }
+    }
+  }
+
+  // speed strips push a rolling ball along; bounce pads launch it into the air
+  _features(h) {
+    const p = this.pos, v = this.vel;
+    if (p.y < R + 0.05) {
+      const pad = padAt(p.x, p.z);
+      if (pad) {
+        const along = v.x * pad.dx + v.z * pad.dz;
+        if (along < 15) { v.x += pad.dx * 9 * h; v.z += pad.dz * 9 * h; }
+      }
+    }
+    for (const s of FIELD.springs) {
+      const d = Math.hypot(p.x - s.x, p.z - s.z);
+      if (d < s.r && p.y < R + 0.08 && v.y <= 0.5 && (this._sprung || 0) <= 0) {
+        const gs = Math.hypot(v.x, v.z);
+        v.y = 5.2 + gs * 0.25;
+        this._sprung = 0.35;
+        this.events.push({ type: 'spring', v: v.y, x: s.x, z: s.z });
+      }
+    }
+    if (this._sprung > 0) this._sprung -= h;
+  }
+
   _goalFrames() {
     const p = this.pos;
     for (const A of ['x', 'z']) {
+      const H = halfOf(A);
       if (Math.abs(Math.abs(p[A]) - H) > R + postR + 0.05) continue;
       const s = Math.sign(p[A]) || 1;
       const pt = (a, y, b) => (A === 'x' ? [s * H, y, b] : [b, y, s * H]);

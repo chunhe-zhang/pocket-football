@@ -80,6 +80,12 @@ try {
 ui.loading(0.95, '布置球场…');
 
 const game = new Game({ scene, camera, template, sfx, input, ui });
+// shadows cover whichever arena is loaded
+game.onMapChange = () => {
+  sc.left = -(FIELD.hx + 5); sc.right = FIELD.hx + 5; sc.top = FIELD.hz + 6; sc.bottom = -(FIELD.hz + 6);
+  sc.far = 60 + FIELD.hx; sc.updateProjectionMatrix();
+  scene.fog.near = 55 + (FIELD.hx - 12) * 1.5; scene.fog.far = 170 + (FIELD.hx - 12) * 2;
+};
 ui.bind(game);
 window.__game = game; // handy for debugging in the console
 // test hook: advance the simulation deterministically and render one frame

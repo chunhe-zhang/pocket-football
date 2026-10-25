@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BALL, FIELD } from './config.js';
 
 // Ground-level shot charge display: a ring around the feet that fills
 // clockwise (green → yellow → red) plus an arrow showing aim and power.
@@ -24,10 +25,54 @@ const ringFrag = `
     gl_FragColor = vec4(mix(vec3(1.0), col, on), alpha);
   }`;
 
+const N_DOTS = 40;
+
 export class ChargeFx {
   constructor(scene) {
     this.items = [];
     this.scene = scene;
+    // shot preview (only for the players controlled on this screen): dotted flight path + target ring
+    const dot = document.createElement('canvas'); dot.width = dot.height = 32;
+    const c = dot.getContext('2d'); c.fillStyle = '#fff'; c.beginPath(); c.arc(16, 16, 12, 0, Math.PI * 2); c.fill();
+    this.previews = [];
+    this._dotTex = new THREE.CanvasTexture(dot);
+  }
+
+  _makePreview() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N_DOTS * 3), 3));
+    const pts = new THREE.Points(g, new THREE.PointsMaterial({ map: this._dotTex, size: 0.42, transparent: true, depthWrite: false, depthTest: false, opacity: 0.95 }));
+    pts.frustumCulled = false; pts.renderOrder = 4;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.4, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    const dotC = new THREE.Mesh(new THREE.CircleGeometry(0.07, 16), ring.material); ring.add(dotC);
+    const cross = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.9), ring.material);
+    const cross2 = cross.clone(); cross2.rotation.z = Math.PI / 2; cross.add(cross2); ring.add(cross); cross.visible = false;
+    ring.renderOrder = 5;
+    this.scene.add(pts); this.scene.add(ring);
+    return { pts, ring, cross };
+  }
+
+  /** where a shot leaves to: a cheap version of the ball physics, stopping at the goal line */
+  _simulate(start, vel, goal, out) {
+    const p = start.clone(), v = vel.clone(), R = BALL.r, dt = 1 / 60;
+    let n = 0, hit = null;
+    for (let i = 0; i < 110 && n < N_DOTS; i++) {
+      if (p.y > R + 0.002 || v.y > 0.35) {
+        v.y -= BALL.gravity * dt;
+        const s = v.length(); v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * dt));
+      } else {
+        v.y = 0; const gs = Math.hypot(v.x, v.z);
+        if (gs > 0) { const k = Math.max(0, gs - (BALL.rollDecel + BALL.rollQuad * gs * gs) * dt) / gs; v.x *= k; v.z *= k; }
+      }
+      p.addScaledVector(v, dt);
+      if (p.y < R) { p.y = R; if (v.y < -0.35) v.y = -v.y * BALL.bounce; else v.y = 0; }
+      if (goal) {
+        const A = goal.axis, line = goal.sign * goal.line;
+        if (p[A] * goal.sign >= line) { hit = p.clone(); hit[A] = line; break; }
+      }
+      if (i % 2 === 0) out.set([p.x, p.y, p.z], 3 * n++);
+    }
+    return { n, hit };
   }
 
   _make() {
@@ -53,9 +98,40 @@ export class ChargeFx {
     return { g, ring, ringMat, arrow, arrowMat, arrowPivot, opacity: 0 };
   }
 
-  update(dt, athletes, time) {
+  update(dt, athletes, time, game) {
     while (this.items.length < athletes.length) this.items.push(this._make());
+    while (this.previews.length < athletes.length) this.previews.push(this._makePreview());
     const aim = new THREE.Vector3();
+    athletes.forEach((a, i) => {
+      const pv = this.previews[i];
+      const type = game?.controllers[i]?.type;
+      const mineHere = type === 'human' || type === 'self';
+      const shot = a.charging && (a.chargeType === 'kick' || a.chargeType === 'chip') && mineHere && !a.out;
+      pv.pts.visible = pv.ring.visible = shot;
+      if (!shot) return;
+      a.aimDir(aim);
+      const plan = a.shotPlan(a.chargeType, Math.max(0.12, a.charge), aim);
+      const { speed, elev } = a.strikeSpeed(a.chargeType, Math.max(0.12, a.charge), plan.aim);
+      const v = new THREE.Vector3(plan.aim.x * Math.cos(elev) * speed, Math.sin(elev) * speed, plan.aim.z * Math.cos(elev) * speed);
+      const b = game.ball.pos;
+      const start = Math.hypot(b.x - a.pos.x, b.z - a.pos.z) < 1.4 ? b.clone() : a.pos.clone().addScaledVector(plan.aim, 0.55).setY(BALL.r);
+      const arr = pv.pts.geometry.attributes.position.array;
+      const { n, hit } = this._simulate(start, v, plan.goal, arr);
+      pv.pts.geometry.setDrawRange(0, n); pv.pts.geometry.attributes.position.needsUpdate = true;
+      const over = a.charge > 0.95, perfect = plan.perfect;
+      let onTarget = false;
+      if (hit && plan.goal) {
+        const B = plan.goal.axis === 'x' ? 'z' : 'x';
+        onTarget = Math.abs(hit[B]) < FIELD.goalHalfW - 0.05 && hit.y < FIELD.goalH - 0.05;
+        pv.ring.position.copy(hit).addScaledVector(new THREE.Vector3(plan.goal.inward.x, 0, plan.goal.inward.z), 0.05);
+        pv.ring.rotation.set(0, plan.goal.axis === 'x' ? Math.PI / 2 : 0, 0);
+        pv.ring.visible = true;
+      } else pv.ring.visible = false;
+      const col = !onTarget && hit ? 0xff5a4a : over ? 0xff5a4a : perfect ? 0xffd23f : 0xffffff;
+      pv.ring.material.color.setHex(col); pv.pts.material.color.setHex(col);
+      pv.cross.visible = !onTarget && !!hit;
+      const s = perfect ? 1 + Math.sin(time * 18) * 0.08 : 1; pv.ring.scale.setScalar(s);
+    });
     athletes.forEach((a, i) => {
       const it = this.items[i];
       const target = a.charging || a.armed ? 1 : 0;
