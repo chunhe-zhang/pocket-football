@@ -63,7 +63,12 @@ function grassTexture() {
     };
     g.save(); rounded(HX + 0.35, HZ + 0.35, RC + 0.35); g.globalCompositeOperation = 'destination-in'; g.fillStyle = '#000'; g.fill(); g.restore();
     // track map: dashed lane line round the islands, like a running track
-    if (FIELD.islands.length || FIELD.portals.length) {
+    if (FIELD.square) {
+      // a game-board grid of dashed lines
+      g.save(); g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 0.06 * ppm; g.setLineDash([0.5 * ppm, 0.4 * ppm]);
+      for (let a = -HX + 2.5; a < HX - 0.1; a += 2.5) { g.beginPath(); g.moveTo(X(a), Y(-HZ)); g.lineTo(X(a), Y(HZ)); g.stroke(); g.beginPath(); g.moveTo(X(-HX), Y(a)); g.lineTo(X(HX), Y(a)); g.stroke(); }
+      g.restore();
+    } else if (FIELD.islands.length || FIELD.portals.length) {
       // concentric guide rings, like the rings of a target
       g.save(); g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 0.07 * ppm; g.setLineDash([0.8 * ppm, 0.6 * ppm]);
       for (const r of [9, 15.5]) { g.beginPath(); g.arc(X(0), Y(0), r * ppm, 0, Math.PI * 2); g.stroke(); }
@@ -238,7 +243,7 @@ export class Pitch {
     }
     // curved corner boards (quarter cylinders) with a white rim
     const arcLen = (Math.PI / 2) * RC;
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    if (RC > 0.5) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const start = Math.atan2(sx, sz) - Math.PI / 4;
       const geo = new THREE.CylinderGeometry(RC + T / 2, RC + T / 2, BH, 32, 1, true, start, Math.PI / 2);
       const mat = withRepeat(arcLen); mat.side = THREE.DoubleSide;
@@ -282,6 +287,7 @@ export class Pitch {
   }
 
   _buildFence() {
+    if (FIELD.square) return;    // every side is a goal: nothing to fence
     // light netting on the far side and both ends (straight runs + curved corners); camera side open
     const tex = netTexture(10); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     const FH = 2.6, base = FIELD.boardH, h = FH - base, RC = FIELD.cornerR, CX = FIELD.hx - RC, CZ = FIELD.hz - RC, HX = FIELD.hx, HZ = FIELD.hz;
@@ -555,6 +561,17 @@ export class Pitch {
       g.fillStyle = '#fff'; for (let i = 0; i < 26; i++) { g.beginPath(); g.arc(rnd(0, w), rnd(0, h * 0.75), rnd(7, 14), 0, Math.PI * 2); g.fill(); }
     });
     for (const b of FIELD.bumpers) {
+      if (b.sq) {
+        const g = new THREE.Group(); g.position.set(b.x, 0, b.z);
+        const capMat = new THREE.MeshStandardMaterial({ map: capTex, roughness: 0.3, emissive: 0xff2e6a, emissiveIntensity: 0 });
+        const box = new THREE.Mesh(new THREE.BoxGeometry(b.r * 2, 0.7, b.r * 2), capMat);
+        box.position.y = 0.35; box.castShadow = true; box.receiveShadow = true; g.add(box);
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(b.r * 2 + 0.08, 0.08, b.r * 2 + 0.08), new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffd23f, emissiveIntensity: 0.35 }));
+        lid.position.y = 0.72; g.add(lid);
+        this.root.add(g);
+        this.bumperMeshes.push({ x: b.x, z: b.z, g, capMat, k: 0 });
+        continue;
+      }
       const g = new THREE.Group(); g.position.set(b.x, 0, b.z);
       const stem = new THREE.Mesh(new THREE.CylinderGeometry(b.r * 0.92, b.r, 0.62, 24), new THREE.MeshStandardMaterial({ color: 0xfff4e6, roughness: 0.6 }));
       stem.position.y = 0.31; stem.castShadow = true; g.add(stem);
@@ -595,7 +612,7 @@ export class Pitch {
   _buildSprings() {
     for (const s of FIELD.springs) {
       const g = new THREE.Group(); g.position.set(s.x, 0, s.z);
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(s.r, s.r * 1.05, 0.08, 32), new THREE.MeshStandardMaterial({ color: 0x3b3a52, roughness: 0.6 }));
+      const base = new THREE.Mesh(s.sq ? new THREE.BoxGeometry(s.r * 2, 0.08, s.r * 2) : new THREE.CylinderGeometry(s.r, s.r * 1.05, 0.08, 32), new THREE.MeshStandardMaterial({ color: 0x3b3a52, roughness: 0.6 }));
       base.position.y = 0.04; g.add(base);
       const top = new THREE.Group(); g.add(top);
       for (let k = 0; k < 3; k++) {
@@ -605,7 +622,7 @@ export class Pitch {
       const discTex = canvasTex(128, 128, (c, w) => {
         for (let r = 6; r >= 1; r--) { c.fillStyle = r % 2 ? '#ffd23f' : '#ff5f9e'; c.beginPath(); c.arc(w / 2, w / 2, (r / 6) * (w / 2 - 2), 0, Math.PI * 2); c.fill(); }
       });
-      const disc = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.9, s.r * 0.9, 0.06, 32), [new THREE.MeshStandardMaterial({ color: 0xff5f9e }), new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }), new THREE.MeshStandardMaterial({ color: 0xff5f9e })]);
+      const disc = new THREE.Mesh(s.sq ? new THREE.BoxGeometry(s.r * 1.8, 0.06, s.r * 1.8) : new THREE.CylinderGeometry(s.r * 0.9, s.r * 0.9, 0.06, 32), s.sq ? new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }) : [new THREE.MeshStandardMaterial({ color: 0xff5f9e }), new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }), new THREE.MeshStandardMaterial({ color: 0xff5f9e })]);
       disc.position.y = 0.27; top.add(disc);
       this.root.add(g);
       this.springMeshes.push({ x: s.x, z: s.z, top, k: 0 });
@@ -614,37 +631,56 @@ export class Pitch {
 
   /** the round gadgets of the 机关乐园 map */
   _buildDevices() {
+    let sq = false;       // the shape of the device being built (set per device below)
+    let spinOff = false;  // a square device that doesn't spin can use a square picture
     const disc = (r, tex, y = 0.025) => {
-      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 48), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+      const flat = sq && spinOff;
+      const m = new THREE.Mesh(flat ? new THREE.PlaneGeometry(2 * r, 2 * r) : new THREE.CircleGeometry(r * (sq ? 0.92 : 1), 48), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
       m.rotation.x = -Math.PI / 2; m.position.y = y; m.renderOrder = 1; return m;
     };
+    // square devices that spin: a still square tile under a round spinning disc
+    const tile = (g, r, col) => {
+      if (!sq || spinOff) return;
+      const t = new THREE.Mesh(new THREE.PlaneGeometry(2 * r, 2 * r), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false }));
+      t.rotation.x = -Math.PI / 2; t.position.y = 0.018; t.renderOrder = 1; g.add(t);
+    };
     const rim = (r, col, w = 0.09) => {
-      const m = new THREE.Mesh(new THREE.TorusGeometry(r, w, 8, 48), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.55, roughness: 0.4 }));
+      const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.55, roughness: 0.4 });
+      if (sq) {
+        const g = new THREE.Group();
+        for (const [x, z, sx, sz] of [[0, -r, 2 * r + 2 * w, 2 * w], [0, r, 2 * r + 2 * w, 2 * w], [-r, 0, 2 * w, 2 * r], [r, 0, 2 * w, 2 * r]]) {
+          const b = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.1, sz), mat); b.position.set(x, 0.05, z); g.add(b);
+        }
+        return g;
+      }
+      const m = new THREE.Mesh(new THREE.TorusGeometry(r, w, 8, 48), mat);
       m.rotation.x = Math.PI / 2; m.position.y = 0.06; return m;
     };
     // portals: a swirling disc; the two of a pair share a colour
     const portalCols = [['#b45cff', '#6b2bd6'], ['#ff6ad5', '#c2188f']];
     for (const p of FIELD.portals) {
+      sq = !!p.sq; spinOff = false;
       const [c1, c2] = portalCols[p.idx % 2];
       const tex = canvasTex(256, 256, (g, w) => {
         const gr = g.createRadialGradient(w / 2, w / 2, 4, w / 2, w / 2, w / 2);
         gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.25, c1); gr.addColorStop(1, c2);
-        g.fillStyle = gr; g.beginPath(); g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2); g.fill();
+        g.fillStyle = gr; (sq && spinOff ? g.fillRect(2, 2, w - 4, w - 4) : (g.beginPath(), g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2), g.fill()));
         g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 7;
         for (let k = 0; k < 4; k++) { g.beginPath(); for (let t = 0; t < 1; t += 0.02) { const a = k * Math.PI / 2 + t * 4.5, r = t * (w / 2 - 6); const x = w / 2 + Math.cos(a) * r, y = w / 2 + Math.sin(a) * r; t ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
       });
       const g = new THREE.Group(); g.position.set(p.x, 0, p.z);
-      const d = disc(p.r, tex); g.add(d); g.add(rim(p.r, new THREE.Color(c1).getHex()));
+      tile(g, p.r, c2); const d = disc(p.r, tex); g.add(d); g.add(rim(p.r, new THREE.Color(c1).getHex()));
       // a soft glowing column so you can spot them from across the park
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 0.95, p.r, 1.6, 32, 1, true), new THREE.MeshBasicMaterial({ color: c1, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+      const col = new THREE.Mesh(sq ? new THREE.BoxGeometry(p.r * 1.95, 1.6, p.r * 1.95) : new THREE.CylinderGeometry(p.r * 0.95, p.r, 1.6, 32, 1, true), new THREE.MeshBasicMaterial({ color: c1, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
       col.position.y = 0.8; g.add(col);
       this.root.add(g);
       this.devices.push({ kind: 'portal', x: p.x, z: p.z, spinner: d, rate: -2.2, k: 0, g, col });
     }
     // speed rings: orange with arrows pointing outwards ("faster whichever way you cross it")
     for (const b of FIELD.boosts) {
+      sq = !!b.sq; spinOff = true;
       const tex = canvasTex(256, 256, (g, w) => {
-        g.fillStyle = 'rgba(255,140,40,0.35)'; g.beginPath(); g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,140,40,0.35)'; (sq && spinOff ? g.fillRect(2, 2, w - 4, w - 4) : (g.beginPath(), g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2), g.fill()));
         g.fillStyle = '#fff';
         for (let k = 0; k < 8; k++) { g.save(); g.translate(w / 2, w / 2); g.rotate(k * Math.PI / 4); g.beginPath(); g.moveTo(0, -w * 0.44); g.lineTo(-w * 0.07, -w * 0.3); g.lineTo(w * 0.07, -w * 0.3); g.closePath(); g.fill(); g.restore(); }
         g.font = `bold ${w * 0.2}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('×1.7', w / 2, w / 2);
@@ -656,20 +692,22 @@ export class Pitch {
     }
     // whirlpools: a turning blue spiral
     for (const v of FIELD.vortices) {
+      sq = !!v.sq; spinOff = false;
       const tex = canvasTex(256, 256, (g, w) => {
         const gr = g.createRadialGradient(w / 2, w / 2, 2, w / 2, w / 2, w / 2);
         gr.addColorStop(0, '#0d3a8a'); gr.addColorStop(1, 'rgba(70,170,255,0.55)');
-        g.fillStyle = gr; g.beginPath(); g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2); g.fill();
+        g.fillStyle = gr; (sq && spinOff ? g.fillRect(2, 2, w - 4, w - 4) : (g.beginPath(), g.arc(w / 2, w / 2, w / 2 - 2, 0, Math.PI * 2), g.fill()));
         g.strokeStyle = 'rgba(220,245,255,0.9)'; g.lineWidth = 6;
         for (let k = 0; k < 3; k++) { g.beginPath(); for (let t = 0.05; t < 1; t += 0.02) { const a = k * 2.094 - t * 7, r = t * (w / 2 - 6); const x = w / 2 + Math.cos(a) * r, y = w / 2 + Math.sin(a) * r; t > 0.06 ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
       });
       const g = new THREE.Group(); g.position.set(v.x, 0, v.z);
-      const d = disc(v.r, tex); g.add(d); g.add(rim(v.r, 0x3b9bff, 0.08));
+      tile(g, v.r, '#0d3a8a'); const d = disc(v.r, tex); g.add(d); g.add(rim(v.r, 0x3b9bff, 0.08));
       this.root.add(g);
       this.devices.push({ kind: 'vortex', x: v.x, z: v.z, spinner: d, rate: 3.2, k: 0, g });
     }
     // wheels of fortune: rainbow segments with a question mark, spinning slowly
     for (const wf of FIELD.wheels) {
+      sq = !!wf.sq; spinOff = false;
       const tex = canvasTex(256, 256, (g, w) => {
         const n = 8;
         for (let k = 0; k < n; k++) { g.fillStyle = `hsl(${k * 360 / n}, 85%, 62%)`; g.beginPath(); g.moveTo(w / 2, w / 2); g.arc(w / 2, w / 2, w / 2 - 2, k * Math.PI * 2 / n, (k + 1) * Math.PI * 2 / n); g.closePath(); g.fill(); }
@@ -677,7 +715,7 @@ export class Pitch {
         g.fillStyle = '#ff4f7b'; g.font = `bold ${w * 0.26}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', w / 2, w / 2 + 2);
       });
       const g = new THREE.Group(); g.position.set(wf.x, 0, wf.z);
-      const d = disc(wf.r, tex); g.add(d); g.add(rim(wf.r, 0xffffff, 0.08));
+      tile(g, wf.r, '#ffffff'); const d = disc(wf.r, tex); g.add(d); g.add(rim(wf.r, 0xffffff, 0.08));
       this.root.add(g);
       this.devices.push({ kind: 'wheel', x: wf.x, z: wf.z, spinner: d, rate: 0.8, k: 0, g });
     }

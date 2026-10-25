@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
@@ -117,7 +117,16 @@ export class Ball {
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), ballMaterial());
     this.mesh.castShadow = true;
     this.root.add(this.squashNode); this.squashNode.add(this.mesh);
+    // dark toon outline, like the players: the ball pops against the grass
+    this.squashNode.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.1, 32, 18), new THREE.MeshBasicMaterial({ color: 0x1b1630, side: THREE.BackSide })));
     scene.add(this.root);
+    // a pulsing gold ring on the ground under the ball, and a thin line up to it when it's in the air
+    this.marker = new THREE.Mesh(new THREE.RingGeometry(R * 1.7, R * 2.3, 40), new THREE.MeshBasicMaterial({ color: 0xffe45c, transparent: true, opacity: 0.9, depthWrite: false }));
+    this.marker.rotation.x = -Math.PI / 2; this.marker.renderOrder = 2;
+    scene.add(this.marker);
+    this.stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1, 6), new THREE.MeshBasicMaterial({ color: 0xffe45c, transparent: true, opacity: 0.45, depthWrite: false }));
+    scene.add(this.stem);
+    this._mt = 0;
     this.spinQ = new THREE.Quaternion();
     this.sq = { axis: new THREE.Vector3(0, 1, 0), amp: 0, t: 1 };
     this._alignQ = new THREE.Quaternion(); this._invQ = new THREE.Quaternion();
@@ -337,6 +346,7 @@ export class Ball {
     const p = this.pos, v = this.vel;
     for (const o of OBSTACLES) {
       if (p.y > o.h + R) continue;
+      if (o.sq) { this._block(o); continue; }
       const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz);
       if (d > o.r + R) continue;
       if (p.y > o.h && d < o.r) {
@@ -360,6 +370,28 @@ export class Ball {
         if (-vn > 1.5) this.events.push({ type: 'board', v: -vn });
         if (-vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: -vn / 50 });
       }
+    }
+  }
+
+  // square jelly block: like a bumper, but with flat faces and corners
+  _block(o) {
+    const p = this.pos, v = this.vel;
+    const cx = Math.max(o.x - o.r, Math.min(o.x + o.r, p.x)), cz = Math.max(o.z - o.r, Math.min(o.z + o.r, p.z));
+    let nx = p.x - cx, nz = p.z - cz, d = Math.hypot(nx, nz);
+    if (d >= R) return;
+    if (d < 1e-6) {
+      // centre inside the block: out through the nearest face
+      const dx = p.x - o.x, dz = p.z - o.z;
+      if (o.r - Math.abs(dx) < o.r - Math.abs(dz)) { nx = Math.sign(dx || 1); nz = 0; p.x = o.x + nx * (o.r + R); }
+      else { nx = 0; nz = Math.sign(dz || 1); p.z = o.z + nz * (o.r + R); }
+    } else { nx /= d; nz /= d; p.x = cx + nx * R; p.z = cz + nz * R; }
+    const vn = v.x * nx + v.z * nz;
+    if (vn < 0) {
+      const out = Math.max(-vn * 1.25, 5) + 2.5;
+      v.x += (-vn + out) * nx; v.z += (-vn + out) * nz;
+      this.spin.multiplyScalar(0.6);
+      this.events.push({ type: 'bumper', v: out, x: o.x, z: o.z });
+      if (-vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: -vn / 50 });
     }
   }
 
@@ -392,8 +424,7 @@ export class Ball {
       }
     }
     for (const s of FIELD.springs) {
-      const d = Math.hypot(p.x - s.x, p.z - s.z);
-      if (d < s.r && p.y < R + 0.08 && v.y <= 0.5 && (this._sprung || 0) <= 0) {
+      if (inShape(s, p.x, p.z) && p.y < R + 0.08 && v.y <= 0.5 && (this._sprung || 0) <= 0) {
         const gs = Math.hypot(v.x, v.z);
         v.y = 5.2 + gs * 0.25;
         this._sprung = 0.35;
@@ -407,10 +438,11 @@ export class Ball {
     // teleport: in one disc, out of the one diagonally opposite, same speed, same direction
     if (p.y < 1.3 && (cd.portal || 0) <= 0) {
       for (const pt of FIELD.portals) {
-        if (Math.hypot(p.x - pt.x, p.z - pt.z) > pt.r) continue;
+        if (!inShape(pt, p.x, p.z)) continue;
         const out = FIELD.portals.find((q) => q.idx === (pt.idx + 2) % 4) || pt;
         const ux = gs > 0.2 ? v.x / gs : (out.x > 0 ? -1 : 1) * 0.7, uz = gs > 0.2 ? v.z / gs : (out.z > 0 ? -1 : 1) * 0.7;
-        p.x = out.x + ux * (out.r + R + 0.08); p.z = out.z + uz * (out.r + R + 0.08);
+        const ex = (out.r + R + 0.08) * (out.sq ? 1.42 : 1);   // pop out clear of the far edge (square: past the corner too)
+        p.x = out.x + ux * ex; p.z = out.z + uz * ex;
         if (gs < 2.5) { v.x = ux * 2.5; v.z = uz * 2.5; }            // never leave a ball sitting inside one
         clampToArena(p, R);
         cd.portal = 0.45;
@@ -423,7 +455,7 @@ export class Ball {
     if (p.y < 0.9 && gs > 1) {
       for (const b of FIELD.boosts) {
         const key = 'boost' + b.idx;
-        if ((cd[key] || 0) > 0 || Math.hypot(p.x - b.x, p.z - b.z) > b.r) continue;
+        if ((cd[key] || 0) > 0 || !inShape(b, p.x, p.z)) continue;
         const k = Math.min(1.7, 26 / gs);
         v.x *= k; v.z *= k;
         cd[key] = 0.6;
@@ -434,8 +466,8 @@ export class Ball {
     if (p.y < 0.7) {
       for (const w of FIELD.vortices) {
         const dx = p.x - w.x, dz = p.z - w.z, d = Math.hypot(dx, dz);
-        if (d > w.r || d < 0.05) continue;
-        const tx = -dz / d, tz = dx / d, f = 26 * (1 - d / w.r * 0.5);
+        if (!inShape(w, p.x, p.z) || d < 0.05) continue;
+        const tx = -dz / d, tz = dx / d, f = 26 * (1 - Math.min(1, d / (w.r * 1.4)) * 0.5);
         v.x += (tx * f - dx / d * 4) * h; v.z += (tz * f - dz / d * 4) * h;
         const s = Math.hypot(v.x, v.z); if (s > 18) { v.x *= 18 / s; v.z *= 18 / s; }
         if ((cd['vortex' + w.idx] || 0) <= 0) { cd['vortex' + w.idx] = 0.8; this.events.push({ type: 'vortex', x: w.x, z: w.z }); }
@@ -445,7 +477,7 @@ export class Ball {
     if (p.y < 0.9) {
       for (const w of FIELD.wheels) {
         const key = 'wheel' + w.idx;
-        if ((cd[key] || 0) > 0 || Math.hypot(p.x - w.x, p.z - w.z) > w.r) continue;
+        if ((cd[key] || 0) > 0 || !inShape(w, p.x, p.z)) continue;
         const sp = Math.max(gs, 7), a = Math.random() * Math.PI * 2;
         v.x = Math.cos(a) * sp; v.z = Math.sin(a) * sp;
         p.x = w.x + Math.cos(a) * (w.r * 0.3); p.z = w.z + Math.sin(a) * (w.r * 0.3);
@@ -507,6 +539,13 @@ export class Ball {
     this.squashNode.scale.set(1 + a * 0.5, 1 - a, 1 + a * 0.5);
     this.mesh.quaternion.copy(this._invQ.copy(this._alignQ).invert()).multiply(this.spinQ);
     const hgt = this.pos.y - R;
+    this._mt += dt;
+    const pulse = 1 + 0.14 * Math.sin(this._mt * 7);
+    this.marker.position.set(this.pos.x, 0.02, this.pos.z);
+    this.marker.scale.setScalar(pulse * (1 + Math.min(1.5, hgt * 0.35)));
+    this.marker.material.opacity = 0.9 - Math.min(0.4, hgt * 0.12);
+    this.stem.visible = hgt > 0.45;
+    if (this.stem.visible) { this.stem.scale.y = hgt; this.stem.position.set(this.pos.x, hgt / 2, this.pos.z); }
     const s = R * 3.1 + hgt * 0.25;
     this.blob.position.set(this.pos.x, 0.012, this.pos.z);
     this.blob.scale.set(s, s, 1);

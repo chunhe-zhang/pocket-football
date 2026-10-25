@@ -2,6 +2,7 @@
 
 export const FIELD = {
   map: 'classic',
+  lives: 2, kickoff: 5, follow: false, square: false,
   half: 12,         // largest half extent (x or z)
   hx: 12, hz: 12,   // half extents along x and z (the arena is a rounded rectangle)
   cornerR: 8.8,     // big rounded corners: the arena is almost a circle
@@ -101,21 +102,29 @@ const circleIsland = (o) => ({ ax: o.x, az: o.z, bx: o.x, bz: o.z, r: o.r });
 
 export const MAPS = {
   classic: { name: '经典圆场', hx: 12, hz: 12, cornerR: 8.8, goalHalfW: 1.6, goalH: 1.7, boxHalfW: 2.7, boxDepth: 2.8,
+    lives: 2, kickoff: 5, follow: false,
     islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
-  // 机关乐园: a big near-circle full of round gadgets, every one repeated in all four quarters
-  // (a 90° turn maps the arena onto itself, so every goal faces exactly the same layout)
+  // 方块乐园: a small square where each whole side is a goal and the middle is packed with
+  // square gadgets (four of each, the layout repeats every 90°, so it's fair to everyone).
+  // Kick it hard and see where it ends up.
   track: {
-    name: '机关乐园', hx: 22, hz: 22, cornerR: 17, goalHalfW: 2.0, goalH: 1.85, boxHalfW: 3.1, boxDepth: 3.0,
-    islands: rot4({ x: 6.2, z: 6.2, r: 2.3 }).map(circleIsland),          // round flower beds round the centre circle
-    bumpers: rot4({ x: 11.6, z: 4.2, r: 0.6 }),                             // pinball mushrooms
+    name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
+    lives: 3, kickoff: 3, follow: false, square: true,
+    islands: [],
+    bumpers: [...rot4({ x: 2.8, z: 6.8, r: 0.6, sq: true }), ...rot4({ x: 0, z: 4.7, r: 0.55, sq: true })],   // jelly blocks
     pads: [],
-    springs: rot4({ x: 5, z: 0, r: 0.9 }),                                  // bounce pads on the way to each goal
-    portals: rot4({ x: 11.6, z: 11.6, r: 1.15 }),                           // each one leads to the diagonally opposite one
-    boosts: rot4({ x: 11.5, z: 0, r: 1.1 }),                                // speed rings in front of each goal
-    vortices: rot4({ x: 4.4, z: 12, r: 1.9 }),                              // whirlpools that swing the ball round
-    wheels: rot4({ x: 15.2, z: 7.6, r: 1.25 }),                             // wheels of fortune: off it goes in a random direction
+    springs: rot4({ x: 0, z: 2.6, r: 0.8, sq: true }),
+    portals: rot4({ x: 6.2, z: 6.2, r: 0.95, sq: true }),        // diagonal partners
+    boosts: rot4({ x: 6.8, z: 2.8, r: 0.85, sq: true }),
+    vortices: rot4({ x: 3.1, z: 3.1, r: 1.05, sq: true }),
+    wheels: rot4({ x: 8, z: 0, r: 0.85, sq: true }),
   },
 };
+
+/** is (x, z) inside a device / obstacle footprint (round or square)? */
+export function inShape(o, x, z, grow = 0) {
+  return o.sq ? Math.abs(x - o.x) < o.r + grow && Math.abs(z - o.z) < o.r + grow : Math.hypot(x - o.x, z - o.z) < o.r + grow;
+}
 
 // ---- goals ---------------------------------------------------------------------
 // For a goal on axis 'x' with sign s: the goal line is x = s·hx, the mouth spans z.
@@ -158,8 +167,9 @@ export function setMap(name) {
   FIELD.vortices = m.vortices.map((c) => ({ ...c }));
   FIELD.wheels = m.wheels.map((c) => ({ ...c }));
   FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
+  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square;
   GOALS.length = 0; TEAMS.forEach((_, i) => GOALS.push(goalInfo(i)));
-  OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true });
+  OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true, sq: !!b.sq });
   _nav = null;
 }
 
@@ -201,6 +211,15 @@ export function onIsland(x, z, margin = 0) {
 export function pushOutOfObstacles(p, margin = 0) {
   let moved = false;
   for (const o of OBSTACLES) {
+    if (o.sq) {
+      // square block: push out along the shallower side
+      const dx = p.x - o.x, dz = p.z - o.z, e = o.r + margin;
+      if (Math.abs(dx) < e && Math.abs(dz) < e) {
+        if (e - Math.abs(dx) < e - Math.abs(dz)) p.x = o.x + Math.sign(dx || 1) * e; else p.z = o.z + Math.sign(dz || 1) * e;
+        moved = true;
+      }
+      continue;
+    }
     const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz), min = o.r + margin;
     if (d < min) { const k = d > 1e-4 ? min / d : 0; p.x = o.x + (d > 1e-4 ? dx * k : min); p.z = o.z + dz * k; moved = true; }
   }

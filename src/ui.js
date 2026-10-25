@@ -108,7 +108,7 @@ export class UI {
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
     for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
-      ? '超大的近似圆形乐园，球门更宽，满场圆形机关（每种四个，对每个人都一样）：传送门、加速圈、漩涡、命运转盘、弹力蘑菇、弹跳垫。随便一脚，球可能从意想不到的地方进门。镜头跟着你走，左下角有小地图。'
+      ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`

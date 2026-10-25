@@ -67,7 +67,7 @@ export class Game {
     this.placeAll();
   }
 
-  get lives() { return MATCH.lives; }
+  get lives() { return FIELD.lives || MATCH.lives; }
 
   /** switch arena: physics tables, scenery, kickoff spots */
   applyMap(name) {
@@ -82,7 +82,7 @@ export class Game {
     this.onMapChange?.();
     this.ui.onMapChange?.(this);
   }
-  get bigMap() { return FIELD.map !== 'classic'; }
+  get bigMap() { return !!FIELD.follow; }    // big arenas: follow camera + minimap
   activeGoal(team) { return this.alive[team]; }
   get live() { return this.athletes.filter((a) => !a.out); }
   get teamMode() { return !!this.side; }
@@ -156,7 +156,8 @@ export class Game {
     this.athletes.forEach((a, i) => {
       const g = GOALS[i];
       if (a.out) { a.place(60 + i * 3, 60, 0); return; }   // parked far off the pitch
-      a.place(g.centre.x + g.inward.x * 5, g.centre.z + g.inward.z * 5, Math.atan2(g.inward.x, g.inward.z));
+      const k = FIELD.kickoff || 5;
+      a.place(g.centre.x + g.inward.x * k, g.centre.z + g.inward.z * k, Math.atan2(g.inward.x, g.inward.z));
     });
   }
 
@@ -240,7 +241,7 @@ export class Game {
     for (const a of this.athletes) { a.frozen = true; a.charging = false; }
     if (!own) toucher.char.play('celebrate');
     loser.char.play('deject');
-    const livesLeft = MATCH.lives - this.conceded[team];
+    const livesLeft = this.lives - this.conceded[team];
     if (livesLeft <= 0) {
       // out of lives: knocked out (the goal is boarded up after the pause)
       this.alive[team] = false;
