@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, clampToArena } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, clampToArena, pushOutOfObstacles, inOwnBox } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -30,6 +30,7 @@ export class Athlete {
     this.nextFoot = 'Right';
     this.faceT = 0;
     this.slide = null; this.slideCD = 0; this._prevTackle = false;
+    this.dive = null;
     this.stunT = 0;          // knocked off balance by a tackle or a hard bump
     this.receive = null;     // anticipated first touch: { type, side, t, ta }
     this.ignoreBall = 0;     // own legs don't collide with the ball right after striking it
@@ -51,7 +52,7 @@ export class Athlete {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
-    this.slide = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
+    this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
     this._sync(0);
@@ -90,11 +91,14 @@ export class Athlete {
     // ---- slide tackle ------------------------------------------------------------
     const tacklePressed = it.tackle && !this._prevTackle;
     this._prevTackle = it.tackle;
-    if (tacklePressed && !this.frozen && !this.slide && !this.kick && this.stunT <= 0 && this.slideCD <= 0 && g.state === 'play') this._startSlide();
+    if (tacklePressed && !this.frozen && !this.slide && !this.dive && !this.kick && this.stunT <= 0 && this.slideCD <= 0 && g.state === 'play') {
+      // in my own penalty box the tackle button is a goalkeeper dive
+      if (inOwnBox(this.team, this.pos.x, this.pos.z)) this._startDive(); else this._startSlide();
+    }
 
     // ---- charging / release ------------------------------------------------
-    const held = (it.kick || it.lob) && !this.slide && this.stunT <= 0;
-    if (this.frozen || this.slide || this.stunT > 0) { this.charging = false; this.charge = 0; }
+    const held = (it.kick || it.lob) && !this.slide && !this.dive && this.stunT <= 0;
+    if (this.frozen || this.slide || this.dive || this.stunT > 0) { this.charging = false; this.charge = 0; }
     else if (!this.kick) {
       if (held && !this.charging) { this.charging = true; this.charge = 0; this.chargeHold = 0; this.chargeType = it.lob ? 'chip' : 'kick'; }
       if (this.charging) {
@@ -110,7 +114,8 @@ export class Athlete {
 
     // ---- movement ---------------------------------------------------------
     const ballPos = g.ball.pos;
-    if (this.slide) this._slideMotion(dt);
+    if (this.dive) this._diveMotion(dt);
+    else if (this.slide) this._slideMotion(dt);
     else if (this.stunT > 0) { this.vel.multiplyScalar(Math.max(0, 1 - dt * 5)); this.pos.addScaledVector(this.vel, dt); }
     else if (this.kick) this._kickMotion(dt);
     else {
@@ -155,6 +160,7 @@ export class Athlete {
     // field bounds (players stay on the pitch, out of the goals)
     const lim = 0.28;
     if (clampToArena(this.pos, lim)) this.vel.multiplyScalar(0.6);
+    if (pushOutOfObstacles(this.pos, PLAYER.radius)) this.vel.multiplyScalar(0.7);
 
     this.char.lookTarget = ballPos;
     this._feet(dt);
@@ -163,13 +169,13 @@ export class Athlete {
   }
 
   // ---- body colliders ------------------------------------------------------------
-  static PART_BOUNCE = { head: 0.55, chest: 0.2, hips: 0.28, thigh: 0.3, shin: 0.5, foot: 0.42 };
+  static PART_BOUNCE = { head: 0.55, chest: 0.2, hips: 0.28, thigh: 0.3, shin: 0.5, foot: 0.42, hand: 0.3 };
 
   /** refresh the body-part spheres the ball collides with (positions + velocities) */
   _updateColliders(dt) {
     const sph = this.char.bodySpheres([]);
     if (!this.colliders) {
-      this.colliders = sph.map((x, idx) => ({ owner: this, idx, part: x.part, side: x.side, r: x.r, e: Athlete.PART_BOUNCE[x.part], pos: new THREE.Vector3(), prev: new THREE.Vector3(), vel: new THREE.Vector3(), active: true }));
+      this.colliders = sph.map((x, idx) => ({ owner: this, idx, part: x.part, side: x.side, r: x.r, r0: x.r, e: Athlete.PART_BOUNCE[x.part], pos: new THREE.Vector3(), prev: new THREE.Vector3(), vel: new THREE.Vector3(), active: true }));
       this._resetColliders = true;
     }
     const ball = this.game.ball;
@@ -186,6 +192,11 @@ export class Athlete {
       const lower = leg || c.part === 'thigh' || c.part === 'hips';
       c.active = !(leg && (controlling || this.ignoreBall > 0 || (this.kick && !this.kick.resolved) || this.touch || this.holdW > 0.05)) && !(lower && this.dribbling);
       if (this.slide && leg && c.side === 'R') c.active = false;
+      // hands only count during a dive (no handball otherwise); a diving keeper is all reach
+      if (c.part === 'hand') c.active = !!this.dive && this.dive.t < 0.75;
+      // a fully stretched keeper covers more than the bare skeleton suggests (gloves, sleeves, body)
+      const stretch = this.dive && this.dive.t > 0.05 && this.dive.t < 0.75;
+      c.r = stretch && c.part !== 'head' ? c.r0 * 1.15 : c.r0;
     });
     this._resetColliders = false;
   }
@@ -243,12 +254,51 @@ export class Athlete {
     if (sl.t >= sl.total) { this.slide = null; this.vel.set(0, 0, 0); }
   }
 
+  // ---- goalkeeper dive ---------------------------------------------------------------
+  _startDive() {
+    const g = this.game, home = this.home, ball = g.ball;
+    // dive along the goal line, facing out of the goal
+    const face = Math.atan2(home.inward.x, home.inward.z);
+    this.facing = face;
+    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(Math.sin(face), 0, Math.cos(face)), UP);
+    let s = 0;
+    const m = this.intent.move;
+    if (m.lengthSq() > 0.09) s = m.x * right.x + m.y * right.z;
+    if (Math.abs(s) < 0.2) {
+      // towards where the ball will cross in front of me
+      const v = ball.vel, sp = Math.hypot(v.x, v.z);
+      const px = sp > 1 ? ball.pos.x + v.x * 0.35 : ball.pos.x, pz = sp > 1 ? ball.pos.z + v.z * 0.35 : ball.pos.z;
+      s = (px - this.pos.x) * right.x + (pz - this.pos.z) * right.z;
+      if (Math.abs(s) < 0.05) s = Math.random() - 0.5;
+    }
+    const side = s >= 0 ? 'Right' : 'Left';
+    const dir = right.clone().multiplyScalar(s >= 0 ? 1 : -1);
+    this.dive = { t: 0, dur: 1.15, dir, speed0: 5.6, side };
+    this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
+    this.slideCD = 1.4;
+    this.char.play('dive', { side, duration: 1.15 });
+    this.char.face('surprised', 0.5); this.faceT = 0.8;
+    g.sfx.slide();
+  }
+
+  _diveMotion(dt) {
+    const dv = this.dive;
+    dv.t += dt;
+    // explosive push off, slide a little on landing, then get up
+    const u = dv.t / 0.36;
+    const sp = u < 1 ? dv.speed0 * Math.pow(1 - u, 1.4) : 0;
+    this.vel.copy(dv.dir).multiplyScalar(sp);
+    this.pos.addScaledVector(this.vel, dt);
+    if (dv.t > 0.3 && dv.t < 0.36) this.game.fx('grass', this.pos, dv.dir, 6, 1.2);
+    if (dv.t >= dv.dur) { this.dive = null; this.vel.set(0, 0, 0); }
+  }
+
   /** knocked off balance: drop the ball, stumble a step along the hit */
   knock(dir, strength = 5) {
     if (this.frozen) return;
     this.stunT = clamp(0.35 + strength * 0.05, 0.4, 0.75);
     this.vel.copy(dir).multiplyScalar(1 + strength * 0.2);
-    this.kick = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null;
+    this.kick = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null; this.dive = null;
     this.char.play('stagger', { duration: this.stunT + 0.15 });
     this.char.face('surprised', 0.8); this.faceT = 0.6;
     this.game.rumble(this, 0.8, 140);
@@ -521,7 +571,7 @@ export class Athlete {
     const dist = Math.hypot(rx, rz);
     const by = ball.pos.y;
 
-    if (this.stunT > 0 || this.slide) { this.dribbling = false; return false; }
+    if (this.stunT > 0 || this.slide || this.dive) { this.dribbling = false; return false; }
     this._anticipate();
     // a receive in progress owns the ball's arrival
     if (this.receive) {
@@ -607,6 +657,7 @@ export class Athlete {
     ahead += 0.3 * (this.knockT / 0.2);                    // a fresh knock pushes it on
     const tgt = this._w.set(this.pos.x + d.x * ahead, 0, this.pos.z + d.z * ahead);
     clampToArena(tgt, R + 0.04);              // never steer the ball into the boards
+    pushOutOfObstacles(tgt, R + 0.05);        // or into a planter
     const tx = tgt.x, tz = tgt.z;
 
     // is the ball behind / beside me relative to where I'm going? then it needs a turn touch

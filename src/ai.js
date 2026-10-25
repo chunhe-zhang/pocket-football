@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { FIELD } from './config.js';
+import { FIELD, OBSTACLES, inOwnBox } from './config.js';
 
 const LEVELS = {
-  easy:   { react: 0.38, speed: 0.8,  sprint: false, skill: 0.35, shootRange: 7.5, charge: [0.35, 0.7], aimNoise: 0.5, guard: 0.6 },
-  normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.8 },
-  hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 1 },
+  easy:   { react: 0.38, speed: 0.8,  sprint: false, skill: 0.35, shootRange: 7.5, charge: [0.35, 0.7], aimNoise: 0.5, guard: 0.35 },
+  normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.65 },
+  hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 0.9 },
 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -45,11 +45,60 @@ export class AIController {
     }
     it.kick = false; it.lob = false;
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
+    // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
+    if (this._keeper()) return;
     this.think -= dt;
     if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); this._decide(); }
+    this._avoidObstacles();
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
     it.sprint = this.plan.sprint && this.cfg.sprint;
     it.tackle = this.plan.tackle; this.plan.tackle = false;
+  }
+
+  _keeper() {
+    const me = this.me, g = this.game, ball = g.ball, it = me.intent;
+    if (me.dive || me.slide || me.slideCD > 0 || !inOwnBox(me.team, me.pos.x, me.pos.z)) return false;
+    const home = me.home, v = ball.vel, sp = Math.hypot(v.x, v.z);
+    // decide once per shot whether I react at all (easier CPUs sometimes freeze)
+    const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < this.cfg.guard; }
+    if (!this._willDive) return false;
+    if (sp < 7 || ball.pos.y > 1.6) return false;
+    // time until the ball reaches my position along the goal's inward axis
+    const toward = -(v.x * home.inward.x + v.z * home.inward.z);
+    if (toward < 4) return false;
+    const myDepth = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
+    const ballDepth = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
+    const t = (ballDepth - myDepth) / toward;
+    if (t <= 0 || t > 0.45 + 0.1 * this.cfg.skill) return false;
+    const cx = ball.pos.x + v.x * t, cz = ball.pos.z + v.z * t;
+    // only if it's heading for the goal mouth
+    const along = home.axis === 'x' ? 'z' : 'x';
+    const atLine = ball.pos[along] + v[along] * ((ballDepth) / toward);
+    if (Math.abs(atLine) > FIELD.goalHalfW + 0.4) return false;
+    const off = Math.hypot(cx - me.pos.x, cz - me.pos.z);
+    if (off < 0.45 || off > 2.4) return false;
+    it.move.set(cx - me.pos.x, cz - me.pos.z).normalize();
+    it.tackle = true; it.kick = it.lob = false;
+    return true;
+  }
+
+  // steer round the flower planters instead of running into them
+  _avoidObstacles() {
+    const me = this.me, m = this.plan.move;
+    if (m.lengthSq() < 0.01) return;
+    const dx = m.x, dz = m.y, ml = Math.hypot(dx, dz);
+    for (const o of OBSTACLES) {
+      const ox = o.x - me.pos.x, oz = o.z - me.pos.z;
+      const ahead = (ox * dx + oz * dz) / ml;
+      if (ahead < 0 || ahead > 1.8) continue;
+      const side = (ox * -dz + oz * dx) / ml; // + = obstacle to the left of my path
+      if (Math.abs(side) > o.r + 0.45) continue;
+      const push = (o.r + 0.5 - Math.abs(side)) / (o.r + 0.5);
+      const s = side >= 0 ? -1 : 1;
+      m.x += (-dz / ml) * s * push * 1.2; m.y += (dx / ml) * s * push * 1.2;
+      const l = Math.hypot(m.x, m.y); m.x *= ml / l; m.y *= ml / l;
+    }
   }
 
   _goTo(x, z, arriveR = 0.6, sprintBeyond = 3) {

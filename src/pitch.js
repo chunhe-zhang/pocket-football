@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, GOALS, insideArena } from './config.js';
+import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES } from './config.js';
 
 const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
 const CC = H - RC; // centre of each corner arc, on both axes
@@ -67,11 +67,12 @@ function grassTexture() {
       g.translate(X(goal.centre.x), Y(goal.centre.z));
       g.rotate(Math.atan2(goal.inward.z, goal.inward.x));
       // local +x points into the pitch
-      g.fillStyle = t.css + '33'; g.fillRect(0, -3.2 * ppm, 3 * ppm, 6.4 * ppm);
+      const BD = FIELD.boxDepth * ppm, BW = FIELD.boxHalfW * ppm;
+      g.fillStyle = t.css + '33'; g.fillRect(0, -BW, BD, 2 * BW);
       g.strokeStyle = t.css; g.lineWidth = 0.09 * ppm;
-      g.strokeRect(0, -3.2 * ppm, 3 * ppm, 6.4 * ppm);
+      g.strokeRect(0, -BW, BD, 2 * BW);
       g.fillStyle = t.css; g.fillRect(-0.06 * ppm, -GW * ppm, 0.14 * ppm, 2 * GW * ppm);
-      g.beginPath(); g.arc(4.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(BD + 1.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
       g.restore();
     }
     // boundary
@@ -175,6 +176,7 @@ export class Pitch {
     pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true; s.add(pitch);
 
     this._buildBoards();
+    this._buildPlanters();
     this._buildFence();
     for (const g of GOALS) this._buildGoal(g);
     this._buildFlowers();
@@ -213,6 +215,34 @@ export class Pitch {
       // torus arc runs from +x towards +y in its own plane; after the x-rotation +y maps to -z
       rim.rotation.set(Math.PI / 2, 0, Math.atan2(sz, sx) - Math.PI / 4);
       this.scene.add(rim);
+    }
+  }
+
+  // little round flower planters in the middle of the pitch
+  _buildPlanters() {
+    const pot = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+    const band = new THREE.MeshStandardMaterial({ color: 0xff8fc4, roughness: 0.6 });
+    const soil = new THREE.MeshLambertMaterial({ color: 0x7a5236 });
+    const leaf = new THREE.MeshLambertMaterial({ color: 0x5fb35f, flatShading: true });
+    const petals = [0xff6fa8, 0xffd23f, 0xffffff, 0xb17cff, 0xff9ecb].map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
+    for (const [i, o] of OBSTACLES.entries()) {
+      const g = new THREE.Group(); g.position.set(o.x, 0, o.z);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r * 0.82, o.h, 28), pot);
+      body.position.y = o.h / 2; body.castShadow = true; body.receiveShadow = true; g.add(body);
+      const stripe = new THREE.Mesh(new THREE.CylinderGeometry(o.r + 0.005, o.r * 0.97, 0.1, 28, 1, true), band);
+      stripe.position.y = o.h - 0.12; g.add(stripe);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(o.r, 0.035, 8, 28), pot);
+      rim.rotation.x = Math.PI / 2; rim.position.y = o.h; g.add(rim);
+      const dirt = new THREE.Mesh(new THREE.CircleGeometry(o.r * 0.95, 24), soil);
+      dirt.rotation.x = -Math.PI / 2; dirt.position.y = o.h - 0.03; g.add(dirt);
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + i, rr = k === 0 ? 0 : o.r * 0.55;
+        const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), leaf);
+        bush.position.set(Math.cos(a) * rr, o.h + 0.06, Math.sin(a) * rr); g.add(bush);
+        const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.075, 0), petals[(k + i) % petals.length]);
+        fl.position.set(Math.cos(a) * rr * 1.05, o.h + 0.16 + (k % 2) * 0.05, Math.sin(a) * rr * 1.05); g.add(fl);
+      }
+      this.scene.add(g);
     }
   }
 

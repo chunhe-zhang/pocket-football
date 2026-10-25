@@ -13,7 +13,7 @@ const HELP = {
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚</span>
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
-    <b>铲球</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲，能把球捅走、把人铲倒</span>
+    <b>铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲；在自己的禁区里变成扑救，按方向键选扑哪边</span>
     <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
@@ -130,7 +130,7 @@ export class UI {
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? '按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球　·　<b>Shift</b> 冲刺　·　守住你的球门！'
+      ? '按住 <b>Space</b> 蓄力射门　·　<b>K</b> 挑射　·　<b>L</b> 铲球（禁区内扑救）　·　<b>Shift</b> 冲刺'
       : 'P1：WASD + F/G　·　P2：方向键 + Enter / /　·　P3/P4：手柄';
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);

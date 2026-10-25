@@ -32,6 +32,7 @@ const KEYS = {
   upLegR: 'rightUpperLeg', legR: 'rightLowerLeg', footR: 'rightFoot', toeR: 'rightToes',
   upLegL: 'leftUpperLeg', legL: 'leftLowerLeg', footL: 'leftFoot', toeL: 'leftToes',
   armL: 'leftUpperArm', foreL: 'leftLowerArm', armR: 'rightUpperArm', foreR: 'rightLowerArm',
+  handL: 'leftHand', handR: 'rightHand',
 };
 
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3();

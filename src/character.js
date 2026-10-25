@@ -198,6 +198,20 @@ const HEADER = (c) => ({
   thigh:   [[0, 0], [c, 0.25], [1, 0]],
 });
 
+// roll: + tips the whole body over sideways towards the dive side.
+const DIVE = {
+  roll:    [[0, 0], [0.07, 0.6], [0.2, 1.42], [0.58, 1.48], [0.8, 0.75], [1, 0]],
+  drop:    [[0, 0], [0.07, -0.12], [0.2, -0.66], [0.58, -0.72], [0.8, -0.3], [1, 0]],
+  armOutL: [[0, 0], [0.07, 1.8], [0.18, 2.8], [0.58, 2.75], [0.84, 1.0], [1, 0]],
+  armOutR: [[0, 0], [0.07, 1.8], [0.18, 2.8], [0.58, 2.75], [0.84, 1.0], [1, 0]],
+  supKnee: [[0, 0], [0.07, 0.6], [0.2, 0.15], [0.58, 0.2], [1, 0]],
+  supThigh:[[0, 0], [0.07, 0.35], [0.2, 0.08], [1, 0]],
+  knee:    [[0, 0], [0.2, 0.3], [0.58, 0.35], [1, 0]],
+  legOut:  [[0, 0], [0.2, 0.3], [0.58, 0.25], [1, 0]],
+  headUp:  [[0, 0], [0.2, 0.2], [0.58, 0.15], [1, 0]],
+  lean:    [[0, 0], [0.07, 0.15], [0.2, 0.05], [1, 0]],
+};
+
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
 
 export class Character {
@@ -318,8 +332,9 @@ export class Character {
       case 'trapThigh': g = new Gesture('trapThigh', opts.duration ?? 0.55, TRAP_THIGH(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
       case 'trapChest': g = new Gesture('trapChest', opts.duration ?? 0.55, TRAP_CHEST(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
       case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
+      case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header'];
+    const LEG = ['kick', 'chip', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);
@@ -357,7 +372,7 @@ export class Character {
       const mk = (part, side, r) => ({ part, side, r, pos: new THREE.Vector3() });
       this._sph = [mk('head', 0, 0.12), mk('chest', 0, 0.15), mk('hips', 0, 0.15),
         mk('thigh', 'R', 0.085), mk('thigh', 'L', 0.085), mk('shin', 'R', 0.065), mk('shin', 'L', 0.065),
-        mk('foot', 'R', 0.065), mk('foot', 'L', 0.065)];
+        mk('foot', 'R', 0.065), mk('foot', 'L', 0.065), mk('hand', 'R', 0.11), mk('hand', 'L', 0.11)];
     }
     const s = this._sph, t = _a, u = _b;
     b.head.getWorldPosition(s[0].pos); s[0].pos.y += 0.08;
@@ -367,6 +382,7 @@ export class Character {
     mid(b.upLegR, b.legR, s[3].pos); mid(b.upLegL, b.legL, s[4].pos);
     mid(b.legR, b.footR, s[5].pos, 0.55); mid(b.legL, b.footL, s[6].pos, 0.55);
     mid(b.footR, b.toeR, s[7].pos, 0.6); mid(b.footL, b.toeL, s[8].pos, 0.6);
+    b.handR.getWorldPosition(s[9].pos); b.handL.getWorldPosition(s[10].pos);
     for (const x of s) out.push(x);
     return out;
   }
@@ -456,6 +472,7 @@ export class Character {
     if (ch.drop) this.root.position.y = ch.drop;
     if (ch.hop) this.root.position.y += ch.hop;
     this._rot(b.hips, r, ch.body || 0);
+    this._rot(b.hips, f, -(ch.roll || 0) * (ch._side === 'Left' ? -1 : 1));
     this._rot(b.spine1, r, -(ch.lean || 0));
     this._rot(b.spine, UP, (ch.twist || 0) * mir * 0.5);
     this._rot(b.spine2 || b.spine1, UP, (ch.twist || 0) * mir * 0.5);

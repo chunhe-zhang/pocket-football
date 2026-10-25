@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES } from './config.js';
 
 const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
 const R = BALL.r;
@@ -217,6 +217,7 @@ export class Ball {
     this._walls('x', 'z');
     this._walls('z', 'x');
     this._corners();
+    this._obstacles();
     this._goalFrames();
     this._bodies();
   }
@@ -312,6 +313,32 @@ export class Ball {
       v.z -= ((1 + BALL.wallBounce) * vn + pop) * nz;
       if (vn > 1.5) this.events.push({ type: 'board', v: vn });
       if (vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: vn / 50 });
+    }
+  }
+
+  // flower planters: a vertical cylinder with a flat top
+  _obstacles() {
+    const p = this.pos, v = this.vel;
+    for (const o of OBSTACLES) {
+      if (p.y > o.h + R) continue;
+      const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz);
+      if (d > o.r + R) continue;
+      if (p.y > o.h && d < o.r) {
+        // landing on the top: bounce up
+        p.y = o.h + R;
+        if (v.y < 0) { const imp = -v.y; v.y = imp * 0.55; if (imp > 2) this.events.push({ type: 'board', v: imp }); }
+        continue;
+      }
+      if (d < 1e-5) continue;
+      const nx = dx / d, nz = dz / d;
+      p.x = o.x + nx * (o.r + R); p.z = o.z + nz * (o.r + R);
+      const vn = v.x * nx + v.z * nz;
+      if (vn < 0) {
+        v.x -= 1.8 * vn * nx; v.z -= 1.8 * vn * nz;
+        this.spin.multiplyScalar(0.6);
+        if (-vn > 1.5) this.events.push({ type: 'board', v: -vn });
+        if (-vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: -vn / 50 });
+      }
     }
   }
 

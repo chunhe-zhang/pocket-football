@@ -2,7 +2,9 @@
 
 export const FIELD = {
   half: 9,          // pitch half size (x and z)
-  cornerR: 4.5,     // rounded corners: no right angles for the ball to get stuck in
+  cornerR: 6.6,     // big rounded corners: the arena is almost a circle
+  boxDepth: 2.8,    // penalty box in front of each goal (where you may dive)
+  boxHalfW: 2.7,
   halfL: 9,         // kept for code that thinks in length/width
   halfW: 9,
   goalHalfW: 1.6,   // half width of goal mouth
@@ -109,4 +111,25 @@ export function insideArena(x, z, margin = 0) {
   if (Math.abs(x) > H || Math.abs(z) > H) return false;
   if (Math.abs(x) > C && Math.abs(z) > C) return Math.hypot(Math.abs(x) - C, Math.abs(z) - C) <= FIELD.cornerR + margin;
   return true;
+}
+
+// ---- obstacles -----------------------------------------------------------------------
+// Four little flower planters around the centre circle, between the goal lanes.
+export const OBSTACLES = [[2.7, 2.7], [-2.7, 2.7], [2.7, -2.7], [-2.7, -2.7]].map(([x, z]) => ({ x, z, r: 0.42, h: 0.55 }));
+
+/** push a point (players: margin = body radius) out of the obstacles. Returns true if moved. */
+export function pushOutOfObstacles(p, margin = 0) {
+  let moved = false;
+  for (const o of OBSTACLES) {
+    const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz), min = o.r + margin;
+    if (d < min) { const k = d > 1e-4 ? min / d : 0; p.x = o.x + (d > 1e-4 ? dx * k : min); p.z = o.z + dz * k; moved = true; }
+  }
+  return moved;
+}
+
+/** is a point inside a team's own penalty box? */
+export function inOwnBox(team, x, z) {
+  const g = GOALS[team];
+  const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x;
+  return depth > FIELD.half - FIELD.boxDepth && Math.abs(along) < FIELD.boxHalfW;
 }
