@@ -12,14 +12,16 @@ export const FIELD = {
 };
 
 export const BALL = {
-  r: 0.11,
+  r: 0.16,              // a little bigger than a real ball so it reads well on screen
   gravity: 9.81,
   bounce: 0.58,          // vertical restitution on grass
   bounceFriction: 0.88,  // horizontal speed kept on a bounce
-  rollDecel: 0.85,       // m/s^2 rolling resistance on grass
-  drag: 0.011,           // quadratic air drag factor (1/m)
+  rollDecel: 0.42,       // m/s^2 rolling resistance on grass (fast, well-watered pitch)
+  rollQuad: 0.005,       // extra speed-dependent rolling resistance
+  drag: 0.008,           // quadratic air drag factor (1/m)
   magnus: 0.0035,        // curl strength
-  wallBounce: 0.62,
+  wallBounce: 0.9,       // lively boards
+  wallKick: 1.5,         // boards add a little pop (m/s) to hard hits
   postBounce: 0.7,
   netDamp: 0.18,
 };
@@ -37,8 +39,8 @@ export const PLAYER = {
   chargeAutoRelease: 0.35,
   staminaDrain: 0.32,
   staminaRegen: 0.2,
-  reachForward: 0.42,    // where the ball sits in front of the body at contact
-  reachSide: 0.09,       // kicking foot offset to the right of centre
+  shotSpeed: [11, 25],   // base + power * k (m/s)
+  chipSpeed: [8, 10],
 };
 
 export const ANIM = {
@@ -50,8 +52,10 @@ export const ANIM = {
 };
 
 export const TEAMS = [
-  { name: 'BLUE', color: 0x2f7cf6, accent: 0xe8f0ff, css: '#2f7cf6' },
-  { name: 'ORANGE', color: 0xf26b1d, accent: 0xfff1e6, css: '#f26b1d' },
+  { name: 'BLUE', color: 0x2f7cf6, css: '#2f7cf6',
+    kit: { shirt: '#3d82ff', shorts: '#1f2c5c', number: '#ffffff', no: '10', hair: null, outline: 0x1b1630 } },
+  { name: 'ORANGE', color: 0xf26b1d, css: '#f26b1d',
+    kit: { shirt: '#ff7d33', shorts: '#2c2a33', number: '#ffffff', no: '7', hair: '#545a86', outline: 0x24160f } },
 ];
 
 export const MATCH = {

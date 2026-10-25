@@ -11,13 +11,13 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const CAM_MODES = ['broadcast', 'close', 'high'];
 
 export class Game {
-  constructor({ scene, camera, gltf, sfx, input, ui }) {
+  constructor({ scene, camera, template, sfx, input, ui }) {
     Object.assign(this, { scene, camera, sfx, input, ui });
     this.pitch = new Pitch(scene);
     this.ball = new Ball(scene, sfx);
     this.chargeFx = new ChargeFx(scene);
     this.athletes = TEAMS.map((t, i) => {
-      const ch = new Character(gltf, { color: t.color, accent: t.accent });
+      const ch = new Character(template, t.kit);
       scene.add(ch.group);
       return new Athlete(this, i, ch, i === 0 ? 'P1' : 'CPU');
     });
@@ -291,6 +291,7 @@ export class Game {
       else { pos.set(lx * 0.6, 19 * portrait, 9 * portrait); look.set(lx * 0.6, 0, 0.3); }
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     }
+    if (window.__cam) { this.camPos.fromArray(window.__cam[0]); this.camLook.fromArray(window.__cam[1]); }
     cam.position.copy(this.camPos);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 0.9);

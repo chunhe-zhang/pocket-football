@@ -4,6 +4,7 @@ import { Sfx } from './audio.js';
 import { Input } from './input.js';
 import { UI } from './ui.js';
 import { Game } from './game.js';
+import { AvatarTemplate } from './avatar.js';
 import { FIELD } from './config.js';
 
 const params = new URLSearchParams(location.search);
@@ -54,29 +55,31 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, 
 
 // ---- load assets --------------------------------------------------------------
 const loader = new GLTFLoader();
-let gltf;
-async function loadModel() {
+// some static hosts refuse .glb/.vrm; fall back to a base64 text copy if one is published
+async function loadModel(url, from, to, label) {
+  const progress = (e) => { if (e.total) ui.loading(from + (to - from) * (e.loaded / e.total), label); };
   try {
-    return await loader.loadAsync('./assets/models/Xbot.glb', (e) => {
-      if (e.total) ui.loading(e.loaded / e.total * 0.9, '正在载入球员模型…');
-    });
+    return await loader.loadAsync(url, progress);
   } catch (err) {
-    // some static hosts refuse .glb; fall back to a base64 text copy if one is published
-    const res = await fetch('./assets/models/Xbot.glb.b64.txt');
+    const res = await fetch(url + '.b64.txt');
     if (!res.ok) throw err;
     const bin = Uint8Array.from(atob((await res.text()).trim()), (c) => c.charCodeAt(0));
-    return await loader.parseAsync(bin.buffer, './assets/models/');
+    return await loader.parseAsync(bin.buffer, url.replace(/[^/]*$/, ''));
   }
 }
+let template;
 try {
-  gltf = await loadModel();
+  const anims = await loadModel('./assets/models/Xbot.glb', 0, 0.3, '正在载入动作数据…');
+  const vrm = await loadModel('./assets/models/player.vrm', 0.3, 0.9, '正在载入球员模型…');
+  ui.loading(0.92, '套用动作捕捉动画…');
+  template = new AvatarTemplate(vrm, anims);
 } catch (err) {
   ui.loading(0, '模型载入失败：请通过本地服务器或 GitHub Pages 打开（不能直接双击 index.html）。');
   throw err;
 }
 ui.loading(0.95, '布置球场…');
 
-const game = new Game({ scene, camera, gltf, sfx, input, ui });
+const game = new Game({ scene, camera, template, sfx, input, ui });
 ui.bind(game);
 window.__game = game; // handy for debugging in the console
 // test hook: advance the simulation deterministically and render one frame

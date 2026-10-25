@@ -5,28 +5,58 @@ const { halfL: L, halfW: W, goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = F
 const R = BALL.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
-function ballGeometry() {
-  // classic two-tone ball: black pentagon patches centred on the 12 icosahedron vertices
-  const geo = new THREE.SphereGeometry(R, 64, 40);
-  const ico = new THREE.IcosahedronGeometry(1, 0).attributes.position;
-  const centres = [];
-  for (let i = 0; i < ico.count; i++) {
-    const v = new THREE.Vector3().fromBufferAttribute(ico, i).normalize();
-    if (!centres.some((c) => c.distanceTo(v) < 1e-3)) centres.push(v);
+// Panel layout of a classic 32-panel ball (truncated icosahedron): 12 pentagon
+// centres (icosahedron vertices) + 20 hexagon centres (icosahedron face centres).
+function panelCentres() {
+  const ico = new THREE.IcosahedronGeometry(1, 0);
+  const pos = ico.attributes.position, verts = [], faces = [];
+  for (let i = 0; i < pos.count; i += 3) {
+    const a = new THREE.Vector3().fromBufferAttribute(pos, i), b = new THREE.Vector3().fromBufferAttribute(pos, i + 1), c = new THREE.Vector3().fromBufferAttribute(pos, i + 2);
+    faces.push(a.clone().add(b).add(c).normalize());
+    for (const v of [a, b, c]) if (!verts.some((u) => u.distanceTo(v) < 1e-3)) verts.push(v.clone().normalize());
   }
-  const pos = geo.attributes.position, col = new Float32Array(pos.count * 3), n = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    n.fromBufferAttribute(pos, i).normalize();
-    let best = -1; for (const c of centres) best = Math.max(best, n.dot(c));
-    // pentagon-ish patch with a soft seam ring
-    let v = 0.95;
-    if (best > 0.935) v = 0.05; else if (best > 0.92) v = 0.55;
-    // faint seams between the white hexagons
-    else if (best > 0.79 && best < 0.80) v = 0.75;
-    col.set([v, v, v * 0.98], i * 3);
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  return geo;
+  return [...verts, ...faces];
+}
+
+function ballMaterial() {
+  const centres = panelCentres();
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.22, sheen: 0.2 });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uC = { value: centres };
+    sh.uniforms.uPent = { value: new THREE.Color(0x14204a) };
+    sh.uniforms.uTrim = { value: new THREE.Color(0xffc23d) };
+    sh.uniforms.uHex = { value: new THREE.Color(0xf7f8fb) };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBallN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBallN = normalize(position);');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBallN; uniform vec3 uC[32]; uniform vec3 uPent; uniform vec3 uTrim; uniform vec3 uHex;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 n = normalize(vBallN);
+        float d1 = -2.0, d2 = -2.0; int i1 = 0;
+        for (int i = 0; i < 32; i++) {
+          // pentagons are a little smaller than hexagons; bias so seams land in the right place
+          float d = dot(n, uC[i]) + (i < 12 ? -0.012 : 0.0);
+          if (d > d1) { d2 = d1; d1 = d; i1 = i; } else if (d > d2) { d2 = d; }
+        }
+        float w = fwidth(d1 - d2) * 1.2 + 0.004;
+        float seam = smoothstep(0.0, w, d1 - d2);
+        vec3 col = uHex;
+        if (i1 < 12) {
+          // navy pentagon with a gold ring inset
+          float r = dot(n, uC[i1]);
+          col = mix(uTrim, uPent, smoothstep(0.958, 0.962, r));
+          col = mix(uHex, col, smoothstep(0.944, 0.948, r));
+        } else {
+          // faint radial shading inside each white hexagon
+          float r = dot(n, uC[i1]);
+          col *= 0.94 + 0.06 * smoothstep(0.9, 0.99, r);
+        }
+        col = mix(vec3(0.22, 0.24, 0.3), col, seam);
+        diffuseColor.rgb *= col;`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.85, roughnessFactor, 1.0);');
+  };
+  return m;
 }
 
 export class Ball {
@@ -40,7 +70,7 @@ export class Ball {
     this.events = [];
     this.goalSide = 0;                     // +1/-1 once the ball is fully inside a goal
 
-    this.mesh = new THREE.Mesh(ballGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.0 }));
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), ballMaterial());
     this.mesh.castShadow = true;
     scene.add(this.mesh);
 
@@ -115,7 +145,7 @@ export class Ball {
       v.y = 0; p.y = R;
       const gs = Math.hypot(v.x, v.z);
       if (gs > 0) {
-        const dec = (BALL.rollDecel + 0.012 * gs * gs) * h;
+        const dec = (BALL.rollDecel + BALL.rollQuad * gs * gs) * h;
         const k = Math.max(0, gs - dec) / gs;
         v.x *= k; v.z *= k;
         // leftover side spin bends a rolling ball a touch, then fades
@@ -157,7 +187,7 @@ export class Ball {
       p.z = Math.sign(p.z) * (W - R);
       if (v.z * Math.sign(p.z) > 0) {
         const s = Math.abs(v.z);
-        v.z = -v.z * BALL.wallBounce; v.x *= 0.92;
+        v.z = -v.z * BALL.wallBounce - Math.sign(v.z) * (s > 6 ? BALL.wallKick : 0); v.x *= 0.96;
         if (s > 1.5) this.events.push({ type: 'board', v: s });
       }
     }
@@ -170,7 +200,7 @@ export class Ball {
         p.x = side * (L - R);
         if (v.x * side > 0) {
           const s = Math.abs(v.x);
-          v.x = -v.x * BALL.wallBounce; v.z *= 0.92;
+          v.x = -v.x * BALL.wallBounce - Math.sign(v.x) * (s > 6 ? BALL.wallKick : 0); v.z *= 0.96;
           if (s > 1.5) this.events.push({ type: 'board', v: s });
         }
       }
@@ -236,7 +266,7 @@ export class Ball {
       }
     }
     const hgt = this.pos.y - R;
-    const s = 0.34 + hgt * 0.25;
+    const s = R * 3.1 + hgt * 0.25;
     this.blob.position.set(this.pos.x, 0.012, this.pos.z);
     this.blob.scale.set(s, s, 1);
     this.blob.material.opacity = Math.max(0.15, 1 - hgt * 0.22);
@@ -263,7 +293,7 @@ export class Ball {
     out.copy(this.pos);
     const gs = this.groundSpeed;
     if (this.pos.y <= R + 0.05 && Math.abs(this.vel.y) < 0.5) {
-      const stopT = gs / (BALL.rollDecel + 0.012 * gs * gs + 1e-6);
+      const stopT = gs / (BALL.rollDecel + BALL.rollQuad * gs * gs + 1e-6);
       const tt = Math.min(t, stopT);
       const dist = gs * tt - 0.5 * (gs / Math.max(stopT, 1e-3)) * tt * tt;
       if (gs > 0) { out.x += (this.vel.x / gs) * dist; out.z += (this.vel.z / gs) * dist; }

@@ -24,17 +24,28 @@ export class Athlete {
     this.speedMul = 1;
     this.stats = { shots: 0, onTarget: 0, touches: 0 };
     this.lastTouchTime = -10;
+    this.touch = null;       // scheduled dribble touch: the push happens when the boot arrives
+    this.trapT = 0;          // sole trap in progress
+    this.holdT = 0; this.holdW = 0; // standing with the foot on the ball
+    this.nextFoot = 'Right';
+    this.faceT = 0;
+    this._fa = new THREE.Vector3(); this._fb = new THREE.Vector3();
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3(); this._f = new THREE.Vector3(); this._r = new THREE.Vector3();
   }
 
   get attackSign() { return this.team === 0 ? 1 : -1; }      // team 0 attacks +x
   get forward() { return this._f.set(Math.sin(this.facing), 0, Math.cos(this.facing)); }
   get rightDir() { return this._r.crossVectors(this.forward, UP); }
+  // where the ball centre sits relative to the body when the boot meets it (measured from the rig)
+  get reachF() { return this.char.kickCalib.forward + R * 0.85; }
+  get reachS() { return this.char.kickCalib.side; }
 
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2;
+    this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
+    this.char.teleported();
     this._sync(0);
   }
 
@@ -61,9 +72,12 @@ export class Athlete {
         if (it.lob) this.chargeType = 'chip';
         this.charge = Math.min(1, this.charge + dt / PLAYER.chargeTime);
         if (this.charge >= 1) this.chargeHold += dt;
-        if (!held || this.chargeHold > PLAYER.chargeAutoRelease) this._release();
+        this.char.face('angry', 0.15 + 0.35 * this.charge);
+        if (!held || this.chargeHold > PLAYER.chargeAutoRelease) { this.char.face('angry', 0); this._release(); }
       }
     }
+    if (this.faceT > 0) { this.faceT -= dt; if (this.faceT <= 0) this.char.face('aa', 0); }
+    this.trapT = Math.max(0, this.trapT - dt);
 
     // ---- movement ---------------------------------------------------------
     const ballPos = g.ball.pos;
@@ -108,7 +122,42 @@ export class Athlete {
     if (Math.abs(this.pos.z) > FIELD.halfW - lim) { this.pos.z = Math.sign(this.pos.z) * (FIELD.halfW - lim); this.vel.z = 0; }
 
     this.char.lookTarget = ballPos;
+    this._feet(dt);
     this._sync(dt);
+  }
+
+  /** leg IK requests: the boot actually goes to the ball */
+  _feet(dt) {
+    const ik = this.char.ik, ball = this.game.ball, f = this.forward, ankleH = this.char.kickCalib.ankleHeight;
+    for (const s of ['R', 'L']) { ik[s].w = 0; ik[s].sole = 0; }
+    const k = this.kick;
+    if (k && !k.hit && k.approach) {
+      const u = k.t / k.dur, c = ANIM.kickContact;
+      if (u < c + 0.03) {
+        ik.R.w = Math.exp(-(((u - c) / 0.085) ** 2)) * 0.85;
+        ik.R.target.copy(ball.pos).addScaledVector(k.aim, -(R + 0.06));
+        ik.R.target.y = clamp(ball.pos.y - R * 0.3, ankleH, 0.75);
+      }
+    }
+    const t = this.touch;
+    if (t) {
+      const s = t.side === 'Left' ? 'L' : 'R';
+      ik[s].w = Math.sin(Math.PI * clamp(t.t / t.dur, 0, 1)) * 0.85;
+      ik[s].target.copy(ball.pos).addScaledVector(f, -(R + 0.04));
+      ik[s].target.y = ankleH + 0.03;
+    }
+    // foot on top of the ball: sole traps and holding the ball while standing
+    const sp = Math.hypot(this.vel.x, this.vel.z);
+    const bd = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
+    const holding = ball.lastTouch === this && sp < 0.35 && bd < 0.85 && ball.groundSpeed < 0.8 && !this.kick && !this.charging && this.game.state === 'play';
+    this.holdT = holding ? this.holdT + dt : 0;
+    this.holdW = holding && this.holdT > 0.45 ? Math.min(1, this.holdW + dt * 4) : Math.max(0, this.holdW - dt * 9);
+    const sole = Math.max(this.trapT > 0 ? Math.sin(Math.PI * clamp(1 - this.trapT / 0.32, 0, 1)) : 0, this.holdW * 0.8);
+    if (sole > 0.01) {
+      ik.R.target.copy(ball.pos).addScaledVector(f, -0.04);
+      ik.R.target.y = ball.pos.y + R + ankleH * 0.45;
+      ik.R.w = Math.max(ik.R.w, sole); ik.R.sole = 0.28 * sole;
+    }
   }
 
   _turnTo(want, dt, rate) {
@@ -152,13 +201,9 @@ export class Athlete {
 
     const dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : 1.0);
     const contactT = dur * ANIM.kickContact;
-    this.kick = { type, power, aim, t: 0, dur, contactT };
+    this.kick = { type, power, aim, t: 0, dur, contactT, hit: false, resolved: false };
     this.kick.approach = this._approachTarget(contactT, aim);
-    const side = 'Right';
-    this.char.play(type, {
-      duration: dur, side, amp: 0.85 + 0.3 * power,
-      onEvent: (e) => { if (e === 'contact') this._contact(); },
-    });
+    this.char.play(type, { duration: dur, side: 'Right', amp: 0.85 + 0.3 * power });
   }
 
   _approachTarget(timeLeft, aim) {
@@ -166,7 +211,7 @@ export class Athlete {
     const pred = ball.predict(Math.max(0, timeLeft), new THREE.Vector3());
     if (pred.y > 0.9) return null;
     const right = new THREE.Vector3().crossVectors(aim, UP);
-    const t = pred.clone().addScaledVector(aim, -PLAYER.reachForward).addScaledVector(right, -PLAYER.reachSide); t.y = 0;
+    const t = pred.clone().addScaledVector(aim, -this.reachF).addScaledVector(right, -this.reachS); t.y = 0;
     const d = Math.hypot(t.x - this.pos.x, t.z - this.pos.z);
     return d < 3 ? t : null;
   }
@@ -193,24 +238,34 @@ export class Athlete {
       this.vel.lerp(target, Math.min(1, dt * 6));
     }
     this.pos.addScaledVector(this.vel, dt);
+    // contact happens when the boot really reaches the ball (instep: ankle→toe segment)
+    if (!k.resolved && k.t >= k.contactT * 0.55) {
+      const ball = this.game.ball;
+      const a = this.char.anklePos('R', this._fa), b = this.char.footPos('R', this._fb);
+      const ab = b.sub(a), t = clamp(ball.pos.clone().sub(a).dot(ab) / Math.max(ab.lengthSq(), 1e-6), 0, 1);
+      const d = a.addScaledVector(ab, t).distanceTo(ball.pos);
+      if (d < R + 0.075) { k.resolved = true; this._contact(true); }
+      else if (k.t > k.contactT + 0.07) { k.resolved = true; this._contact(false); }
+    }
     if (k.t >= k.dur) this.kick = null;
   }
 
-  _contact() {
+  _contact(footTouched) {
     const k = this.kick; if (!k) return;
     const g = this.game, ball = g.ball;
     const right = new THREE.Vector3().crossVectors(k.aim, UP);
-    const ideal = this.pos.clone().addScaledVector(this.forward, PLAYER.reachForward).addScaledVector(right, PLAYER.reachSide);
+    const ideal = this.pos.clone().addScaledVector(this.forward, this.reachF).addScaledVector(right, this.reachS);
     const d = Math.hypot(ball.pos.x - ideal.x, ball.pos.z - ideal.z);
-    const maxH = k.type === 'chip' ? 0.45 : 0.85;
+    const maxH = k.type === 'chip' ? 0.55 : 0.95;
     const reach = 0.55;
-    if (d > reach || ball.pos.y > maxH) { g.onWhiff(this); return; }
-    const quality = 1 - d / reach;
+    if (!footTouched && (d > reach || ball.pos.y > maxH)) { g.onWhiff(this); return; }
+    k.hit = true;
+    const quality = footTouched ? Math.max(0.75, 1 - d / reach) : 1 - d / reach;
     const p = k.power;
     let speed, elev;
     const volley = ball.pos.y > R + 0.15;
-    if (k.type === 'chip') { speed = 7.2 + 8.5 * p; elev = 0.6 + 0.14 * p; }
-    else { speed = 9 + 20 * p; elev = 0.03 + 0.16 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
+    if (k.type === 'chip') { speed = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p; elev = 0.6 + 0.14 * p; }
+    else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * p; elev = 0.03 + 0.15 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
     speed *= 0.82 + 0.18 * quality;
     // shot error: rushed / mishit / power shots are less accurate
     const gd = Math.abs(this.attackSign * FIELD.halfL - this.pos.x);
@@ -228,6 +283,7 @@ export class Athlete {
     else spin.addScaledVector(r2, -8 * p);
     spin.y = lateral * 16 * p * (k.type === 'chip' ? 0.6 : 1);
     ball.strike(vel, spin, this);
+    this.char.face('aa', 0.6 + 0.4 * p); this.faceT = 0.35;
     this.lastTouchTime = g.time;
     this.touchCD = 0.35;
     this.stats.touches++;
@@ -262,9 +318,10 @@ export class Athlete {
     // towards "slightly slower than me, drifting back to my centre line", so the
     // ball stays within a stride instead of rolling away (like a skilled dribbler).
     const sp0 = Math.hypot(this.vel.x, this.vel.z);
-    if (ball.lastTouch === this && g.time - this.lastTouchTime < 0.9 && sp0 > 1 && by < 0.4 &&
+    const stopping = this.intent.move.lengthSq() < 0.04 && !this.charging;
+    if (ball.lastTouch === this && g.time - this.lastTouchTime < 0.9 && (sp0 > 1 || stopping) && by < 0.4 &&
         fwd > -0.2 && fwd < 2.4 && Math.abs(lat) < 1.1 && !(this.kick && this.kick.t >= this.kick.contactT)) {
-      const back = -1.2 * Math.min(1, sp0 / 5);
+      const back = -1.5 * Math.min(1, sp0 / 5);
       const tx = f.x * back - r.x * lat * 2.5, tz = f.z * back - r.z * lat * 2.5;
       const k = 1 - Math.exp(-dt / 0.33);
       const rvx0 = ball.vel.x - this.vel.x, rvz0 = ball.vel.z - this.vel.z;
@@ -272,8 +329,26 @@ export class Athlete {
       ball.vel.z = this.vel.z + rvz0 + (tz - rvz0) * k;
     }
 
+    // a scheduled dribble touch: the ball is knocked on when the boot arrives
+    if (this.touch) {
+      const tt = this.touch; tt.t += dt;
+      const foot = this.char.anklePos(tt.side === 'Left' ? 'L' : 'R', this._fa);
+      const footHit = Math.hypot(foot.x - ball.pos.x, foot.z - ball.pos.z) < R + 0.1 && by < 0.5;
+      if (dist > 1.5 || by > 0.6) this.touch = null;
+      else if (footHit || tt.t >= tt.dur * 0.75) {
+        const sp = Math.hypot(this.vel.x, this.vel.z);
+        const push = Math.min(10.5, sp + 1.9);
+        ball.vel.set(f.x * push - r.x * lat * 2.5, 0.3 + Math.random() * 0.25, f.z * push - r.z * lat * 2.5);
+        ball.pos.y = Math.max(ball.pos.y, R + 0.005);
+        g.sfx.touch();
+        this._took(sp > 4.5 ? 0.18 : 0.24);
+        this.touch = null;
+      }
+      return true;
+    }
+
     if (this.touchCD > 0) return false;
-    const inZone = fwd > -0.12 && fwd < 0.9 && Math.abs(lat) < 0.5 && dist < 0.95;
+    const inZone = fwd > -0.12 && fwd < 0.95 + R && Math.abs(lat) < 0.55 && dist < 1.0 + R;
     if (!inZone || by > 1.5) return false;
 
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
@@ -287,7 +362,8 @@ export class Athlete {
       ball.vel.x = this.vel.x * 0.9 + rvx * keep; ball.vel.z = this.vel.z * 0.9 + rvz * keep;
       ball.vel.y = by > 0.45 ? -0.6 : 0;
       ball.spin.multiplyScalar(0.2);
-      this.char.play('trap', { side: lat >= 0 ? 'Right' : 'Left' });
+      this.char.play('trap', { side: 'Right' });
+      if (by < 0.45) this.trapT = 0.32; // sole stop: the boot comes down on top of the ball
       g.sfx.touch();
       this._took(0.28);
       return true;
@@ -297,20 +373,20 @@ export class Athlete {
     const sp = Math.hypot(this.vel.x, this.vel.z);
     if (sp > 0.7) {
       // dribble: when the ball is about to be run over, knock it ahead
-      if (fwd < 0.55) {
-        const push = Math.min(10, sp + 2.4);
-        ball.vel.set(f.x * push - r.x * lat * 2.5, 0.3 + Math.random() * 0.25, f.z * push - r.z * lat * 2.5);
-        ball.pos.y = Math.max(ball.pos.y, R + 0.005);
-        this.char.play('touch', { side: lat >= 0 ? 'Right' : 'Left', amp: 0.8 + Math.min(0.5, sp / 12) });
-        g.sfx.touch();
-        this._took(sp > 4.5 ? 0.24 : 0.3);
+      if (fwd < 0.5 + R * 1.4) {
+        // start the touch now; the knock happens when the foot gets there
+        const side = Math.abs(lat) > 0.12 ? (lat > 0 ? 'Right' : 'Left') : this.nextFoot;
+        this.nextFoot = side === 'Right' ? 'Left' : 'Right';
+        this.touch = { t: 0, dur: clamp(0.17 - sp * 0.01, 0.1, 0.16), side };
+        this.char.play('touch', { side, amp: 0.8 + Math.min(0.5, sp / 12) });
         return true;
       }
     } else {
       // standing: cushion and settle the ball just in front of the boot
       const k = Math.exp(-dt * 7);
       ball.vel.x = this.vel.x + rvx * k; ball.vel.z = this.vel.z + rvz * k;
-      const tx = this.pos.x + f.x * 0.42, tz = this.pos.z + f.z * 0.42;
+      const hold = 0.3 + R;
+      const tx = this.pos.x + f.x * hold, tz = this.pos.z + f.z * hold;
       ball.vel.x += (tx - ball.pos.x) * 4 * dt; ball.vel.z += (tz - ball.pos.z) * 4 * dt;
       if (ball.lastTouch !== this) { ball.lastTouch = this; this.stats.touches++; }
       this.lastTouchTime = g.time;

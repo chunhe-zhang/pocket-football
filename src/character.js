@@ -119,97 +119,102 @@ const DEJECT = {
   armFwdR: [[0, -0.1], [1, -0.1]],
 };
 
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
+
 export class Character {
   /**
-   * @param {object} gltf loaded X Bot gltf
-   * @param {object} opts { color, accent }
+   * @param {AvatarTemplate} template shared model + retargeted animation
+   * @param {object} kit team colours for the shirt / shorts / hair
    */
-  constructor(gltf, { color = 0x2f7cf6, accent = 0xffffff } = {}) {
+  constructor(template, kit) {
     this.group = new THREE.Group();
-    this.root = cloneSkinned(gltf.scene);
+    const av = template.instantiate(kit);
+    this.root = av.root;
     this.group.add(this.root);
-
-    this.root.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-        const src = Array.isArray(o.material) ? o.material : [o.material];
-        const mats = src.map((m) => {
-          const n = m.clone();
-          const isJoint = /joint/i.test(m.name);
-          n.color = new THREE.Color(isJoint ? accent : color);
-          n.roughness = isJoint ? 0.35 : 0.42; n.metalness = isJoint ? 0.25 : 0.05;
-          if (!isJoint) { n.emissive = new THREE.Color(color).multiplyScalar(0.06); }
-          return n;
-        });
-        o.material = Array.isArray(o.material) ? mats : mats[0];
-      }
-    });
-
-    // bones
-    const B = (n) => this.root.getObjectByName('mixamorig' + n);
-    this.bones = {
-      hips: B('Hips'), spine: B('Spine'), spine1: B('Spine1'), spine2: B('Spine2'), neck: B('Neck'), head: B('Head'),
-      upLegR: B('RightUpLeg'), legR: B('RightLeg'), footR: B('RightFoot'), toeR: B('RightToeBase'),
-      upLegL: B('LeftUpLeg'), legL: B('LeftLeg'), footL: B('LeftFoot'), toeL: B('LeftToeBase'),
-      armL: B('LeftArm'), foreL: B('LeftForeArm'), armR: B('RightArm'), foreR: B('RightForeArm'),
-    };
+    this.bones = av.bones;
+    this.springs = av.springs;
+    this.constraints = av.constraints;
+    this.expr = av.expressions;
 
     // animation
     this.mixer = new THREE.AnimationMixer(this.root);
-    const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const strip = (c) => {
-      // remove horizontal root motion: we drive the position from game physics
-      const cc = c.clone();
-      for (const tr of cc.tracks) {
-        if (tr.name.endsWith('Hips.position')) {
-          const v = tr.values, x0 = v[0], z0 = v[2];
-          for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; }
-        }
-      }
-      return cc;
-    };
-    this.clips = { idle: strip(clip('idle')), walk: strip(clip('walk')), run: strip(clip('run')) };
+    const C = template.clips;
+    this.clips = { idle: C.idle, walk: C.walk, run: C.run };
     this.actions = {};
     for (const [k, c] of Object.entries(this.clips)) {
       const a = this.mixer.clipAction(c); a.play(); a.setEffectiveWeight(k === 'idle' ? 1 : 0); a.timeScale = k === 'idle' ? 1 : 0;
       this.actions[k] = a;
     }
-    // additive emotes from the same rig
     for (const n of ['sad_pose', 'headShake', 'agree']) {
-      const c = clip(n); if (!c) continue;
-      const add = THREE.AnimationUtils.makeClipAdditive(c.clone());
+      if (!C[n]) continue;
+      const add = THREE.AnimationUtils.makeClipAdditive(C[n].clone());
       const a = this.mixer.clipAction(add); a.blendMode = THREE.AdditiveAnimationBlendMode;
       a.setEffectiveWeight(0); a.play();
       this.actions[n] = a;
     }
 
-    // measure where in each cycle the left foot plants, so walk and run blend in phase
-    this.phaseOffset = { walk: this._contactPhase(this.clips.walk), run: this._contactPhase(this.clips.run) };
-    this.phase = 0;
-    this.speed = 0;
+    this.phase = 0; this.speed = 0;
     this.gestures = [];
     this.look = { yaw: 0, pitch: 0 };
     this.lookTarget = null;
     this.turnVel = 0;
     this.emoteWeights = { sad_pose: 0, headShake: 0, agree: 0 };
     this.emoteTargets = { sad_pose: 0, headShake: 0, agree: 0 };
+    // two-bone leg IK requests, filled by gameplay each frame
+    this.ik = { R: { target: new THREE.Vector3(), w: 0 }, L: { target: new THREE.Vector3(), w: 0 } };
 
     this._qa = new THREE.Quaternion(); this._qp = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._ax = new THREE.Vector3();
     this.forward = new THREE.Vector3(0, 0, 1); this.right = new THREE.Vector3(-1, 0, 0);
+    this.setFacing(0);
+
+    // measure the clips on *this* skeleton (legs differ between models)
+    const cache = template._measure || (template._measure = {});
+    if (!cache.natural) {
+      cache.phaseOffset = { walk: this._contactPhase(this.clips.walk), run: this._contactPhase(this.clips.run) };
+      cache.natural = { walk: this._stanceSpeed(this.clips.walk), run: this._stanceSpeed(this.clips.run) };
+      cache.kick = this._calibrateKick();
+    }
+    this.phaseOffset = cache.phaseOffset;
+    this.natural = cache.natural;
+    this.kickCalib = cache.kick;
+  }
+
+  _sampleClip(clip, fn, N = 60) {
+    const m = new THREE.AnimationMixer(this.root);
+    const a = m.clipAction(clip); a.play();
+    for (let i = 0; i < N; i++) { m.setTime((i / N) * clip.duration); this.group.updateMatrixWorld(true); fn(i, i / N); }
+    a.stop(); m.uncacheRoot(this.root);
   }
 
   _contactPhase(clip) {
-    const m = new THREE.AnimationMixer(this.root);
-    const a = m.clipAction(clip); a.play();
-    const foot = this.bones.footL, N = 60, p = new THREE.Vector3();
-    let best = 0, bestY = Infinity;
-    for (let i = 0; i < N; i++) {
-      m.setTime((i / N) * clip.duration); this.root.updateMatrixWorld(true);
-      foot.getWorldPosition(p);
-      if (p.y < bestY) { bestY = p.y; best = i / N; }
-    }
-    a.stop(); m.uncacheRoot(this.root);
+    let best = 0, bestY = Infinity; const p = new THREE.Vector3();
+    this._sampleClip(clip, (i, u) => { this.bones.footL.getWorldPosition(p); if (p.y < bestY) { bestY = p.y; best = u; } });
     return best;
+  }
+
+  /** speed the body would travel at so that the planted foot doesn't slide */
+  _stanceSpeed(clip) {
+    const N = 120, ys = [], zs = [], p = new THREE.Vector3();
+    this._sampleClip(clip, () => { this.bones.footL.getWorldPosition(p); ys.push(p.y); zs.push(p.z); }, N);
+    const ymin = Math.min(...ys), dt = clip.duration / N; let s = 0, n = 0;
+    for (let i = 1; i < N; i++) if (ys[i] < ymin + 0.03) { s += (zs[i - 1] - zs[i]) / dt; n++; }
+    return n ? Math.max(0.5, s / n) : 1.5;
+  }
+
+  /** where the kicking boot is at the moment of contact, in the player's frame */
+  _calibrateKick() {
+    this.group.position.set(0, 0, 0); this.setFacing(0);
+    const g = this.play('kick', { duration: ANIM.kickDuration });
+    const contactT = ANIM.kickDuration * ANIM.kickContact;
+    let t = 0; const dt = 1 / 240;
+    while (t + dt <= contactT) { this.update(dt, { speed: 0 }); t += dt; }
+    const toe = this.bones.toeR.getWorldPosition(new THREE.Vector3());
+    const ankle = this.bones.footR.getWorldPosition(new THREE.Vector3());
+    this.gestures = []; void g;
+    this.mixer.setTime(0); this.update(0, { speed: 0 });
+    this.springs?.reset?.();
+    // facing 0 → forward +z, right -x
+    return { forward: toe.z, side: -toe.x, toeHeight: toe.y, ankleForward: ankle.z, ankleHeight: ankle.y };
   }
 
   setFacing(angle) {
@@ -229,26 +234,34 @@ export class Character {
       case 'celebrate': g = new Gesture('celebrate', 0.9, CELEBRATE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
       case 'deject': g = new Gesture('deject', 1, DEJECT, { loop: true, fadeIn: 0.4, fadeOut: 0.3, ...opts }); break;
     }
-    // only one leg gesture at a time
     if (['kick', 'chip', 'touch', 'trap'].includes(name)) this.gestures = this.gestures.filter((x) => !['kick', 'chip', 'touch', 'trap'].includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);
+    if (name === 'celebrate') { this.face('happy', 1); }
+    if (name === 'deject') { this.face('sad', 0.9); }
     return g;
   }
+
+  face(name, w) { this.expr?.set(name, w); }
 
   stopEmotes() {
     for (const g of this.gestures) if (g.loop) g.stop();
     for (const k in this.emoteTargets) this.emoteTargets[k] = 0;
+    this.expr?.clear();
   }
 
   emote(name, w = 1) { if (name in this.emoteTargets) this.emoteTargets[name] = w; }
 
   get busyLeg() { return this.gestures.some((g) => (g.name === 'kick' || g.name === 'chip') && !g.done); }
 
-  /** world position of a foot (toe base gives the striking surface) */
   footPos(side = 'R', out = new THREE.Vector3()) {
     return (side === 'R' ? this.bones.toeR : this.bones.toeL).getWorldPosition(out);
   }
+  anklePos(side = 'R', out = new THREE.Vector3()) {
+    return (side === 'R' ? this.bones.footR : this.bones.footL).getWorldPosition(out);
+  }
+
+  teleported() { this.springs && (this.springs.needsReset = true); }
 
   // rotate a bone by `angle` around a world-space axis, keeping its hierarchy
   _rot(bone, axis, angle) {
@@ -259,20 +272,50 @@ export class Character {
     bone.quaternion.premultiply(this._qa);
   }
 
+  /** analytic two-bone IK: move the ankle towards `target` with weight w */
+  _legIK(up, low, foot, target, w) {
+    if (w <= 0.001) return;
+    up.updateWorldMatrix(true, true);
+    const H = up.getWorldPosition(_a), K = low.getWorldPosition(_b), A = foot.getWorldPosition(_c);
+    const T = _d.copy(A).lerp(target, clamp(w, 0, 1));
+    const l1 = H.distanceTo(K), l2 = K.distanceTo(A);
+    const dT = clamp(H.distanceTo(T), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+    // 1) knee: set the interior angle for the required hip-to-ankle distance
+    const kh = _e.copy(H).sub(K), ka = A.clone().sub(K);
+    const cur = kh.angleTo(ka);
+    const want = Math.acos(clamp((l1 * l1 + l2 * l2 - dT * dT) / (2 * l1 * l2), -1, 1));
+    let n = new THREE.Vector3().crossVectors(ka, kh);
+    if (n.lengthSq() < 1e-8) n.copy(this.right); else n.normalize();
+    const delta = want - cur;
+    // pick the rotation direction that opens/closes the knee the right way
+    const test = ka.clone().applyAxisAngle(n, delta);
+    const sgn = Math.abs(kh.angleTo(test) - want) < Math.abs(kh.angleTo(ka.clone().applyAxisAngle(n, -delta)) - want) ? 1 : -1;
+    this._rot(low, n, sgn * delta);
+    low.updateMatrixWorld(true);
+    // 2) hip: swing the whole leg so the ankle points at the target
+    const A2 = foot.getWorldPosition(new THREE.Vector3());
+    const from = A2.sub(H).normalize(), to = T.clone().sub(H).normalize();
+    const axis = new THREE.Vector3().crossVectors(from, to);
+    const s = axis.length();
+    if (s > 1e-6) { this._rot(up, axis.divideScalar(s), Math.atan2(s, from.dot(to))); up.updateMatrixWorld(true); }
+  }
+
   update(dt, { speed = 0, turnRate = 0 } = {}) {
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
+    const nat = this.natural || { walk: 1.5, run: 3.4 };
     const wIdle = clamp(1 - speed / 0.55, 0, 1);
     const wRun = clamp((speed - 1.9) / 1.3, 0, 1);
     const wWalk = (1 - wIdle) * (1 - wRun);
     const runW = (1 - wIdle) * wRun;
-    const strideWalk = ANIM.walkNatural * this.clips.walk.duration;
-    const strideRun = ANIM.runNatural * this.clips.run.duration * (1 + 0.22 * clamp((speed - 4) / 3, 0, 1));
+    const strideWalk = nat.walk * this.clips.walk.duration;
+    const strideRun = nat.run * this.clips.run.duration * (1 + 0.22 * clamp((speed - 4) / 3, 0, 1));
     const stride = strideWalk + (strideRun - strideWalk) * wRun;
     this.phase = (this.phase + (dt * Math.max(speed, 0)) / stride) % 1;
     for (const [k, w] of [['idle', wIdle], ['walk', wWalk], ['run', runW]]) this.actions[k].setEffectiveWeight(w);
-    this.actions.walk.time = ((this.phase + this.phaseOffset.walk) % 1) * this.clips.walk.duration;
-    this.actions.run.time = ((this.phase + this.phaseOffset.run) % 1) * this.clips.run.duration;
+    const po = this.phaseOffset || { walk: 0, run: 0 };
+    this.actions.walk.time = ((this.phase + po.walk) % 1) * this.clips.walk.duration;
+    this.actions.run.time = ((this.phase + po.run) % 1) * this.clips.run.duration;
     for (const k in this.emoteWeights) {
       this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * Math.min(1, dt * 4);
       this.actions[k]?.setEffectiveWeight(this.emoteWeights[k]);
@@ -283,13 +326,11 @@ export class Character {
 
     // --- procedural layers ----------------------------------------------------
     const f = this.forward, r = this.right, b = this.bones;
-    // speed lean + banking into turns
     this.turnVel += (turnRate - this.turnVel) * Math.min(1, dt * 8);
     const lean = clamp(speed / 7, 0, 1) * 0.16;
     this._rot(b.spine, r, -lean);
     this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18));
 
-    // gestures
     const ch = {};
     for (const g of this.gestures) {
       g.advance(dt);
@@ -306,7 +347,7 @@ export class Character {
     if (ch.hop) this.root.position.y += ch.hop;
     this._rot(b.spine1, r, -(ch.lean || 0));
     this._rot(b.spine, UP, (ch.twist || 0) * mir * 0.5);
-    this._rot(b.spine2, UP, (ch.twist || 0) * mir * 0.5);
+    this._rot(b.spine2 || b.spine1, UP, (ch.twist || 0) * mir * 0.5);
     this._rot(kick.up, r, ch.thigh || 0);
     this._rot(kick.leg, r, -(ch.knee || 0));
     this._rot(kick.foot, r, -(ch.foot || 0));
@@ -320,6 +361,13 @@ export class Character {
     this._rot(b.armR, r, ch[R ? 'armFwdR' : 'armFwdL'] || 0);
     this._rot(b.foreL, f, ch.elbowL || 0);
     this._rot(b.foreR, f, -(ch.elbowR || 0));
+    this.group.updateMatrixWorld(true);
+
+    // feet reach for the ball (kick contact, touches, sole traps)
+    this._legIK(b.upLegR, b.legR, b.footR, this.ik.R.target, this.ik.R.w);
+    this._legIK(b.upLegL, b.legL, b.footL, this.ik.L.target, this.ik.L.w);
+    if (this.ik.R.sole) this._rot(b.footR, r, this.ik.R.sole);
+    if (this.ik.L.sole) this._rot(b.footL, r, this.ik.L.sole);
 
     // head tracks the ball
     let yaw = 0, pitch = 0;
@@ -335,5 +383,10 @@ export class Character {
     this.look.yaw += (yaw - this.look.yaw) * k; this.look.pitch += (pitch - this.look.pitch) * k;
     this._rot(b.neck, UP, this.look.yaw * 0.45); this._rot(b.head, UP, this.look.yaw * 0.45);
     this._rot(b.neck, r, -this.look.pitch * 0.4); this._rot(b.head, r, -this.look.pitch * 0.4 + (ch.headUp || 0));
+
+    this.group.updateMatrixWorld(true);
+    this.constraints?.update();
+    this.springs?.update(dt);
+    this.expr?.update(dt);
   }
 }
