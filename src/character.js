@@ -113,10 +113,10 @@ const CELEBRATE = {
 };
 
 const DEJECT = {
-  lean:    [[0, 0.3], [1, 0.3]],
-  headUp:  [[0, -0.45], [1, -0.45]],
-  armFwdL: [[0, -0.1], [1, -0.1]],
-  armFwdR: [[0, -0.1], [1, -0.1]],
+  lean:    [[0, 0.22], [0.5, 0.26], [1, 0.22]],
+  headUp:  [[0, -0.4], [0.5, -0.45], [1, -0.4]],
+  armOutL: [[0, 0.08], [1, 0.08]],
+  armOutR: [[0, 0.08], [1, 0.08]],
 };
 
 // legOut: + swings the kicking leg out sideways. footTurn: + turns the toe outwards
@@ -311,7 +311,7 @@ export class Character {
       case 'touch': g = new Gesture('touch', ANIM.touchDuration, TOUCH, { fadeIn: 0.04, fadeOut: 0.08, ...opts }); break;
       case 'trap': g = new Gesture('trap', 0.42, TRAP, { fadeIn: 0.05, fadeOut: 0.15, ...opts }); break;
       case 'celebrate': g = new Gesture('celebrate', 0.9, CELEBRATE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
-      case 'deject': g = new Gesture('deject', 1, DEJECT, { loop: true, fadeIn: 0.4, fadeOut: 0.3, ...opts }); break;
+      case 'deject': g = new Gesture('deject', 3, DEJECT, { loop: true, fadeIn: 0.6, fadeOut: 0.4, ...opts }); break;
       case 'slide': g = new Gesture('slide', opts.duration ?? 0.85, SLIDE, { fadeIn: 0.05, fadeOut: 0.1, ...opts }); break;
       case 'stagger': g = new Gesture('stagger', opts.duration ?? 0.6, STAGGER, { fadeIn: 0.04, fadeOut: 0.12, ...opts }); break;
       case 'trapFoot': g = new Gesture('trapFoot', opts.duration ?? 0.5, TRAP_FOOT(c), { fadeIn: 0.05, fadeOut: 0.14, ...opts }); break;
@@ -484,16 +484,21 @@ export class Character {
 
     // head tracks the ball
     let yaw = 0, pitch = 0;
-    if (this.lookTarget) {
+    const emoting = this.gestures.some((g) => (g.name === 'deject' || g.name === 'celebrate') && !g.stopping);
+    if (this.lookTarget && !emoting) {
       b.head.getWorldPosition(this._v);
       const dx = this.lookTarget.x - this._v.x, dz = this.lookTarget.z - this._v.z, dy = this.lookTarget.y - this._v.y;
-      yaw = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
-      pitch = Math.atan2(-dy, Math.hypot(dx, dz));
-      yaw = clamp(yaw, -1.2, 1.2); pitch = clamp(pitch, -0.5, 0.75);
-      if (Math.abs(yaw) > 1.15) yaw *= 0.5;
+      const raw = Math.atan2(f.z * dx - f.x * dz, f.x * dx + f.z * dz);
+      // past ~70° the head stops following and eases back to the front, so a ball
+      // passing behind never makes it flick from one shoulder to the other
+      const a = Math.abs(raw);
+      yaw = Math.sign(raw) * Math.min(a, 1.2) * clamp((2.7 - a) / 1.3, 0, 1);
+      pitch = clamp(Math.atan2(-dy, Math.hypot(dx, dz)), -0.5, 0.75);
     }
-    const k = Math.min(1, dt * 7);
-    this.look.yaw += (yaw - this.look.yaw) * k; this.look.pitch += (pitch - this.look.pitch) * k;
+    // smooth, speed-limited head turn
+    const k = Math.min(1, dt * 5), maxStep = 4 * dt;
+    this.look.yaw += clamp((yaw - this.look.yaw) * k, -maxStep, maxStep);
+    this.look.pitch += clamp((pitch - this.look.pitch) * k, -maxStep, maxStep);
     this._rot(b.neck, UP, this.look.yaw * 0.45); this._rot(b.head, UP, this.look.yaw * 0.45);
     this._rot(b.neck, r, -this.look.pitch * 0.4); this._rot(b.head, r, -this.look.pitch * 0.4 + (ch.headUp || 0));
 

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, GOALS } from './config.js';
+import { FIELD, TEAMS, GOALS, insideArena } from './config.js';
 
-const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;
+const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
+const CC = H - RC; // centre of each corner arc, on both axes
 
 function canvasTex(w, h, draw, { repeat = null } = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -49,6 +50,16 @@ function grassTexture() {
     }
     g.putImageData(img, 0, 0);
     const X = (x) => (x + H + margin) * ppm, Y = (z) => (z + H + margin) * ppm;
+    // the turf follows the rounded boards; outside it the meadow shows through
+    const rounded = (half, r) => {
+      g.beginPath();
+      g.moveTo(X(-half + r), Y(-half)); g.lineTo(X(half - r), Y(-half)); g.arcTo(X(half), Y(-half), X(half), Y(-half + r), r * ppm);
+      g.lineTo(X(half), Y(half - r)); g.arcTo(X(half), Y(half), X(half - r), Y(half), r * ppm);
+      g.lineTo(X(-half + r), Y(half)); g.arcTo(X(-half), Y(half), X(-half), Y(half - r), r * ppm);
+      g.lineTo(X(-half), Y(-half + r)); g.arcTo(X(-half), Y(-half), X(-half + r), Y(-half), r * ppm);
+      g.closePath();
+    };
+    g.save(); rounded(H + 0.35, RC + 0.35); g.globalCompositeOperation = 'destination-in'; g.fillStyle = '#000'; g.fill(); g.restore();
     // team-coloured goal areas
     for (const goal of GOALS) {
       const t = TEAMS[goal.team];
@@ -65,7 +76,7 @@ function grassTexture() {
     }
     // boundary
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.09 * ppm;
-    g.strokeRect(X(-H), Y(-H), 2 * H * ppm, 2 * H * ppm);
+    rounded(H, RC); g.stroke();
     // rainbow centre circle
     const segs = 72, cr = 2.4 * ppm;
     g.lineWidth = 0.18 * ppm;
@@ -74,13 +85,7 @@ function grassTexture() {
       g.beginPath(); g.arc(X(0), Y(0), cr, (i / segs) * Math.PI * 2, ((i + 1.15) / segs) * Math.PI * 2); g.stroke();
     }
     g.fillStyle = '#fff'; g.beginPath(); g.arc(X(0), Y(0), 0.16 * ppm, 0, Math.PI * 2); g.fill();
-    // a few daisies scattered on the turf near the boards
-    for (let i = 0; i < 260; i++) {
-      const edge = Math.random() < 0.5;
-      const a = rnd(-H - margin, H + margin), b = (Math.random() < 0.5 ? -1 : 1) * rnd(H + 0.15, H + margin);
-      const x = edge ? a : b, z = edge ? b : a;
-      drawBlossom(g, X(x), Y(z), rnd(4, 9), Math.random() < 0.6 ? '#ffffff' : '#ffc6e0', '#ffd23f');
-    }
+
   });
   return { tex, size: wm };
 }
@@ -166,7 +171,7 @@ export class Pitch {
 
     // pitch
     const { tex, size } = grassTexture();
-    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92 }));
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, alphaTest: 0.5 }));
     pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true; s.add(pitch);
 
     this._buildBoards();
@@ -175,7 +180,6 @@ export class Pitch {
     this._buildFlowers();
     this._buildTrees();
     this._buildPetals();
-    this._buildFlags();
   }
 
   _buildBoards() {
@@ -183,47 +187,59 @@ export class Pitch {
     const tex = flowerBoardTexture();
     const face = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 });
     const top = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const mk = (len) => {
-      const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 5, 1);
-      const f = face.clone(); f.map = t; f.emissiveMap = t;
-      const m = new THREE.Mesh(new THREE.BoxGeometry(len, BH, T), [top, top, top, top, f, f]);
-      m.castShadow = true; m.receiveShadow = true; return m;
-    };
-    const seg = H - GW;
+    const withRepeat = (len) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 5, 1); const f = face.clone(); f.map = t; f.emissiveMap = t; return f; };
+    const seg = CC - GW; // from the goal post to where the corner curve starts
     for (const goal of GOALS) {
       for (const z of [-1, 1]) {
-        const b = mk(seg);
-        // build along the goal line, either side of the mouth
+        const m = new THREE.Mesh(new THREE.BoxGeometry(seg, BH, T), [top, top, top, top, withRepeat(seg), withRepeat(seg)]);
+        m.castShadow = true; m.receiveShadow = true;
         const along = z * (GW + seg / 2);
-        if (goal.axis === 'x') { b.rotation.y = Math.PI / 2; b.position.set(goal.sign * (H + T / 2), BH / 2, along); }
-        else b.position.set(along, BH / 2, goal.sign * (H + T / 2));
-        this.scene.add(b);
+        if (goal.axis === 'x') { m.rotation.y = Math.PI / 2; m.position.set(goal.sign * (H + T / 2), BH / 2, along); }
+        else m.position.set(along, BH / 2, goal.sign * (H + T / 2));
+        this.scene.add(m);
       }
     }
-    // white corner caps
-    for (const x of [-1, 1]) for (const z of [-1, 1]) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, BH + 0.06, 12), top);
-      c.position.set(x * (H + 0.06), (BH + 0.06) / 2, z * (H + 0.06)); this.scene.add(c);
+    // curved corner boards (quarter cylinders) with a white rim
+    const arcLen = (Math.PI / 2) * RC;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const start = Math.atan2(sx, sz) - Math.PI / 4;
+      const geo = new THREE.CylinderGeometry(RC + T / 2, RC + T / 2, BH, 32, 1, true, start, Math.PI / 2);
+      const mat = withRepeat(arcLen); mat.side = THREE.DoubleSide;
+      const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true;
+      m.position.set(sx * CC, BH / 2, sz * CC); this.scene.add(m);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(RC + T / 2, 0.04, 6, 32, Math.PI / 2), top);
+      rim.rotation.x = Math.PI / 2; rim.rotation.z = -start + Math.PI / 2 - Math.PI / 2;
+      rim.position.set(sx * CC, BH, sz * CC);
+      // torus arc runs from +x towards +y in its own plane; after the x-rotation +y maps to -z
+      rim.rotation.set(Math.PI / 2, 0, Math.atan2(sz, sx) - Math.PI / 4);
+      this.scene.add(rim);
     }
   }
 
   _buildFence() {
-    // light netting on the far side and both ends; the camera side stays open
+    // light netting on the far side and both ends (straight runs + curved corners); camera side open
     const tex = netTexture(10); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    const FH = 2.6, base = FIELD.boardH;
+    const FH = 2.6, base = FIELD.boardH, h = FH - base;
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
     const postMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const panel = (len, x, z, rotY) => {
-      const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 0.6, (FH - base) / 0.6);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, FH - base), mat.clone()); m.material.map = t;
-      m.position.set(x, base + (FH - base) / 2, z); m.rotation.y = rotY; this.scene.add(m);
-    };
-    panel(2 * H, 0, -H - 0.2, 0);
-    panel(2 * H, -H - 0.2, 0, Math.PI / 2);
-    panel(2 * H, H + 0.2, 0, Math.PI / 2);
+    const net = (geo, len) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 0.6, h / 0.6); const m = new THREE.Mesh(geo, mat.clone()); m.material.map = t; return m; };
+    const panel = (len, x, z, rotY) => { const m = net(new THREE.PlaneGeometry(len, h), len); m.position.set(x, base + h / 2, z); m.rotation.y = rotY; this.scene.add(m); };
+    panel(2 * CC, 0, -H - 0.2, 0);
+    panel(2 * CC, -H - 0.2, 0, Math.PI / 2);
+    panel(2 * CC, H + 0.2, 0, Math.PI / 2);
+    const arcLen = (Math.PI / 2) * (RC + 0.2);
+    for (const [sx, sz] of [[-1, -1], [1, -1]]) {
+      const start = Math.atan2(sx, sz) - Math.PI / 4;
+      const m = net(new THREE.CylinderGeometry(RC + 0.2, RC + 0.2, h, 24, 1, true, start, Math.PI / 2), arcLen);
+      m.position.set(sx * CC, base + h / 2, sz * CC); this.scene.add(m);
+    }
     const postGeo = new THREE.CylinderGeometry(0.04, 0.04, FH, 8);
     const post = (x, z) => { const p = new THREE.Mesh(postGeo, postMat); p.position.set(x, FH / 2, z); this.scene.add(p); };
-    for (let a = -H; a <= H + 0.01; a += 3) { post(a, -H - 0.22); post(-H - 0.22, a); post(H + 0.22, a); }
+    for (let a = -CC; a <= CC + 0.01; a += 3) { post(a, -H - 0.22); post(-H - 0.22, a); post(H + 0.22, a); }
+    for (const [sx, sz] of [[-1, -1], [1, -1]]) for (const k of [0.25, 0.5, 0.75]) {
+      const ang = Math.atan2(sx, sz) - Math.PI / 4 + k * Math.PI / 2;
+      post(sx * CC + Math.sin(ang) * (RC + 0.22), sz * CC + Math.cos(ang) * (RC + 0.22));
+    }
   }
 
   _buildGoal(goal) {
@@ -302,7 +318,7 @@ export class Pitch {
       while (n < perVariant && guard++ < perVariant * 20) {
         p.set(rnd(-H - 15, H + 15), 0, rnd(-H - 15, H + 15));
         const ex = Math.max(Math.abs(p.x), Math.abs(p.z));
-        if (ex < H + 0.45) continue;
+        if (insideArena(p.x, p.z, 0.45)) continue;
         // keep the space behind the goals clear
         if (GOALS.some((g) => {
           const along = g.axis === 'x' ? Math.abs(p.z) : Math.abs(p.x), out = g.axis === 'x' ? p.x * g.sign : p.z * g.sign;

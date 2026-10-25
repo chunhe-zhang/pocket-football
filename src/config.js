@@ -1,7 +1,8 @@
 // All units are metres / seconds / radians.
 
 export const FIELD = {
-  half: 9,          // square pitch half size (x and z)
+  half: 9,          // pitch half size (x and z)
+  cornerR: 4.5,     // rounded corners: no right angles for the ball to get stuck in
   halfL: 9,         // kept for code that thinks in length/width
   halfW: 9,
   goalHalfW: 1.6,   // half width of goal mouth
@@ -89,3 +90,23 @@ export function goalInfo(team) {
 export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 /** which goal (team index) a goal-line side belongs to */
 export function goalIndexFor(axis, sign) { return GOALS.findIndex((g) => g.axis === axis && g.sign === sign); }
+
+// ---- rounded arena -------------------------------------------------------------------
+/** keep a point inside the rounded-square pitch, `margin` metres from the walls. Returns true if moved. */
+export function clampToArena(p, margin = 0) {
+  const H = FIELD.half - margin, C = FIELD.half - FIELD.cornerR, Rr = FIELD.cornerR - margin;
+  let moved = false;
+  if (Math.abs(p.x) > H) { p.x = Math.sign(p.x) * H; moved = true; }
+  if (Math.abs(p.z) > H) { p.z = Math.sign(p.z) * H; moved = true; }
+  if (Math.abs(p.x) > C && Math.abs(p.z) > C) {
+    const cx = Math.sign(p.x) * C, cz = Math.sign(p.z) * C, dx = p.x - cx, dz = p.z - cz, d = Math.hypot(dx, dz);
+    if (d > Rr) { p.x = cx + (dx / d) * Rr; p.z = cz + (dz / d) * Rr; moved = true; }
+  }
+  return moved;
+}
+export function insideArena(x, z, margin = 0) {
+  const H = FIELD.half + margin, C = FIELD.half - FIELD.cornerR;
+  if (Math.abs(x) > H || Math.abs(z) > H) return false;
+  if (Math.abs(x) > C && Math.abs(z) > C) return Math.hypot(Math.abs(x) - C, Math.abs(z) - C) <= FIELD.cornerR + margin;
+  return true;
+}

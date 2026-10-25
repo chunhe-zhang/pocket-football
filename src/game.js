@@ -175,8 +175,7 @@ export class Game {
     this.focus = own ? loser : toucher;
     for (const a of this.athletes) { a.frozen = true; a.charging = false; }
     if (!own) toucher.char.play('celebrate');
-    loser.char.play('deject'); loser.char.emote('sad_pose', 0.6);
-    if (own && toucher) loser.char.emote('headShake', 1);
+    loser.char.play('deject');
     const t = TEAMS[team];
     if (own) this.banner('OWN GOAL', `乌龙球 · ${loser.label}（${t.cn}门）失球`);
     else this.banner('GOAL!', `${toucher.label} 攻破 ${loser.label} 的${t.cn}色球门`);

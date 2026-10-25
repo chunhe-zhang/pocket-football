@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, clampToArena } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -154,8 +154,7 @@ export class Athlete {
 
     // field bounds (players stay on the pitch, out of the goals)
     const lim = 0.28;
-    if (Math.abs(this.pos.x) > FIELD.half - lim) { this.pos.x = Math.sign(this.pos.x) * (FIELD.half - lim); this.vel.x = 0; }
-    if (Math.abs(this.pos.z) > FIELD.half - lim) { this.pos.z = Math.sign(this.pos.z) * (FIELD.half - lim); this.vel.z = 0; }
+    if (clampToArena(this.pos, lim)) this.vel.multiplyScalar(0.6);
 
     this.char.lookTarget = ballPos;
     this._feet(dt);

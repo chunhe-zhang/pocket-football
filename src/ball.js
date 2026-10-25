@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena } from './config.js';
 
-const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;
+const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR, cornerR: RC } = FIELD;
 const R = BALL.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -216,6 +216,7 @@ export class Ball {
 
     this._walls('x', 'z');
     this._walls('z', 'x');
+    this._corners();
     this._goalFrames();
     this._bodies();
   }
@@ -295,6 +296,25 @@ export class Ball {
     }
   }
 
+  // curved boards in the four corners
+  _corners() {
+    const p = this.pos, v = this.vel, C = H - RC;
+    if (Math.abs(p.x) <= C || Math.abs(p.z) <= C) return;
+    const cx = Math.sign(p.x) * C, cz = Math.sign(p.z) * C;
+    const dx = p.x - cx, dz = p.z - cz, d = Math.hypot(dx, dz), lim = RC - R;
+    if (d <= lim) return;
+    const nx = dx / d, nz = dz / d;
+    p.x = cx + nx * lim; p.z = cz + nz * lim;
+    const vn = v.x * nx + v.z * nz;
+    if (vn > 0) {
+      const pop = vn > 6 ? BALL.wallKick : 0;
+      v.x -= ((1 + BALL.wallBounce) * vn + pop) * nx;
+      v.z -= ((1 + BALL.wallBounce) * vn + pop) * nz;
+      if (vn > 1.5) this.events.push({ type: 'board', v: vn });
+      if (vn > 4) this.events.push({ type: 'squash', n: [nx, 0, nz], a: vn / 50 });
+    }
+  }
+
   _goalFrames() {
     const p = this.pos;
     for (const A of ['x', 'z']) {
@@ -365,8 +385,7 @@ export class Ball {
       out.x += this.vel.x * t * 0.92; out.z += this.vel.z * t * 0.92;
       out.y = Math.max(R, this.pos.y + this.vel.y * t - 0.5 * BALL.gravity * t * t);
     }
-    out.x = Math.max(-H + R, Math.min(H - R, out.x));
-    out.z = Math.max(-H + R, Math.min(H - R, out.z));
+    clampToArena(out, R);
     return out;
   }
 }
