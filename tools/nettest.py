@@ -13,7 +13,7 @@ async def main():
             pg=await ctx.new_page()
             pg.on('console', lambda m: logs.append(f'[{name}:{m.type}] {m.text}') if m.type in ('error','warning') else None)
             pg.on('pageerror', lambda e: logs.append(f'[{name}:pageerror] {e}'))
-            await pg.goto(URL)
+            await pg.goto(URL, wait_until='commit', timeout=60000)
             for _ in range(120):
                 if await pg.evaluate('!!window.__game'): break
                 await pg.wait_for_timeout(1000)
@@ -40,6 +40,10 @@ async def main():
         await run(3)
         # guest moves left for a while
         await guest.keyboard.down('KeyA'); await guest.wait_for_timeout(500); await run(2.5)
+        await host.evaluate("(()=>{const g=window.__game;g.ball.lastTouch=g.athletes[1];g.conceded[2]=1;g.goal(2);return 1})()")
+        await run(4.5)
+        await guest.wait_for_timeout(5000)
+        print('guest after KO', await guest.evaluate('(()=>{const g=window.__game;const n=g.snaps[g.snaps.length-1];return {state:g.state,menu:document.querySelector("#menu").classList.contains("show"),banner:document.querySelector("#banner-big").textContent+" "+document.querySelector("#banner-small").textContent,net:!!window.__ui,snapAl:n&&n.al,role:g.role,alive:g.alive,out:g.athletes.map(a=>!!a.out),seal:g.pitch.seals[2].g.visible,closed:[...g.ball.closedGoals],clock:document.querySelector("#clock").textContent}})()'))
         await guest.screenshot(path=OUT+'_guest_run.png')
         await guest.keyboard.up('KeyA')
         st=await host.evaluate('(()=>{const g=window.__game;return {state:g.state,pos:g.athletes.map(a=>[+a.pos.x.toFixed(2),+a.pos.z.toFixed(2)]),labels:g.athletes.map(a=>a.label),ctl:g.controllers.map(c=>c.type)}})()')

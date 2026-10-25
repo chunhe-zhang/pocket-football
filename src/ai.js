@@ -113,7 +113,7 @@ export class AIController {
     const me = this.me, g = this.game, ball = g.ball, plan = this.plan;
     const home = me.home, bp = ball.pos;
     const myDist = Math.hypot(bp.x - me.pos.x, bp.z - me.pos.z);
-    const others = g.athletes.filter((a) => a !== me);
+    const others = g.live.filter((a) => a !== me);
     const nearestOther = Math.min(...others.map((a) => Math.hypot(bp.x - a.pos.x, bp.z - a.pos.z)));
     const iHave = g.possessor === me;
     plan.sprint = false;

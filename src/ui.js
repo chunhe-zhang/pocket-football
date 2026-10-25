@@ -13,6 +13,7 @@ const HELP = {
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚</span>
     <b>挑射</b><span>按住 <kbd>K</kbd> 蓄力</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
+    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人获胜</span>
     <b>铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：朝移动方向滑铲；在自己的禁区里变成扑救，按方向键选扑哪边</span>
     <b>停球</b><span>来球时按住方向键，第一下触球就把球带向那边</span>
     <b>弧线球</b><span>出脚瞬间按住左右方向</span>
@@ -118,6 +119,7 @@ export class UI {
     $('#menu').classList.add('show');
     const g = this.game;
     g.role = 'local'; g.net = null; g.state = 'menu'; g.controllers = [];
+    g._resetElimination();
     for (const a of g.athletes) { a.frozen = false; a.puppet = false; a.char.stopEmotes(); }
     g.placeAll();
     g.ball.reset(0, 0);
@@ -140,7 +142,7 @@ export class UI {
     this.sfx.init();
     this._showHud();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, duration: this.settings.duration, slots: null });
+    this.game.start({ humans: this.settings.humans, level: this.settings.level, slots: null });
   }
 
   again() {
@@ -164,14 +166,16 @@ export class UI {
   }
 
   onScore(g) {
-    const worst = Math.max(...g.conceded), best = Math.min(...g.conceded);
     g.athletes.forEach((a, i) => {
       const c = $(`#chip${i}`); if (!c) return;
+      const alive = g.alive ? g.alive[i] : true;
       c.querySelector('.nm').textContent = a.label;
-      c.querySelector('.ga').textContent = g.conceded[i];
-      c.classList.toggle('worst', worst > best && g.conceded[i] === worst);
-      c.classList.toggle('best', worst > best && g.conceded[i] === best);
+      const lives = Math.max(0, (g.lives ?? 2) - (g.conceded ? g.conceded[i] : 0));
+      c.querySelector('.ga').textContent = alive ? '♥'.repeat(lives) + '♡'.repeat(Math.max(0, (g.lives ?? 2) - lives)) : '出局';
+      c.classList.toggle('out', !alive);
     });
+    const left = g.alive ? g.alive.filter(Boolean).length : 4;
+    $('#clock').textContent = `剩 ${left} 人`;
   }
 
   banner(big, small) {
@@ -184,14 +188,13 @@ export class UI {
 
   updateHud(g) {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
-    const c = Math.ceil(g.clock), m = Math.floor(c / 60), s = c % 60;
-    const clk = $('#clock'); clk.textContent = `${m}:${String(s).padStart(2, '0')}`;
-    clk.classList.toggle('low', g.clock < 30);
+    const left = g.alive ? g.alive.filter(Boolean).length : 4;
+    $('#clock').classList.toggle('low', left === 2);
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];
       this._v.set(a.pos.x, 2.0, a.pos.z).project(this.camera);
-      if (this._v.z > 1) { t.el.style.display = 'none'; return; }
+      if (this._v.z > 1 || a.out) { t.el.style.display = 'none'; return; }
       t.el.style.display = '';
       t.el.style.transform = `translate(${(this._v.x * 0.5 + 0.5) * w}px, ${(-this._v.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
       if (t.lbl.textContent !== a.label) t.lbl.textContent = a.label;
@@ -212,17 +215,11 @@ export class UI {
   }
 
   showEnd(g, res) {
-    const sorted = [...res].sort((a, b) => a.conceded - b.conceded || b.scored - a.scored);
-    const best = sorted[0].conceded, worst = sorted[sorted.length - 1].conceded;
-    const winners = sorted.filter((r) => r.conceded === best).map((r) => r.name);
-    const losers = sorted.filter((r) => r.conceded === worst).map((r) => r.name);
-    $('#end-title').textContent = best === worst ? '平局！' : `${winners.join('、')} 获胜`;
-    $('#end-sub').textContent = best === worst ? '大家丢球一样多' : `丢球最多：${losers.join('、')}（${worst} 球）`;
-    let rank = 0, prev = null;
-    $('#end-stats').innerHTML = '<tr><th>名次</th><th>球员</th><th>失球</th><th>进球</th><th>射门</th><th>控球</th></tr>' + sorted.map((r, k) => {
-      if (prev === null || r.conceded !== prev) rank = k + 1; prev = r.conceded;
-      return `<tr class="${r.conceded === worst && best !== worst ? 'lose' : ''}"><td>${rank}</td><td><i class="dot" style="background:${TEAMS[r.i].css}"></i>${esc(r.name)}</td><td><b>${r.conceded}</b></td><td>${r.scored}</td><td>${r.shots}</td><td>${r.possession}%</td></tr>`;
-    }).join('');
+    const win = res[0];
+    $('#end-title').textContent = `${win.name} 获胜！`;
+    $('#end-sub').textContent = '最后留下的人赢得比赛';
+    $('#end-stats').innerHTML = '<tr><th>名次</th><th>球员</th><th>被谁淘汰</th><th>淘汰别人</th><th>射门</th></tr>' + res.map((r) =>
+      `<tr class="${r.place === res.length ? 'lose' : ''}"><td>${r.place === 1 ? '🏆' : r.place}</td><td><i class="dot" style="background:${TEAMS[r.i].css}"></i>${esc(r.name)}</td><td>${esc(r.by) || '—'}</td><td><b>${r.kos}</b></td><td>${r.shots}</td></tr>`).join('');
     $('#btn-again').classList.toggle('hidden', g.role === 'guest');
     $('#btn-again').textContent = g.role === 'host' ? '回到房间' : '再来一局';
     $('#end').classList.add('show');

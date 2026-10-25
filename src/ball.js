@@ -109,6 +109,7 @@ export class Ball {
     this.lastTouch = null;
     this.events = [];
     this.goalTeam = -1;                    // index of the goal the ball is sitting in
+    this.closedGoals = new Set();          // goals of knocked-out players are boarded up
 
     // root (position) → squash node (deforms along an impact axis) → spinning mesh
     this.root = new THREE.Group();
@@ -257,7 +258,7 @@ export class Ball {
       const g = goalIndexFor(A, side);
       if (g !== this.goalTeam && Math.abs(p[A]) > H) return;
     }
-    const mouth = Math.abs(p[B]) < GW - R * 0.2 && p.y < GH - R * 0.2;
+    const mouth = Math.abs(p[B]) < GW - R * 0.2 && p.y < GH - R * 0.2 && !this.closedGoals.has(goalIndexFor(A, side));
     const inside = Math.abs(p[A]) > H;
     if (!inside && !mouth) {
       // never let a ball that is inside the other axis' goal be bounced by this wall

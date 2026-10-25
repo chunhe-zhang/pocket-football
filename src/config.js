@@ -75,6 +75,7 @@ export const MATCH = {
   durations: [90, 180, 300],
   defaultDuration: 180,
   goalPause: 3.2,
+  lives: 2,          // goals you can concede; the last one knocks you out
   kickoffDelay: 1.3,
 };
 
@@ -115,7 +116,8 @@ export function insideArena(x, z, margin = 0) {
 
 // ---- obstacles -----------------------------------------------------------------------
 // Four little flower planters around the centre circle, between the goal lanes.
-export const OBSTACLES = [[2.7, 2.7], [-2.7, 2.7], [2.7, -2.7], [-2.7, -2.7]].map(([x, z]) => ({ x, z, r: 0.42, h: 0.55 }));
+// (none at the moment: the list is kept so planters can come back by adding positions here)
+export const OBSTACLES = [];
 
 /** push a point (players: margin = body radius) out of the obstacles. Returns true if moved. */
 export function pushOutOfObstacles(p, margin = 0) {

@@ -142,6 +142,7 @@ export class Pitch {
     this.scene = scene;
     this.time = 0;
     this.goalNets = {};
+    this.seals = {};
     this.wind = { value: 0 };
     this.excite = 0;
     this._build();
@@ -178,7 +179,7 @@ export class Pitch {
     this._buildBoards();
     this._buildPlanters();
     this._buildFence();
-    for (const g of GOALS) this._buildGoal(g);
+    for (const g of GOALS) { this._buildGoal(g); this._buildSeal(g); }
     this._buildFlowers();
     this._buildTrees();
     this._buildPetals();
@@ -308,6 +309,42 @@ export class Pitch {
     this.goalNets[goal.team] = { back: backNet, rest: backNet.geometry.attributes.position.array.slice(), bulge: 0, at: new THREE.Vector3() };
   }
 
+  // flower board that rises up to close a knocked-out player's goal
+  _buildSeal(goal) {
+    const W = 2 * GW + 0.3, Hh = GH + 0.12, T = 0.14;
+    const tex = flowerBoardTexture(); tex.repeat.set(W / 2.2, 1);
+    const face = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.22 });
+    const trim = new THREE.MeshStandardMaterial({ color: TEAMS[goal.team].color, roughness: 0.5 });
+    const g = new THREE.Group();
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(T, Hh, W), [trim, trim, trim, trim, face, face]);
+    // BoxGeometry faces: +x,-x,+y,-y,+z,-z; the flower print goes on the faces seen from the pitch
+    panel.material = [face, face, trim, trim, trim, trim];
+    panel.position.y = Hh / 2; panel.castShadow = true; panel.receiveShadow = true; g.add(panel);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(T + 0.06, 0.08, W + 0.06), trim);
+    cap.position.y = Hh; g.add(cap);
+    // a big cross so it reads as "closed" from across the pitch
+    for (const s of [-1, 1]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(T + 0.02, 0.12, Math.hypot(W, Hh) * 0.8), trim);
+      bar.position.set(0, Hh / 2, 0); bar.rotation.x = s * Math.atan2(Hh, W); g.add(bar);
+    }
+    // place on the goal line, built along local z (the mouth direction)
+    const along = goal.axis === 'x' ? 'z' : 'x';
+    g.position.set(goal.centre.x - goal.inward.x * 0.08, 0, goal.centre.z - goal.inward.z * 0.08);
+    g.rotation.y = along === 'z' ? 0 : Math.PI / 2;
+    g.visible = false;
+    this.scene.add(g);
+    this.seals[goal.team] = { g, h: Hh, k: 0, target: 0 };
+  }
+
+  /** close (on=true) or reopen a goal; instant skips the rising animation */
+  sealGoal(team, on, instant = false) {
+    const s = this.seals[team]; if (!s) return;
+    s.target = on ? 1 : 0;
+    if (instant) s.k = s.target;
+    s.g.visible = s.k > 0.001 || on;
+    s.g.position.y = (s.k - 1) * s.h;
+  }
+
   /** world-space hit point on a back net */
   bulgeNet(team, point, strength) {
     const n = this.goalNets[team]; if (!n) return;
@@ -416,6 +453,14 @@ export class Pitch {
 
   update(dt, t) {
     this.time = t;
+    for (const s of Object.values(this.seals)) {
+      if (s.k !== s.target) {
+        s.k += Math.sign(s.target - s.k) * Math.min(Math.abs(s.target - s.k), dt * 2.2);
+        const e = s.k < 1 ? 1 - Math.pow(1 - s.k, 3) : 1;
+        s.g.position.y = (e - 1) * s.h;
+        s.g.visible = s.k > 0.001;
+      }
+    }
     this.excite = Math.max(0, this.excite - dt * 0.4);
     this.wind.value += dt * (1 + this.excite * 3);
     // petals drift and loop

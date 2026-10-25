@@ -44,6 +44,9 @@ export class Game {
     this.state = 'menu';
     this.conceded = TEAMS.map(() => 0);
     this.scored = TEAMS.map(() => 0);
+    this.alive = TEAMS.map(() => true);
+    this.outOrder = [];        // teams in the order they were knocked out
+    this.knockedBy = TEAMS.map(() => null);
     this.clock = MATCH.defaultDuration;
     this.time = 0; this.timer = 0;
     this.slowmo = 0; this.hitstop = 0; this.shake = 0;
@@ -62,7 +65,9 @@ export class Game {
     this.placeAll();
   }
 
-  activeGoal() { return true; }
+  get lives() { return MATCH.lives; }
+  activeGoal(team) { return this.alive[team]; }
+  get live() { return this.athletes.filter((a) => !a.out); }
 
   // ------------------------------------------------------------- recording --
   _recordingSfx(real) {
@@ -114,8 +119,26 @@ export class Game {
   placeAll() {
     this.athletes.forEach((a, i) => {
       const g = GOALS[i];
+      if (a.out) { a.place(60 + i * 3, 60, 0); return; }   // parked far off the pitch
       a.place(g.centre.x + g.inward.x * 4, g.centre.z + g.inward.z * 4, Math.atan2(g.inward.x, g.inward.z));
     });
+  }
+
+  /** take a player off and close their goal with a board */
+  eliminate(team) {
+    const a = this.athletes[team];
+    if (a.out) return;
+    a.out = true; this.alive[team] = false;
+    a.char.group.visible = false;
+    this.ball.closedGoals.add(team);
+    this.pitch.sealGoal(team, true);
+    a.place(60 + team * 3, 60, 0);
+  }
+
+  _resetElimination() {
+    this.alive = TEAMS.map(() => true); this.outOrder = []; this.knockedBy = TEAMS.map(() => null);
+    this.ball.closedGoals.clear();
+    this.athletes.forEach((a, i) => { a.out = false; a.char.group.visible = true; this.pitch.sealGoal(i, false, true); });
   }
 
   /**
@@ -127,7 +150,8 @@ export class Game {
     const { level, duration } = this.settings;
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.possession = TEAMS.map(() => 0);
-    this.clock = duration;
+    this.clock = 0;
+    this._resetElimination();
     for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; }
     const slots = this.settings.slots || this._localSlots(this.settings.humans);
     this.slots = slots;
@@ -168,7 +192,6 @@ export class Game {
     if (!own) this.scored[toucher.team]++;
     this.ui.onScore(this);
     this.state = 'goal'; this.timer = MATCH.goalPause;
-    this.slowmo = 1.1;
     this.sfx.cheer(); this.sfx.net();
     this.pitch.cheer(team, 1); this.emit({ e: 'cheer' });
     const loser = this.athletes[team];
@@ -176,31 +199,47 @@ export class Game {
     for (const a of this.athletes) { a.frozen = true; a.charging = false; }
     if (!own) toucher.char.play('celebrate');
     loser.char.play('deject');
-    const t = TEAMS[team];
-    if (own) this.banner('OWN GOAL', `乌龙球 · ${loser.label}（${t.cn}门）失球`);
-    else this.banner('GOAL!', `${toucher.label} 攻破 ${loser.label} 的${t.cn}色球门`);
+    const livesLeft = MATCH.lives - this.conceded[team];
+    if (livesLeft <= 0) {
+      // out of lives: knocked out (the goal is boarded up after the pause)
+      this.alive[team] = false;
+      this.outOrder.push(team);
+      this.knockedBy[team] = own ? null : toucher.team;
+      const left = this.alive.filter(Boolean).length;
+      if (own) this.banner('出局！', `${loser.label} 打进乌龙球，被淘汰`);
+      else this.banner('出局！', `${toucher.label} 淘汰了 ${loser.label}${left > 1 ? ` · 还剩 ${left} 人` : ''}`);
+    } else {
+      if (own) this.banner('乌龙球', `${loser.label} 还剩 ${livesLeft} 条命`);
+      else this.banner('进球！', `${toucher.label} 攻破 ${loser.label} 的球门 · ${loser.label} 还剩 ${livesLeft} 条命`);
+    }
+    this.ui.onScore(this);
     this.emit({ e: 'focus', i: this.focus ? this.focus.team : -1 });
   }
 
+  /** the last player standing wins */
   end() {
-    this.state = 'ended'; this.timer = 1.8;
+    this.state = 'ended'; this.timer = 2.2;
     this.sfx.whistle([0.3, 0.3, 0.75]);
-    const best = Math.min(...this.conceded), worst = Math.max(...this.conceded);
-    this.athletes.forEach((a, i) => {
-      if (best !== worst && this.conceded[i] === best) a.char.play('celebrate');
-      if (best !== worst && this.conceded[i] === worst) a.char.play('deject');
-    });
+    const w = this.alive.indexOf(true);
+    const winner = this.athletes[w];
+    if (winner) { winner.char.play('celebrate'); this.focus = winner; this.banner('冠军！', `${winner.label} 是最后留下的人`); }
+    this.emit({ e: 'focus', i: winner ? w : -1 });
     this.sfx.cheer();
     for (const a of this.athletes) a.frozen = true;
-    this.focus = null;
   }
 
   results() {
     const tot = this.possession.reduce((s, x) => s + x, 0) || 1;
-    return this.athletes.map((a, i) => ({
-      i, name: a.label, conceded: this.conceded[i], scored: this.scored[i],
-      shots: a.stats.shots, possession: Math.round((this.possession[i] / tot) * 100),
-    }));
+    // placing: the winner first, then reverse order of elimination
+    const order = [...this.alive.map((v, i) => (v ? i : -1)).filter((i) => i >= 0), ...[...this.outOrder].reverse()];
+    return order.map((i, k) => {
+      const a = this.athletes[i], by = this.knockedBy[i];
+      return {
+        i, place: k + 1, name: a.label, kos: this.scored[i], shots: a.stats.shots,
+        possession: Math.round((this.possession[i] / tot) * 100),
+        out: !this.alive[i], by: this.alive[i] ? '' : by === null ? '乌龙球' : this.athletes[by].label,
+      };
+    });
   }
 
   // ------------------------------------------------------------ callbacks --
@@ -246,6 +285,7 @@ export class Game {
 
     this.controllers.forEach((c, i) => {
       const a = this.athletes[i];
+      if (a.out) return;
       if (c.type === 'human') input.intent(c.scheme, a.intent);
       else if (c.type === 'ai') c.ai.update(dt);
       // remote intents are written by the network handler
@@ -256,11 +296,14 @@ export class Game {
       this.timer -= rawDt;
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
-      this.clock -= dt;
-      if (this.clock <= 0) { this.clock = 0; this.end(); }
+      this.clock += dt;
     } else if (this.state === 'goal') {
       this.timer -= rawDt;
-      if (this.timer <= 0) this.kickoff();
+      if (this.timer <= 0) {
+        // the knocked-out player leaves and their goal is boarded up
+        for (let i = 0; i < this.alive.length; i++) if (!this.alive[i] && !this.athletes[i].out) this.eliminate(i);
+        if (this.alive.filter(Boolean).length <= 1) this.end(); else this.kickoff();
+      }
     } else if (this.state === 'ended') {
       this.timer -= rawDt;
       if (this.timer <= 0 && !this.endShown) {
@@ -271,13 +314,14 @@ export class Game {
       }
     }
 
-    for (const a of this.athletes) a.update(dt);
+    const live = this.live;
+    for (const a of live) a.update(dt);
     this._separatePlayers();
 
     if (this.state !== 'kickoff') {
-      const order = [...this.athletes].sort((p, q) => this._distBall(q) - this._distBall(p));
+      const order = [...live].sort((p, q) => this._distBall(q) - this._distBall(p));
       for (const a of order) a.handleBall(dt);
-      this.ball.colliders = this.athletes.flatMap((a) => (a.colliders || []).filter((c) => c.active));
+      this.ball.colliders = live.flatMap((a) => (a.colliders || []).filter((c) => c.active));
       const events = this.ball.update(dt);
       for (const e of events) this._ballEvent(e);
     } else this.ball.sync(dt);
@@ -330,7 +374,7 @@ export class Game {
   }
 
   _separatePlayers() {
-    const A = this.athletes, min = 0.62;
+    const A = this.live, min = 0.62;
     for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) {
       const a = A[i], b = A[j];
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
@@ -424,7 +468,7 @@ export class Game {
     const r = (v, k = 100) => Math.round(v * k) / k;
     const b = this.ball, q = b.spinQ;
     const snap = {
-      k: 's', t: r(this.time, 1000), st: this.state, clk: r(this.clock, 10),
+      k: 's', t: r(this.time, 1000), st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
       c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label),
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
       a: this.athletes.map((a) => [
@@ -462,6 +506,7 @@ export class Game {
     this.controllers = msg.slots.map((s, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net' }));
     this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
+    this._resetElimination();
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.ui.onScore(this);
     this.inputT = 0;
@@ -493,6 +538,15 @@ export class Game {
     this.state = s1.st; this.clock = s1.clk;
     if (prevState === 'paused') this.state = 'paused';
     if (s1.c.join() !== this.conceded.join()) { this.conceded = s1.c.slice(); this.scored = s1.sc.slice(); this.ui.onScore(this); }
+    if (s1.al) {
+      let changed = false;
+      s1.al.forEach((v, i) => {
+        const alive = v === 1, out = v === 0;
+        if (this.alive[i] !== alive) { this.alive[i] = alive; changed = true; }
+        if (out && !this.athletes[i].out) this.eliminate(i);
+      });
+      if (changed) this.ui.onScore(this);
+    }
     if (s1.lb) s1.lb.forEach((n, i) => { this.athletes[i].label = n; });
     // events whose time has come
     const due = [];
