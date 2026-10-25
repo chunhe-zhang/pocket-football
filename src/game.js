@@ -8,7 +8,7 @@ import { AIController } from './ai.js';
 import { ChargeFx } from './chargefx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const CAM_MODES = ['broadcast', 'close', 'high'];
+const CAM_MODES = ['broadcast', 'high'];
 const H = FIELD.half;
 const SFX_EVENTS = new Set(['kick', 'touch', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd']);
 const SNAP_INTERVAL = 0.05; // host sends 20 snapshots a second
@@ -34,7 +34,7 @@ export class Game {
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
-      const a = new Athlete(this, i, ch, 'CPU');
+      const a = new Athlete(this, i, ch, t.cpuName);
       this._recordCharacter(a, i);
       return a;
     });
@@ -111,7 +111,7 @@ export class Game {
     this.slots = slots;
     this.controllers = slots.map((s, i) => {
       const a = this.athletes[i];
-      a.label = s.name || 'CPU';
+      a.label = s.name || TEAMS[i].cpuName;
       if (s.kind === 'local') return { type: 'human', scheme: s.scheme };
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
       return { type: 'ai', ai: new AIController(a, this, level) };
@@ -125,7 +125,7 @@ export class Game {
   _localSlots(humans) {
     // keyboard: one player uses the whole keyboard, two split it; players 3-4 need gamepads
     const schemes = humans === 1 ? ['solo'] : humans === 2 ? ['p1', 'p2'] : ['p1', 'p2', 'pad0', 'pad1'];
-    return TEAMS.map((t, i) => (i < humans ? { kind: 'local', scheme: schemes[i], name: humans === 1 ? 'YOU' : `P${i + 1}` } : { kind: 'cpu', name: 'CPU' }));
+    return TEAMS.map((t, i) => (i < humans ? { kind: 'local', scheme: schemes[i], name: humans === 1 ? 'YOU' : `P${i + 1}` } : { kind: 'cpu', name: t.cpuName }));
   }
 
   kickoff() {
@@ -352,41 +352,36 @@ export class Game {
     this.sfx.crowd(0.04 + near * 0.05, 1.2);
   }
 
-  cycleCamera() { this.camMode = (this.camMode + 1) % CAM_MODES.length; this.ui.toast?.(`视角：${['全景', '近景', '俯视'][this.camMode]}`); }
+  cycleCamera() { this.camMode = (this.camMode + 1) % CAM_MODES.length; this.ui.toast?.(`视角：${['斜视全景', '正上方俯视'][this.camMode]}`); }
 
+  /**
+   * The camera stays still during play so nobody gets dizzy: a fixed view that
+   * frames the whole square pitch. `C` switches between a raised side view and
+   * a straight-down view; both are fixed.
+   */
   _updateCamera(dt) {
     dt = clamp(dt, 0, 0.1);
-    const cam = this.camera, ball = this.ball.pos;
-    const tall = cam.aspect < 1.2;
-    const zoom = tall ? 1.55 : clamp(1.7 / cam.aspect, 1, 1.35);
+    const cam = this.camera;
+    const aspect = cam.aspect;
     const pos = this._v, look = new THREE.Vector3();
-    const k = 1 - Math.exp(-dt * 3);
     if (this.state === 'menu') {
-      const t = this.time * 0.07;
+      const t = this.time * 0.05;
       pos.set(Math.sin(t) * 19, 8.5, Math.cos(t) * 19);
       look.set(0, 0.8, 0);
-      this.camPos.lerp(pos, 1 - Math.exp(-dt * 2)); this.camLook.lerp(look, 1 - Math.exp(-dt * 2));
-    } else if ((this.state === 'goal' || this.state === 'ended') && this.focus) {
-      const f = this.focus.pos;
-      pos.set(f.x * 0.9, 2.6, f.z + 6);
-      look.set(f.x, 1.1, f.z);
-      const kk = 1 - Math.exp(-dt * 1.8);
-      this.camPos.lerp(pos, kk); this.camLook.lerp(look, kk);
+      const k = 1 - Math.exp(-dt * 2);
+      this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     } else {
-      const mode = CAM_MODES[this.camMode];
-      const fx = clamp(ball.x, -H, H), fz = clamp(ball.z, -H, H);
-      if (mode === 'broadcast') { pos.set(fx * 0.3, 16.5 * zoom, 16.5 * zoom + fz * 0.2); look.set(fx * 0.35, 0, 1.3 + fz * 0.3); }
-      else if (mode === 'close') { pos.set(fx * 0.85, 6.2, fz + 9.5); look.set(fx, 0.5, fz - 0.5); }
-      else { pos.set(fx * 0.2, 25 * zoom, 6 * zoom + fz * 0.2); look.set(fx * 0.2, 0, 0.6 + fz * 0.2); }
+      // distance chosen so the pitch plus its goals fit the screen at this aspect
+      const fit = Math.max(1, 1.62 / aspect);
+      if (CAM_MODES[this.camMode] === 'high') { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
+      else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
+      // ease into the fixed spot when leaving the menu, then hold perfectly still
+      const k = 1 - Math.exp(-dt * 4);
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     }
     if (window.__cam) { this.camPos.fromArray(window.__cam[0]); this.camLook.fromArray(window.__cam[1]); }
     cam.position.copy(this.camPos);
-    if (this.shake > 0) {
-      this.shake = Math.max(0, this.shake - dt * 0.9);
-      const s = this.shake * this.shake * 2;
-      cam.position.x += (Math.random() - 0.5) * s; cam.position.y += (Math.random() - 0.5) * s;
-    }
+    this.shake = 0;
     cam.lookAt(this.camLook);
     cam.updateMatrixWorld();
   }
@@ -405,8 +400,8 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level) };
-    this.athletes[i].label = 'CPU';
-    if (this.slots?.[i]) this.slots[i] = { kind: 'cpu', name: 'CPU' };
+    this.athletes[i].label = TEAMS[i].cpuName;
+    if (this.slots?.[i]) this.slots[i] = { kind: 'cpu', name: TEAMS[i].cpuName };
   }
 
   _sendSnapshot() {
@@ -449,7 +444,7 @@ export class Game {
     this.slots = msg.slots;
     this.mySlot = msg.slots.findIndex((s) => s.id === myId);
     this.controllers = msg.slots.map((s, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net' }));
-    this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || 'CPU'; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.char.stopEmotes(); });
+    this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.ui.onScore(this);

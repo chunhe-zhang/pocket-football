@@ -63,12 +63,9 @@ function grassTexture() {
       g.beginPath(); g.arc(4.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
       g.restore();
     }
-    // boundary + halfway cross
+    // boundary
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.09 * ppm;
     g.strokeRect(X(-H), Y(-H), 2 * H * ppm, 2 * H * ppm);
-    g.globalAlpha = 0.55;
-    g.beginPath(); g.moveTo(X(-H), Y(-H)); g.lineTo(X(H), Y(H)); g.moveTo(X(H), Y(-H)); g.lineTo(X(-H), Y(H)); g.stroke();
-    g.globalAlpha = 1;
     // rainbow centre circle
     const segs = 72, cr = 2.4 * ppm;
     g.lineWidth = 0.18 * ppm;

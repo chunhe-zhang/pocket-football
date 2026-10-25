@@ -55,12 +55,16 @@ export const ANIM = {
 // One player per goal. `side` is the goal they defend: axis + sign.
 export const TEAMS = [
   { name: 'BLUE', cn: '蓝', color: 0x3d82ff, css: '#3d82ff', axis: 'x', sign: -1,
+    cpuName: '蓝莓',
     kit: { shirt: '#3d82ff', shorts: '#1f2c5c', number: '#ffffff', no: '10', hair: null, outline: 0x1b1630 } },
   { name: 'ORANGE', cn: '橙', color: 0xff7d33, css: '#ff7d33', axis: 'x', sign: 1,
+    cpuName: '橘子',
     kit: { shirt: '#ff7d33', shorts: '#2c2a33', number: '#ffffff', no: '7', hair: '#545a86', hairMode: 'multiply', outline: 0x24160f } },
   { name: 'PURPLE', cn: '紫', color: 0xa064ff, css: '#a064ff', axis: 'z', sign: -1,
+    cpuName: '葡萄',
     kit: { shirt: '#a064ff', shorts: '#2a1f4d', number: '#ffffff', no: '9', hair: '#d9c8ff', hairMode: 'color', outline: 0x1d1530 } },
   { name: 'PINK', cn: '粉', color: 0xff4fa0, css: '#ff4fa0', axis: 'z', sign: 1,
+    cpuName: '桃桃',
     kit: { shirt: '#ff4fa0', shorts: '#4a1832', number: '#ffffff', no: '11', hair: '#ff9cc8', hairMode: 'color', outline: 0x2a1020 } },
 ];
 

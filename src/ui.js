@@ -89,7 +89,8 @@ export class UI {
     $('#panel-online').classList.toggle('hidden', !online);
     const n = this.settings.humans;
     const pads = this.input.padCount;
-    let note = n === 4 ? '' : `其余 ${4 - n} 个位置由电脑补上。`;
+    const cpus = TEAMS.slice(n).map((t) => t.cpuName).join('、');
+    let note = n === 4 ? '' : `其余位置由电脑${cpus}补上。`;
     if (n >= 3) note += ` 3、4 号玩家需要手柄（已连接 ${pads} 个${pads < n - 2 ? '，按一下手柄按键让浏览器识别' : ''}）。`;
     $('#humans-note').textContent = note.trim();
     let help = online || n === 1 ? HELP[1] : HELP[2];
@@ -319,7 +320,7 @@ export class UI {
     const slots = this.lobby ? this.lobby.slots : this.guestLobby?.slots || [];
     $('#lobby-slots').innerHTML = TEAMS.map((t, i) => {
       const s = slots[i];
-      const who = s ? `${esc(s.name)}${s.id === this.net?.id ? '（你）' : ''}${i === 0 ? ' · 房主' : ''}` : '<span class="cpu">电脑</span>';
+      const who = s ? `${esc(s.name)}${s.id === this.net?.id ? '（你）' : ''}${i === 0 ? ' · 房主' : ''}` : `<span class="cpu">电脑 · ${t.cpuName}</span>`;
       return `<li style="--c:${t.css}"><i></i><span>${who}</span><em>${t.cn}色球门</em></li>`;
     }).join('');
   }
@@ -331,7 +332,7 @@ export class UI {
 
   startOnline() {
     if (!this.lobby) return;
-    const slots = TEAMS.map((t, i) => this.lobby.slots[i] || { kind: 'cpu', name: 'CPU' });
+    const slots = TEAMS.map((t, i) => this.lobby.slots[i] || { kind: 'cpu', name: t.cpuName });
     this.settings.net = 'online';
     this._showHud();
     const g = this.game;
