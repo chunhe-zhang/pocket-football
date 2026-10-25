@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { FIELD, BALL } from './config.js';
+import { FIELD, BALL, goalIndexFor } from './config.js';
 
-const { halfL: L, halfW: W, goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;
+const { half: H, goalHalfW: GW, goalH: GH, goalDepth: GD, postR } = FIELD;
 const R = BALL.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -20,43 +20,84 @@ function panelCentres() {
 
 function ballMaterial() {
   const centres = panelCentres();
-  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.22, sheen: 0.2 });
+  // every pentagon gets its own hue round the colour wheel; hexagons stay white
+  const hues = centres.slice(0, 12).map((_, i) => new THREE.Color().setHSL(i / 12, 0.85, 0.56));
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.4, clearcoat: 0.85, clearcoatRoughness: 0.18 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uC = { value: centres };
-    sh.uniforms.uPent = { value: new THREE.Color(0x14204a) };
-    sh.uniforms.uTrim = { value: new THREE.Color(0xffc23d) };
-    sh.uniforms.uHex = { value: new THREE.Color(0xf7f8fb) };
+    sh.uniforms.uHue = { value: hues };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vBallN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBallN = normalize(position);');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBallN; uniform vec3 uC[32]; uniform vec3 uPent; uniform vec3 uTrim; uniform vec3 uHex;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBallN; uniform vec3 uC[32]; uniform vec3 uHue[12];')
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec3 n = normalize(vBallN);
         float d1 = -2.0, d2 = -2.0; int i1 = 0;
         for (int i = 0; i < 32; i++) {
-          // pentagons are a little smaller than hexagons; bias so seams land in the right place
           float d = dot(n, uC[i]) + (i < 12 ? -0.012 : 0.0);
           if (d > d1) { d2 = d1; d1 = d; i1 = i; } else if (d > d2) { d2 = d; }
         }
         float w = fwidth(d1 - d2) * 1.2 + 0.004;
         float seam = smoothstep(0.0, w, d1 - d2);
-        vec3 col = uHex;
+        vec3 col = vec3(0.98);
+        float r = dot(n, uC[i1]);
         if (i1 < 12) {
-          // navy pentagon with a gold ring inset
-          float r = dot(n, uC[i1]);
-          col = mix(uTrim, uPent, smoothstep(0.958, 0.962, r));
-          col = mix(uHex, col, smoothstep(0.944, 0.948, r));
+          vec3 hue = uHue[0];
+          for (int k = 0; k < 12; k++) if (k == i1) hue = uHue[k];
+          // coloured pentagon with a white sparkle dot in the middle
+          col = mix(hue, vec3(1.0), smoothstep(0.9985, 0.9992, r) * 0.9);
+          col = mix(vec3(0.98), col, smoothstep(0.944, 0.948, r));
         } else {
-          // faint radial shading inside each white hexagon
-          float r = dot(n, uC[i1]);
           col *= 0.94 + 0.06 * smoothstep(0.9, 0.99, r);
         }
-        col = mix(vec3(0.22, 0.24, 0.3), col, seam);
-        diffuseColor.rgb *= col;`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.85, roughnessFactor, 1.0);');
+        col = mix(vec3(0.3, 0.3, 0.38), col, seam);
+        diffuseColor.rgb *= col;`);
   };
   return m;
+}
+
+// Rainbow ribbon that follows the ball. A flat strip (wide side up, so the
+// raised broadcast camera sees it), colours cycle along its length.
+class RainbowTrail {
+  constructor(scene, n = 44) {
+    this.n = n; this.pts = Array.from({ length: n }, () => new THREE.Vector3()); this.heat = 0; this.t = 0;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 2 * 4), 4));
+    const idx = [];
+    for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    g.setIndex(idx);
+    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 3;
+    scene.add(this.mesh);
+    this.col = new THREE.Color(); this._s = new THREE.Vector3(); this._d = new THREE.Vector3();
+  }
+  reset(p) { for (const q of this.pts) q.copy(p); this.heat = 0; }
+  update(dt, pos, speed) {
+    this.t += dt;
+    const target = THREE.MathUtils.clamp((speed - 2.5) / 6, 0, 1);
+    this.heat += (target - this.heat) * Math.min(1, dt * (target > this.heat ? 10 : 2.5));
+    for (let i = this.n - 1; i > 0; i--) this.pts[i].copy(this.pts[i - 1]);
+    this.pts[0].copy(pos);
+    const pa = this.mesh.geometry.attributes.position.array, ca = this.mesh.geometry.attributes.color.array;
+    for (let i = 0; i < this.n; i++) {
+      const p = this.pts[i], q = this.pts[Math.min(this.n - 1, i + 1)];
+      this._d.copy(i === 0 ? this.pts[0] : p).sub(i === 0 ? this.pts[1] : q);
+      if (i > 0) this._d.copy(this.pts[i - 1]).sub(p);
+      this._s.crossVectors(this._d, UP);
+      if (this._s.lengthSq() < 1e-8) this._s.set(1, 0, 0);
+      const u = i / (this.n - 1);
+      this._s.setLength(R * 0.95 * (1 - u * 0.7));
+      pa.set([p.x + this._s.x, p.y, p.z + this._s.z, p.x - this._s.x, p.y, p.z - this._s.z], i * 6);
+      this.col.setHSL((u * 1.2 - this.t * 0.6) % 1 + 1, 0.95, 0.6);
+      const a = this.heat * Math.pow(1 - u, 1.3) * 0.85;
+      ca.set([this.col.r, this.col.g, this.col.b, a, this.col.r, this.col.g, this.col.b, a], i * 8);
+    }
+    this.mesh.geometry.attributes.position.needsUpdate = true;
+    this.mesh.geometry.attributes.color.needsUpdate = true;
+    this.mesh.visible = this.heat > 0.01;
+  }
 }
 
 export class Ball {
@@ -66,9 +107,8 @@ export class Ball {
     this.vel = new THREE.Vector3();
     this.spin = new THREE.Vector3();       // angular velocity (rad/s, world)
     this.lastTouch = null;
-    this.onGround = true;
     this.events = [];
-    this.goalSide = 0;                     // +1/-1 once the ball is fully inside a goal
+    this.goalTeam = -1;                    // index of the goal the ball is sitting in
 
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), ballMaterial());
     this.mesh.castShadow = true;
@@ -77,44 +117,31 @@ export class Ball {
     // soft contact shadow that keeps height readable even when the ball is high up
     const c = document.createElement('canvas'); c.width = c.height = 64;
     const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    gr.addColorStop(0, 'rgba(0,0,0,0.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
     this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
     this.blob.rotation.x = -Math.PI / 2; this.blob.renderOrder = 1;
     scene.add(this.blob);
 
-    // speed trail for hard shots
-    this.trailN = 18;
-    this.trailPts = Array.from({ length: this.trailN }, () => new THREE.Vector3());
-    const tg = new THREE.BufferGeometry();
-    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.trailN * 3), 3));
-    const tc = new Float32Array(this.trailN * 4);
-    tg.setAttribute('color', new THREE.BufferAttribute(tc, 4));
-    this.trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
-    this.trail.frustumCulled = false; this.trailHeat = 0;
-    scene.add(this.trail);
-
+    this.trail = new RainbowTrail(scene);
     this._tmp = new THREE.Vector3(); this._q = new THREE.Quaternion();
     this.reset(0, 0);
   }
 
   reset(x = 0, z = 0) {
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
-    this.lastTouch = null; this.goalSide = 0; this.trailHeat = 0;
-    for (const p of this.trailPts) p.copy(this.pos);
+    this.lastTouch = null; this.goalTeam = -1;
+    this.trail.reset(this.pos);
     this.sync();
   }
 
   get speed() { return this.vel.length(); }
   get groundSpeed() { return Math.hypot(this.vel.x, this.vel.z); }
 
-  /** Launch the ball. dir is a unit vector (may include elevation). */
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
     this.lastTouch = by;
-    this.onGround = this.pos.y <= R + 0.01 && vel.y <= 0;
-    if (vel.length() > 16) this.trailHeat = 1;
   }
 
   update(dt) {
@@ -128,27 +155,22 @@ export class Ball {
 
   _step(h) {
     const p = this.pos, v = this.vel, w = this.spin;
-
     const grounded = p.y <= R + 0.002 && Math.abs(v.y) < 0.35;
     if (!grounded) {
       v.y -= BALL.gravity * h;
-      // quadratic drag
       const s = v.length();
       if (s > 0) v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * h));
-      // Magnus curl (mostly from side spin)
       v.x += BALL.magnus * (w.y * v.z - w.z * v.y) * h;
       v.z += BALL.magnus * (w.x * v.y - w.y * v.x) * h;
       v.y += BALL.magnus * 0.4 * (w.z * v.x - w.x * v.z) * h;
       w.multiplyScalar(Math.max(0, 1 - 0.25 * h));
     } else {
-      // rolling: resistance + spin locks to rolling motion
       v.y = 0; p.y = R;
       const gs = Math.hypot(v.x, v.z);
       if (gs > 0) {
         const dec = (BALL.rollDecel + BALL.rollQuad * gs * gs) * h;
         const k = Math.max(0, gs - dec) / gs;
         v.x *= k; v.z *= k;
-        // leftover side spin bends a rolling ball a touch, then fades
         v.x += BALL.magnus * 0.25 * w.y * v.z * h;
         v.z -= BALL.magnus * 0.25 * w.y * v.x * h;
       }
@@ -158,14 +180,12 @@ export class Ball {
 
     p.addScaledVector(v, h);
 
-    // ground bounce
     if (p.y < R) {
       p.y = R;
       if (v.y < -0.35) {
         const impact = -v.y;
         v.y = impact * BALL.bounce * (impact > 6 ? 1 : 0.9);
         if (v.y < 0.6) v.y = 0;
-        // friction at contact couples spin and horizontal velocity
         const contactX = v.x + w.z * R, contactZ = v.z - w.x * R;
         v.x -= contactX * (1 - BALL.bounceFriction) * 0.9;
         v.z -= contactZ * (1 - BALL.bounceFriction) * 0.9;
@@ -174,65 +194,68 @@ export class Ball {
       } else v.y = 0;
     }
 
-    this._collideWorld();
+    this._walls('x', 'z');
+    this._walls('z', 'x');
+    this._goalFrames();
   }
 
-  _collideWorld() {
+  // the four sides are identical: a board everywhere except a goal mouth in the middle
+  _walls(A, B) {
     const p = this.pos, v = this.vel;
-    const inGoalX = Math.abs(p.x) > L - R;
-    const side = Math.sign(p.x) || 1;
-
-    // side walls (boards + fence), treated as infinitely high
-    if (Math.abs(p.z) > W - R && Math.abs(p.x) <= L + 0.01) {
-      p.z = Math.sign(p.z) * (W - R);
-      if (v.z * Math.sign(p.z) > 0) {
-        const s = Math.abs(v.z);
-        v.z = -v.z * BALL.wallBounce - Math.sign(v.z) * (s > 6 ? BALL.wallKick : 0); v.x *= 0.96;
+    if (Math.abs(p[A]) <= H - R) return;
+    const side = Math.sign(p[A]) || 1;
+    if (this.goalTeam >= 0) {
+      const g = goalIndexFor(A, side);
+      if (g !== this.goalTeam && Math.abs(p[A]) > H) return;
+    }
+    const mouth = Math.abs(p[B]) < GW - R * 0.2 && p.y < GH - R * 0.2;
+    const inside = Math.abs(p[A]) > H;
+    if (!inside && !mouth) {
+      // never let a ball that is inside the other axis' goal be bounced by this wall
+      if (Math.abs(p[B]) > H) return;
+      p[A] = side * (H - R);
+      if (v[A] * side > 0) {
+        const s = Math.abs(v[A]);
+        v[A] = -v[A] * BALL.wallBounce - side * (s > 6 ? BALL.wallKick : 0);
+        v[B] *= 0.96;
         if (s > 1.5) this.events.push({ type: 'board', v: s });
       }
+      return;
     }
-
-    if (inGoalX) {
-      const mouth = Math.abs(p.z) < GW - R * 0.2 && p.y < GH - R * 0.2;
-      const insideGoal = Math.abs(p.x) > L;
-      if (!insideGoal && !mouth) {
-        // hits the end board / fence above the crossbar
-        p.x = side * (L - R);
-        if (v.x * side > 0) {
-          const s = Math.abs(v.x);
-          v.x = -v.x * BALL.wallBounce - Math.sign(v.x) * (s > 6 ? BALL.wallKick : 0); v.z *= 0.96;
-          if (s > 1.5) this.events.push({ type: 'board', v: s });
+    if (inside) {
+      let hitNet = 0;
+      if (Math.abs(p[B]) > GW - R) { const sb = Math.sign(p[B]); p[B] = sb * (GW - R); if (v[B] * sb > 0) { hitNet = Math.max(hitNet, Math.abs(v[B])); v[B] *= -BALL.netDamp; v[A] *= 0.7; } }
+      if (p.y > GH - R) { p.y = GH - R; if (v.y > 0) { hitNet = Math.max(hitNet, v.y); v.y *= -BALL.netDamp; } }
+      if (Math.abs(p[A]) > H + GD - R) {
+        p[A] = side * (H + GD - R);
+        if (v[A] * side > 0) {
+          hitNet = Math.max(hitNet, Math.abs(v[A]));
+          this.events.push({ type: 'backnet', v: Math.abs(v[A]), team: goalIndexFor(A, side), y: p.y, along: p[B] });
+          v[A] *= -0.06; v[B] *= 0.35; v.y *= 0.4;
         }
       }
-      if (insideGoal) {
-        // inside the goal box: nets absorb the ball
-        let hitNet = 0;
-        if (Math.abs(p.z) > GW - R) { p.z = Math.sign(p.z) * (GW - R); if (v.z * Math.sign(p.z) > 0) { hitNet = Math.max(hitNet, Math.abs(v.z)); v.z *= -BALL.netDamp; v.x *= 0.7; } }
-        if (p.y > GH - R) { p.y = GH - R; if (v.y > 0) { hitNet = Math.max(hitNet, v.y); v.y *= -BALL.netDamp; } }
-        if (Math.abs(p.x) > L + GD - R) {
-          p.x = side * (L + GD - R);
-          if (v.x * side > 0) { hitNet = Math.max(hitNet, Math.abs(v.x)); this.events.push({ type: 'backnet', v: Math.abs(v.x), side, y: p.y, z: p.z }); v.x *= -0.06; v.z *= 0.35; v.y *= 0.4; }
-        }
-        if (hitNet > 2) this.events.push({ type: 'net', v: hitNet });
-        if (!this.goalSide && Math.abs(p.x) > L + R && Math.abs(p.z) < GW && p.y < GH) {
-          this.goalSide = side;
-          this.events.push({ type: 'goal', side });
-        }
+      if (hitNet > 2) this.events.push({ type: 'net', v: hitNet });
+      if (this.goalTeam < 0 && Math.abs(p[A]) > H + R && Math.abs(p[B]) < GW && p.y < GH) {
+        this.goalTeam = goalIndexFor(A, side);
+        this.events.push({ type: 'goal', team: this.goalTeam });
+      }
+      // a ball that is in keeps being held by the net
+      if (this.goalTeam === goalIndexFor(A, side) && Math.abs(p[A]) < H + R) {
+        p[A] = side * (H + R);
+        if (v[A] * side < 0) v[A] *= -0.1;
       }
     }
+  }
 
-    // once a goal is in, the net holds the ball (it can't dribble back out)
-    if (this.goalSide && Math.abs(p.x) < L + R) {
-      p.x = this.goalSide * (L + R);
-      if (v.x * this.goalSide < 0) v.x *= -0.1;
-    }
-
-    // goal frame: posts and crossbars as capsules
-    if (Math.abs(Math.abs(p.x) - L) < R + postR + 0.05) {
-      const px = side * L;
-      this._capsule(px, 0, -GW, px, GH, -GW);
-      this._capsule(px, 0, GW, px, GH, GW);
-      this._capsule(px, GH, -GW, px, GH, GW);
+  _goalFrames() {
+    const p = this.pos;
+    for (const A of ['x', 'z']) {
+      if (Math.abs(Math.abs(p[A]) - H) > R + postR + 0.05) continue;
+      const s = Math.sign(p[A]) || 1;
+      const pt = (a, y, b) => (A === 'x' ? [s * H, y, b] : [b, y, s * H]);
+      this._capsule(...pt(0, 0, -GW), ...pt(0, GH, -GW));
+      this._capsule(...pt(0, 0, GW), ...pt(0, GH, GW));
+      this._capsule(...pt(0, GH, -GW), ...pt(0, GH, GW));
     }
   }
 
@@ -264,28 +287,13 @@ export class Ball {
         this._q.setFromAxisAngle(this._tmp, w * dt);
         this.mesh.quaternion.premultiply(this._q);
       }
+      this.trail.update(dt, this.pos, this.speed);
     }
     const hgt = this.pos.y - R;
     const s = R * 3.1 + hgt * 0.25;
     this.blob.position.set(this.pos.x, 0.012, this.pos.z);
     this.blob.scale.set(s, s, 1);
     this.blob.material.opacity = Math.max(0.15, 1 - hgt * 0.22);
-
-    // trail
-    if (dt > 0) {
-      for (let i = this.trailN - 1; i > 0; i--) this.trailPts[i].copy(this.trailPts[i - 1]);
-      this.trailPts[0].copy(this.pos);
-      if (this.speed < 10) this.trailHeat = Math.max(0, this.trailHeat - dt * 2.5);
-      const pa = this.trail.geometry.attributes.position.array, ca = this.trail.geometry.attributes.color.array;
-      for (let i = 0; i < this.trailN; i++) {
-        this.trailPts[i].toArray(pa, i * 3);
-        const a = this.trailHeat * (1 - i / this.trailN) * 0.8;
-        ca.set([1, 0.95, 0.8, a], i * 4);
-      }
-      this.trail.geometry.attributes.position.needsUpdate = true;
-      this.trail.geometry.attributes.color.needsUpdate = true;
-      this.trail.visible = this.trailHeat > 0.01;
-    }
   }
 
   /** Predict where the ball will be after t seconds (ignores walls, good enough for AI). */
@@ -301,8 +309,8 @@ export class Ball {
       out.x += this.vel.x * t * 0.92; out.z += this.vel.z * t * 0.92;
       out.y = Math.max(R, this.pos.y + this.vel.y * t - 0.5 * BALL.gravity * t * t);
     }
-    out.x = Math.max(-L + R, Math.min(L - R, out.x));
-    out.z = Math.max(-W + R, Math.min(W - R, out.z));
+    out.x = Math.max(-H + R, Math.min(H - R, out.x));
+    out.z = Math.max(-H + R, Math.min(H - R, out.z));
     return out;
   }
 }

@@ -21,22 +21,22 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x2a3a5c, 45, 140);
+scene.fog = new THREE.Fog(0xffe2ef, 55, 170);
 const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 400);
 camera.position.set(0, 10, 16);
 
-// evening stadium lighting: warm low key light + cool sky fill + floodlight rims
-scene.add(new THREE.HemisphereLight(0xbcd2ff, 0x3a4a2a, 1.15));
-const sun = new THREE.DirectionalLight(0xfff0dc, 2.6);
-sun.position.set(-9, 18, 11);
+// sunny garden lighting: warm key light, bright sky fill, a pink rim from the blossoms
+scene.add(new THREE.HemisphereLight(0xeaf5ff, 0x86c070, 1.35));
+const sun = new THREE.DirectionalLight(0xfff6ea, 2.7);
+sun.position.set(-8, 20, 12);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 const sc = sun.shadow.camera;
-sc.left = -(FIELD.halfL + 3); sc.right = FIELD.halfL + 3; sc.top = FIELD.halfW + 5; sc.bottom = -(FIELD.halfW + 5);
+sc.left = -(FIELD.half + 5); sc.right = FIELD.half + 5; sc.top = FIELD.half + 6; sc.bottom = -(FIELD.half + 6);
 sc.near = 1; sc.far = 60;
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
 scene.add(sun);
-const rim = new THREE.DirectionalLight(0xcfe0ff, 0.9);
+const rim = new THREE.DirectionalLight(0xffd6ea, 0.7);
 rim.position.set(10, 12, -12);
 scene.add(rim);
 
@@ -91,9 +91,9 @@ ui.loading(1, '');
 ui.ready();
 
 if (params.get('autostart')) {
-  ui.settings.mode = params.get('autostart') === 'duo' ? 'duo' : 'solo';
+  ui.settings.humans = Math.max(1, Math.min(4, +params.get('autostart') || 1));
   if (params.get('level')) ui.settings.level = params.get('level');
-  ui.startMatch();
+  ui.startLocal();
 }
 
 // ---- main loop ------------------------------------------------------------------
@@ -102,7 +102,7 @@ const fixed = params.get('fixedstep') ? 1 / 60 : 0; // deterministic stepping fo
 const substeps = Math.max(1, +(params.get('simsteps') || 1)); // fast-forward for automated tests
 function frame(now = performance.now()) {
   requestAnimationFrame(frame);
-  const dt = fixed || Math.min((now - last) / 1000, 1 / 20);
+  const dt = fixed || Math.max(0, Math.min((now - last) / 1000, 1 / 20));
   last = now;
   if (!window.__hold) for (let i = 0; i < substeps; i++) game.update(dt);
   renderer.render(scene, camera);

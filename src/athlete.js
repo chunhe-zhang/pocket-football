@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -33,7 +33,9 @@ export class Athlete {
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3(); this._f = new THREE.Vector3(); this._r = new THREE.Vector3();
   }
 
-  get attackSign() { return this.team === 0 ? 1 : -1; }      // team 0 attacks +x
+  get home() { return GOALS[this.team]; }                       // the goal I defend
+  /** the goal mouth centres I can score in */
+  get targets() { return GOALS.filter((g) => g.team !== this.team && this.game.activeGoal(g.team)); }
   get forward() { return this._f.set(Math.sin(this.facing), 0, Math.cos(this.facing)); }
   get rightDir() { return this._r.crossVectors(this.forward, UP); }
   // where the ball centre sits relative to the body when the boot meets it (measured from the rig)
@@ -49,7 +51,19 @@ export class Athlete {
     this._sync(0);
   }
 
-  goalTarget() { return new THREE.Vector3(this.attackSign * FIELD.halfL, 0, 0); }
+  /** most attractive goal to shoot at: close, and its owner away from it */
+  goalTarget() {
+    let best = null, bestCost = Infinity;
+    for (const g of this.targets) {
+      const d = Math.hypot(g.centre.x - this.pos.x, g.centre.z - this.pos.z);
+      const owner = this.game.athletes[g.team];
+      const guard = owner ? Math.hypot(owner.pos.x - g.centre.x, owner.pos.z - g.centre.z) : 10;
+      const cost = d - Math.min(guard, 8) * 0.6;
+      if (cost < bestCost) { bestCost = cost; best = g; }
+    }
+    best = best || GOALS[(this.team + 1) % GOALS.length];
+    return new THREE.Vector3(best.centre.x, 0, best.centre.z);
+  }
 
   /** Direction the player wants to play the ball in. */
   aimDir(out = new THREE.Vector3()) {
@@ -118,8 +132,8 @@ export class Athlete {
 
     // field bounds (players stay on the pitch, out of the goals)
     const lim = 0.28;
-    if (Math.abs(this.pos.x) > FIELD.halfL - lim) { this.pos.x = Math.sign(this.pos.x) * (FIELD.halfL - lim); this.vel.x = 0; }
-    if (Math.abs(this.pos.z) > FIELD.halfW - lim) { this.pos.z = Math.sign(this.pos.z) * (FIELD.halfW - lim); this.vel.z = 0; }
+    if (Math.abs(this.pos.x) > FIELD.half - lim) { this.pos.x = Math.sign(this.pos.x) * (FIELD.half - lim); this.vel.x = 0; }
+    if (Math.abs(this.pos.z) > FIELD.half - lim) { this.pos.z = Math.sign(this.pos.z) * (FIELD.half - lim); this.vel.z = 0; }
 
     this.char.lookTarget = ballPos;
     this._feet(dt);
@@ -150,8 +164,10 @@ export class Athlete {
     const sp = Math.hypot(this.vel.x, this.vel.z);
     const bd = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
     const holding = ball.lastTouch === this && sp < 0.35 && bd < 0.85 && ball.groundSpeed < 0.8 && !this.kick && !this.charging && this.game.state === 'play';
-    this.holdT = holding ? this.holdT + dt : 0;
-    this.holdW = holding && this.holdT > 0.45 ? Math.min(1, this.holdW + dt * 4) : Math.max(0, this.holdW - dt * 9);
+    if (!this.puppet) {
+      this.holdT = holding ? this.holdT + dt : 0;
+      this.holdW = holding && this.holdT > 0.45 ? Math.min(1, this.holdW + dt * 4) : Math.max(0, this.holdW - dt * 9);
+    }
     const sole = Math.max(this.trapT > 0 ? Math.sin(Math.PI * clamp(1 - this.trapT / 0.32, 0, 1)) : 0, this.holdW * 0.8);
     if (sole > 0.01) {
       ik.R.target.copy(ball.pos).addScaledVector(f, -0.04);
@@ -184,16 +200,22 @@ export class Athlete {
     const aim = this.aimDir(new THREE.Vector3());
 
     // aim assist: shots heading roughly at goal are pulled towards the frame
-    const toGoal = this.goalTarget().sub(this.pos).setY(0);
-    const goalDist = toGoal.length(); toGoal.normalize();
-    if (type === 'kick' && goalDist < 15 && aim.dot(toGoal) > 0.7) {
-      const gx = this.attackSign * FIELD.halfL;
+    // the opponent goal the aim points at best
+    let goal = null, bestDot = 0.7, goalDist = 0;
+    for (const gg of this.targets) {
+      const dx = gg.centre.x - this.pos.x, dz = gg.centre.z - this.pos.z, d = Math.hypot(dx, dz);
+      const dot = (aim.x * dx + aim.z * dz) / (d || 1);
+      if (d < 15 && dot > bestDot) { bestDot = dot; goal = gg; goalDist = d; }
+    }
+    if (type === 'kick' && goal) {
+      const A = goal.axis, B = A === 'x' ? 'z' : 'x', line = goal.sign * FIELD.half;
       const lim = FIELD.goalHalfW - 0.35;
-      let tz;
-      if (this.intent.move.lengthSq() > 0.09 && Math.abs(aim.x) > 0.1) tz = this.pos.z + aim.z * ((gx - this.pos.x) / aim.x);
-      else tz = -Math.sign(this.pos.z || Math.random() - 0.5) * (lim - 0.1); // far post by default
-      tz = clamp(tz, -lim, lim);
-      const ideal = new THREE.Vector3(gx - this.pos.x, 0, tz - this.pos.z).normalize();
+      let tb;
+      if (this.intent.move.lengthSq() > 0.09 && Math.abs(aim[A]) > 0.1) tb = this.pos[B] + aim[B] * ((line - this.pos[A]) / aim[A]);
+      else tb = -Math.sign(this.pos[B] || Math.random() - 0.5) * (lim - 0.1); // far post by default
+      tb = clamp(tb, -lim, lim);
+      const tgt = A === 'x' ? new THREE.Vector3(line, 0, tb) : new THREE.Vector3(tb, 0, line);
+      const ideal = tgt.sub(this.pos).setY(0).normalize();
       // assist fades with distance: long shots rely more on the player's own aim
       const assist = (0.55 * this.skill + 0.2) * clamp(1.25 - goalDist / 14, 0.2, 1);
       aim.lerp(ideal, assist).normalize();
@@ -268,7 +290,7 @@ export class Athlete {
     else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * p; elev = 0.03 + 0.15 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
     speed *= 0.82 + 0.18 * quality;
     // shot error: rushed / mishit / power shots are less accurate
-    const gd = Math.abs(this.attackSign * FIELD.halfL - this.pos.x);
+    const gd = this.goalTarget().distanceTo(this.pos);
     const err = ((1 - quality) * 0.1 + Math.pow(p, 3) * 0.06 * (1.3 - this.skill) + gd * 0.004) * (Math.random() * 2 - 1);
     const dir = k.aim.clone().applyAxisAngle(UP, err);
     elev += (1 - quality) * 0.05 * (Math.random() - 0.3);

@@ -28,7 +28,25 @@ export class Input {
   wasPressed(code) { return this.pressed.has(code); }
   endFrame() { this.pressed.clear(); }
 
+  /** standard-mapping gamepad: left stick moves, A shoots, B/X chips, RB/RT sprints */
+  padIntent(index, out) {
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    const p = pads[index];
+    if (!p) { out.move.set(0, 0); out.kick = out.lob = out.sprint = false; return out; }
+    let x = p.axes[0] || 0, z = p.axes[1] || 0;
+    const m = Math.hypot(x, z);
+    if (m < 0.2) { x = 0; z = 0; } else if (m > 1) { x /= m; z /= m; }
+    // d-pad as a fallback
+    const b = (i) => !!p.buttons[i]?.pressed;
+    if (b(14)) x = -1; if (b(15)) x = 1; if (b(12)) z = -1; if (b(13)) z = 1;
+    out.move.set(x, z); out.kick = b(0); out.lob = b(1) || b(2); out.sprint = b(5) || b(7) || b(4) || b(6);
+    return out;
+  }
+
+  get padCount() { return navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean).length : 0; }
+
   intent(scheme, out) {
+    if (scheme.startsWith('pad')) return this.padIntent(+scheme.slice(3), out);
     const s = SCHEMES[scheme];
     let x = (this.any(s.right) ? 1 : 0) - (this.any(s.left) ? 1 : 0);
     let z = (this.any(s.down) ? 1 : 0) - (this.any(s.up) ? 1 : 0);

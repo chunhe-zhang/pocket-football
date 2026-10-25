@@ -319,12 +319,13 @@ function gradient() {
   return GRADIENT;
 }
 
-function tintedTexture(tex, color, decorate) {
+function tintedTexture(tex, color, decorate, mode = 'multiply') {
   const img = tex.image; if (!img) return tex;
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
   const g = c.getContext('2d');
   g.drawImage(img, 0, 0);
-  g.globalCompositeOperation = 'multiply'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+  g.globalCompositeOperation = mode; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+  if (mode === 'color') { g.globalCompositeOperation = 'screen'; g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(0, 0, c.width, c.height); }
   g.globalCompositeOperation = 'destination-in'; g.drawImage(img, 0, 0); // keep original alpha
   g.globalCompositeOperation = 'source-over';
   decorate?.(g, c.width, c.height);
@@ -357,7 +358,7 @@ function styleAvatar(root, kit) {
         g.fillRect(w * 0.08, h * 0.37, w * 0.84, h * 0.012); // chest stripe on the front panel
       });
       if (/BOTTOMS/.test(n) && map) map = tintedTexture(map, kit.shorts);
-      if (/HAIR/.test(n) && map && kit.hair) map = tintedTexture(map, kit.hair);
+      if (/HAIR/.test(n) && map && kit.hair) map = tintedTexture(map, kit.hair, null, kit.hairMode || 'multiply');
       const isSkin = /SKIN/.test(n);
       const t = new THREE.MeshToonMaterial({
         name: m.name, map, color: m.color, gradientMap: gradient(),

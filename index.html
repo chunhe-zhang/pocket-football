@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Pocket Football</title>
-  <meta name="description" content="小场地 1v1 足球网页游戏：动捕动作、物理足球、蓄力射门。" />
+  <meta name="description" content="四门混战足球网页游戏：动漫球员、物理足球、蓄力射门，可联机四人对战。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&display=swap" />
   <link rel="stylesheet" href="./style.css" />
@@ -25,9 +25,7 @@
 
   <div id="hud" class="hidden">
     <div id="scoreboard">
-      <div class="team t0"><i></i><span class="name">BLUE</span></div>
-      <div class="score"><b id="s0">0</b><em>:</em><b id="s1">0</b></div>
-      <div class="team t1"><span class="name">ORANGE</span><i></i></div>
+      <div class="chips" id="chips"></div>
       <div class="clock" id="clock">3:00</div>
     </div>
     <div id="tools">
@@ -38,6 +36,7 @@
     <div id="banner"><div class="big" id="banner-big"></div><div class="small" id="banner-small"></div></div>
     <div id="tags"></div>
     <div id="keyhint"></div>
+    <div id="netinfo"></div>
   </div>
 
   <div id="touch" class="hidden">
@@ -52,32 +51,85 @@
   <div id="menu" class="overlay">
     <div class="menu-card">
       <div class="brand">POCKET<span>FOOTBALL</span></div>
-      <p class="tag">小场地 1v1 · 动作捕捉动画 · 物理足球</p>
-      <div class="row">
-        <label>模式</label>
-        <div class="seg" data-key="mode">
-          <button data-v="solo" class="on">单人 vs 电脑</button>
-          <button data-v="duo">双人同屏</button>
-        </div>
+      <p class="tag">四门混战 · 每人守一个球门 · 丢球最多的人输</p>
+      <div class="seg tabs" data-key="net">
+        <button data-v="local" class="on">本地游戏</button>
+        <button data-v="online">联机对战</button>
       </div>
-      <div class="row" id="row-level">
-        <label>难度</label>
-        <div class="seg" data-key="level">
-          <button data-v="easy">简单</button>
-          <button data-v="normal" class="on">普通</button>
-          <button data-v="hard">困难</button>
+
+      <div id="panel-local">
+        <div class="row">
+          <label>人数</label>
+          <div class="seg" data-key="humans">
+            <button data-v="1" class="on">1 人</button>
+            <button data-v="2">2 人</button>
+            <button data-v="3">3 人</button>
+            <button data-v="4">4 人</button>
+          </div>
         </div>
-      </div>
-      <div class="row">
-        <label>时长</label>
-        <div class="seg" data-key="duration">
-          <button data-v="90">1.5 分钟</button>
-          <button data-v="180" class="on">3 分钟</button>
-          <button data-v="300">5 分钟</button>
+        <p class="note" id="humans-note">其余位置由电脑补上。</p>
+        <div class="row">
+          <label>难度</label>
+          <div class="seg" data-key="level">
+            <button data-v="easy">简单</button>
+            <button data-v="normal" class="on">普通</button>
+            <button data-v="hard">困难</button>
+          </div>
         </div>
+        <div class="row">
+          <label>时长</label>
+          <div class="seg" data-key="duration">
+            <button data-v="90">1.5 分钟</button>
+            <button data-v="180" class="on">3 分钟</button>
+            <button data-v="300">5 分钟</button>
+          </div>
+        </div>
+        <button id="btn-start" class="primary">开 球</button>
       </div>
-      <button id="btn-start" class="primary">开 球</button>
+
+      <div id="panel-online" class="hidden">
+        <div class="row">
+          <label for="in-name">昵称</label>
+          <input id="in-name" maxlength="10" placeholder="你的名字" autocomplete="off" />
+        </div>
+        <button id="btn-create" class="primary">创建房间</button>
+        <div class="row join">
+          <label for="in-code">房间号</label>
+          <input id="in-code" maxlength="4" placeholder="例如 K7QX" autocomplete="off" />
+          <button id="btn-join">加入</button>
+        </div>
+        <p class="note" id="net-status">最多 4 人，人不够时由电脑补位。</p>
+      </div>
       <div class="controls" id="controls-help"></div>
+    </div>
+  </div>
+
+  <div id="lobby" class="overlay">
+    <div class="menu-card">
+      <div class="title">房间 <span id="lobby-code" class="code"></span></div>
+      <p class="note" id="lobby-hint">把房间号发给朋友，在“联机对战”里输入即可加入。</p>
+      <ol id="lobby-slots"></ol>
+      <div id="lobby-host">
+        <div class="row">
+          <label>难度</label>
+          <div class="seg" data-key="level">
+            <button data-v="easy">简单</button>
+            <button data-v="normal" class="on">普通</button>
+            <button data-v="hard">困难</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>时长</label>
+          <div class="seg" data-key="duration">
+            <button data-v="90">1.5 分钟</button>
+            <button data-v="180" class="on">3 分钟</button>
+            <button data-v="300">5 分钟</button>
+          </div>
+        </div>
+        <button id="btn-lobby-start" class="primary">开始比赛</button>
+      </div>
+      <p class="note hidden" id="lobby-wait">等待房主开始比赛…</p>
+      <button id="btn-lobby-leave">离开房间</button>
     </div>
   </div>
 
@@ -92,7 +144,7 @@
   <div id="end" class="overlay">
     <div class="menu-card">
       <div class="title" id="end-title">全场结束</div>
-      <div class="final"><span class="c0" id="end-s0">0</span> : <span class="c1" id="end-s1">0</span></div>
+      <p class="note" id="end-sub"></p>
       <table id="end-stats"></table>
       <button id="btn-again" class="primary">再来一局</button>
       <button id="btn-menu">返回菜单</button>
