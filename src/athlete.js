@@ -429,10 +429,25 @@ export class Athlete {
   // ---------------------------------------------------------------------------
   _release() {
     const power = Math.max(0.12, this.charge);
-    const type = this.chargeType;
+    let type = this.chargeType;
     this.charging = false; this.charge = 0;
     const g = this.game;
     const aim = this.aimDir(new THREE.Vector3());
+    // a pass: aimed at where the team-mate will be, weighted to arrive at a comfortable pace
+    let passSpeed = 0;
+    if (this.passTo && !this.passTo.out) {
+      const rcv = this.passTo, ball = g.ball;
+      let tx = rcv.pos.x, tz = rcv.pos.z, d = 0, sp = 0;
+      for (let k = 0; k < 3; k++) {
+        d = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
+        sp = clamp(Math.sqrt(9 + 2 * 0.9 * d) + 0.6, 5, 15);         // arrives at roughly 3 m/s
+        const t = d / ((sp + 3) / 2) + 0.25;
+        tx = rcv.pos.x + rcv.vel.x * t * 0.8; tz = rcv.pos.z + rcv.vel.z * t * 0.8;
+      }
+      aim.set(tx - this.pos.x, 0, tz - this.pos.z).normalize();
+      type = 'pass'; passSpeed = sp; this.passTarget = rcv;
+    }
+    this.passTo = null;
 
     // aim assist: shots heading roughly at goal are pulled towards the frame
     // the opponent goal the aim points at best
@@ -456,11 +471,11 @@ export class Athlete {
       aim.lerp(ideal, assist).normalize();
     }
 
-    const dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : 1.0);
+    const dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : type === 'pass' ? 0.9 : 1.0);
     const contactT = dur * ANIM.kickContact;
-    this.kick = { type, power, aim, t: 0, dur, contactT, hit: false, resolved: false };
+    this.kick = { type, power: type === 'pass' ? 0.3 : power, aim, t: 0, dur, contactT, hit: false, resolved: false, passSpeed };
     this.kick.approach = this._approachTarget(contactT, aim);
-    this.char.play(type, { duration: dur, side: 'Right', amp: 0.85 + 0.3 * power });
+    this.char.play(type === 'pass' ? 'kick' : type, { duration: dur, side: 'Right', amp: type === 'pass' ? 0.7 : 0.85 + 0.3 * power });
   }
 
   _approachTarget(timeLeft, aim) {
@@ -522,10 +537,13 @@ export class Athlete {
     let speed, elev;
     const volley = ball.pos.y > R + 0.15;
     if (k.type === 'chip') { speed = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p; elev = 0.6 + 0.14 * p; }
+    else if (k.type === 'pass') { speed = k.passSpeed; elev = 0.02; }
     else { speed = PLAYER.shotSpeed[0] + PLAYER.shotSpeed[1] * p; elev = 0.03 + 0.15 * Math.pow(p, 1.4) + (volley ? 0.06 : 0); }
-    speed *= 0.82 + 0.18 * quality;
-    // running into the shot adds pace
-    speed += Math.max(0, this.vel.x * k.aim.x + this.vel.z * k.aim.z) * 0.55;
+    if (k.type !== 'pass') {
+      speed *= 0.82 + 0.18 * quality;
+      // running into the shot adds pace
+      speed += Math.max(0, this.vel.x * k.aim.x + this.vel.z * k.aim.z) * 0.55;
+    }
     // where the boot met the ball: off-centre contact slices, low contact lifts
     let slice = 0;
     if (footTouched) {
@@ -535,7 +553,8 @@ export class Athlete {
     }
     // shot error: rushed / mishit / power shots are less accurate
     const gd = this.goalTarget().distanceTo(this.pos);
-    const err = ((1 - quality) * 0.1 + Math.pow(p, 3) * 0.06 * (1.3 - this.skill) + gd * 0.004) * (Math.random() * 2 - 1);
+    let err = ((1 - quality) * 0.1 + Math.pow(p, 3) * 0.06 * (1.3 - this.skill) + gd * 0.004) * (Math.random() * 2 - 1);
+    if (k.type === 'pass') { err *= 0.15; slice = 0; }                 // passes are side-foot: accurate, no swerve
     const dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.06);
     elev += (1 - quality) * 0.05 * (Math.random() - 0.3);
     const vel = dir.multiplyScalar(Math.cos(elev) * speed); vel.y = Math.sin(elev) * speed;

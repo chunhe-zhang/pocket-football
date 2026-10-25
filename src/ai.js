@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { FIELD, OBSTACLES, inOwnBox } from './config.js';
 
 const LEVELS = {
-  easy:   { react: 0.38, speed: 0.8,  sprint: false, skill: 0.35, shootRange: 7.5, charge: [0.35, 0.7], aimNoise: 0.5, guard: 0.35 },
+  // 超简单: slow, sleepy, never tackles, rarely saves, shoots softly and wide
+  baby:   { react: 0.6,  speed: 0.62, sprint: false, skill: 0.1,  shootRange: 5,   charge: [0.2, 0.45], aimNoise: 0.9, guard: 0.1, noTackle: true },
+  easy:   { react: 0.45, speed: 0.72, sprint: false, skill: 0.25, shootRange: 6.5, charge: [0.3, 0.6], aimNoise: 0.6, guard: 0.25, noTackle: true },
   normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.65 },
   hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 0.9 },
 };
@@ -16,8 +18,9 @@ const H = FIELD.half;
  * otherwise hold a sweeper position between the ball and my goal.
  */
 export class AIController {
-  constructor(me, game, level = 'normal') {
+  constructor(me, game, level = 'normal', assist = false) {
     this.me = me; this.game = game;
+    this.assist = assist;   // feed the human players instead of competing with them
     this.setLevel(level);
     this.think = Math.random() * 0.2;
     this.plan = { move: new THREE.Vector2(), sprint: false, tackle: false };
@@ -26,7 +29,7 @@ export class AIController {
   }
 
   setLevel(level) {
-    this.cfg = LEVELS[level] || LEVELS.normal;
+    this.cfg = LEVELS[level] || LEVELS.baby;
     this.me.skill = this.cfg.skill;
     this.me.speedMul = this.cfg.speed;
   }
@@ -43,6 +46,7 @@ export class AIController {
       if (s.hold <= 0 && !me.charging) this.shooting = null;
       return;
     }
+    if (me.passTo) { it.kick = false; me.passTo = null; }
     it.kick = false; it.lob = false;
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
     // goalkeeper reflex, checked every frame: dive at a shot I can't reach on foot
@@ -53,6 +57,23 @@ export class AIController {
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
     it.sprint = this.plan.sprint && this.cfg.sprint;
     it.tackle = this.plan.tackle; this.plan.tackle = false;
+  }
+
+  _isHuman(a) {
+    const c = this.game.controllers[a.team];
+    return !!c && (c.type === 'human' || c.type === 'remote');
+  }
+
+  /** the human (still in the game) best placed to receive: closest, not marked */
+  _humanToFeed() {
+    const me = this.me;
+    let best = null, bestD = Infinity;
+    for (const a of this.game.live) {
+      if (a === me || !this._isHuman(a)) continue;
+      const d = Math.hypot(a.pos.x - me.pos.x, a.pos.z - me.pos.z);
+      if (d < bestD) { bestD = d; best = a; }
+    }
+    return best;
   }
 
   _keeper() {
@@ -119,6 +140,21 @@ export class AIController {
     plan.sprint = false;
 
     if (iHave) {
+      // assist mode: give the ball to a human player so they get the shot
+      if (this.assist) {
+        const rcv = this._humanToFeed();
+        if (rcv) {
+          const d = Math.hypot(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z);
+          if (d > 2) {
+            me.passTo = rcv;
+            this.shooting = { hold: 0.06, aim: new THREE.Vector2(rcv.pos.x - me.pos.x, rcv.pos.z - me.pos.z).normalize(), lob: false };
+            return;
+          }
+          // too close for a pass: just step away from them with the ball first
+          plan.move.set(me.pos.x - rcv.pos.x, me.pos.z - rcv.pos.z).normalize();
+          return;
+        }
+      }
       const tgt = me.goalTarget();
       const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z);
       const gd = to.length();
@@ -173,10 +209,24 @@ export class AIController {
     // nearest to a loose / contested ball: go and win it
     const holder = g.possessor;
     // slide in on whoever has the ball if they are close and coming my way
-    if (holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
+    const humanHas = holder && this._isHuman(holder);
+    if (!this.cfg.noTackle && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.1 && myDist > 0.6 && Math.random() < 0.3 * this.cfg.skill + 0.08) {
       const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
       plan.move.set(tx, tz).normalize();
       plan.tackle = true;
+      return;
+    }
+    // the ball has been sitting dead for a while: the nearest CPU goes and gets it
+    if ((g.idleT || 0) > 4 && !holder) {
+      const cpus = g.live.filter((a) => !this._isHuman(a));
+      const nearest = cpus.reduce((x, y) => (Math.hypot(bp.x - y.pos.x, bp.z - y.pos.z) < Math.hypot(bp.x - x.pos.x, bp.z - x.pos.z) ? y : x), cpus[0]);
+      if (nearest === me) { this._goTo(bp.x, bp.z, 0.3, 2); return; }
+    }
+    // assist mode: leave the ball alone when a human has it or is going for it
+    if (this.assist && (humanHas || g.live.some((a) => { const d = Math.hypot(bp.x - a.pos.x, bp.z - a.pos.z); return this._isHuman(a) && d < 3 && d < myDist; }))) {
+      const dist = clamp(toHome * 0.3, 1.2, 3.5);
+      const dx = bp.x - home.centre.x, dz = bp.z - home.centre.z, dl = Math.hypot(dx, dz) || 1;
+      this._goTo(home.centre.x + (dx / dl) * dist, home.centre.z + (dz / dl) * dist, 0.8, 99);
       return;
     }
     if (myDist <= nearestOther + 0.6 || (holder && myDist < 2.2)) {

@@ -56,7 +56,7 @@ export class Game {
     this.possessor = null;
     this.possession = TEAMS.map(() => 0);
     this.crowdT = 0;
-    this.settings = { humans: 1, level: 'normal', duration: MATCH.defaultDuration };
+    this.settings = { humans: 1, level: 'baby', assist: true, duration: MATCH.defaultDuration };
     this.role = 'local';
     this.net = null;
     this.events = []; this.snapT = 0;
@@ -120,7 +120,7 @@ export class Game {
     this.athletes.forEach((a, i) => {
       const g = GOALS[i];
       if (a.out) { a.place(60 + i * 3, 60, 0); return; }   // parked far off the pitch
-      a.place(g.centre.x + g.inward.x * 4, g.centre.z + g.inward.z * 4, Math.atan2(g.inward.x, g.inward.z));
+      a.place(g.centre.x + g.inward.x * 5, g.centre.z + g.inward.z * 5, Math.atan2(g.inward.x, g.inward.z));
     });
   }
 
@@ -147,7 +147,7 @@ export class Game {
    */
   start(settings) {
     Object.assign(this.settings, settings);
-    const { level, duration } = this.settings;
+    const { level, duration, assist } = this.settings;
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.possession = TEAMS.map(() => 0);
     this.clock = 0;
@@ -160,7 +160,7 @@ export class Game {
       a.label = s.name || TEAMS[i].cpuName;
       if (s.kind === 'local') return { type: 'human', scheme: s.scheme };
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
-      return { type: 'ai', ai: new AIController(a, this, level) };
+      return { type: 'ai', ai: new AIController(a, this, level, assist !== false) };
     });
     this.endShown = false;
     this.ui.onScore(this);
@@ -244,6 +244,7 @@ export class Game {
 
   // ------------------------------------------------------------ callbacks --
   onKick(ath, k, vel) {
+    if (k.type === 'pass') { this.sfx.kick(0.25); return; }
     const p = k.power;
     this.sfx.kick(p);
     if (p > 0.55 && k.type === 'kick') {
@@ -297,6 +298,8 @@ export class Game {
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
       this.clock += dt;
+      // how long the ball has been sitting dead (used by the CPUs to unstick play)
+      this.idleT = this.ball.speed < 0.15 && !this.possessor ? (this.idleT || 0) + dt : 0;
     } else if (this.state === 'goal') {
       this.timer -= rawDt;
       if (this.timer <= 0) {
@@ -426,13 +429,14 @@ export class Game {
     const pos = this._v, look = new THREE.Vector3();
     if (this.state === 'menu') {
       const t = this.time * 0.05;
-      pos.set(Math.sin(t) * 19, 8.5, Math.cos(t) * 19);
+      const S = H / 9;
+      pos.set(Math.sin(t) * 19 * S, 8.5 * S, Math.cos(t) * 19 * S);
       look.set(0, 0.8, 0);
       const k = 1 - Math.exp(-dt * 2);
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     } else {
       // distance chosen so the pitch plus its goals fit the screen at this aspect
-      const fit = Math.max(1, 1.62 / aspect);
+      const fit = Math.max(1, 1.62 / aspect) * (H / 9);
       if (CAM_MODES[this.camMode] === 'high') { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
       else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
       // ease into the fixed spot when leaving the menu, then hold perfectly still
@@ -459,7 +463,7 @@ export class Game {
   remoteLeft(id) {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
-    this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level) };
+    this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level, this.settings.assist !== false) };
     this.athletes[i].label = TEAMS[i].cpuName;
     if (this.slots?.[i]) this.slots[i] = { kind: 'cpu', name: TEAMS[i].cpuName };
   }

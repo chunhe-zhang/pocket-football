@@ -1,12 +1,12 @@
 // All units are metres / seconds / radians.
 
 export const FIELD = {
-  half: 9,          // pitch half size (x and z)
-  cornerR: 6.6,     // big rounded corners: the arena is almost a circle
+  half: 12,         // pitch half size (x and z)
+  cornerR: 8.8,     // big rounded corners: the arena is almost a circle
   boxDepth: 2.8,    // penalty box in front of each goal (where you may dive)
   boxHalfW: 2.7,
-  halfL: 9,         // kept for code that thinks in length/width
-  halfW: 9,
+  halfL: 12,        // kept for code that thinks in length/width
+  halfW: 12,
   goalHalfW: 1.6,   // half width of goal mouth
   goalH: 1.7,       // crossbar height
   goalDepth: 1.15,  // depth of the goal box behind the line
