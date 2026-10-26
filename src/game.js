@@ -314,6 +314,8 @@ export class Game {
     for (const c of this.cursors) if (c.char) this._setChar(A[c.idx], c.char);
     const humanSide = new Set(this.cursors.map((c) => c.side));
     this.ais = A.map((a) => new AIController(a, this, level, level === 'gf' && humanSide.has(a.gi)));
+    // ten players on one pitch: everyone a bit slower, so it's football rather than a scrum
+    for (const a of A) a.speedMul *= 0.8;
     this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
     this._applyCursors();
     this.endShown = false;

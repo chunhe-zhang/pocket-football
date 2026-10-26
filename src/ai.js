@@ -504,12 +504,12 @@ export class AIController {
     // the opponents have it: the next player in steps up goal-side of it
     if (holder && !ours && second === me && me.role !== 'gk') {
       const gx = home.centre.x - bp.x, gz = home.centre.z - bp.z, gl = Math.hypot(gx, gz) || 1;
-      const q = legal(bp.x + (gx / gl) * 2.6, bp.z + (gz / gl) * 2.6, 0.6);
-      this._goTo(q.x, q.z, 0.5, 3);
+      const q = legal(bp.x + (gx / gl) * 4.2, bp.z + (gz / gl) * 4.2, 0.6);   // cover, don't swarm
+      this._goTo(q.x, q.z, 0.8, 6);
       return;
     }
     const s = this._slot5(ours || (lt && lt.gi === me.gi && fresh));
-    this._goTo(s.x, s.z, 0.9, 4);
+    this._goTo(s.x, s.z, 1.2, 8);
   }
 
   _gk5() {
@@ -533,7 +533,7 @@ export class AIController {
         this._goTo(q.x, q.z, 0.3, 1.5); return;
       }
       const poke = myDist < 1.6;
-      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.15 * this.cfg.skill)) {
+      if (Math.random() < (poke ? 0.22 * this.cfg.skill + 0.06 : 0.05 * this.cfg.skill)) {   // 5v5: patient, fewer lunges
         plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize();
         plan.tackle = true;
         return;
@@ -553,7 +553,7 @@ export class AIController {
     let bx = pred.x - dir.x * 0.6, bz = pred.z - dir.y * 0.6;
     const inFront = (me.pos.x - pred.x) * dir.x + (me.pos.z - pred.z) * dir.y > 0.1;
     if (inFront && myDist < 3) { bx += -dir.y * 0.9; bz += dir.x * 0.9; }
-    this._goTo(bx, bz, 0.4, 2.5);
+    this._goTo(bx, bz, 0.4, 5);
   }
 
   /** on the ball in 5v5: shoot, pass or run with it */
@@ -621,6 +621,6 @@ export class AIController {
     dir.set(ahead.x - me.pos.x, ahead.z - me.pos.z);
     if (dir.lengthSq() < 0.04) dir.set(-me.pos.x, -me.pos.z);
     plan.move.copy(dir.normalize());
-    plan.sprint = plan.sprint || !pressure;
+    void pressure;
   }
 }
