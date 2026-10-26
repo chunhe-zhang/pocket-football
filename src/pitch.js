@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES } from './config.js';
+import { Scenery } from './scenery.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 
@@ -176,6 +177,7 @@ export class Pitch {
     this.excite = 0;
     this.pulses = [];
     this._buildStatic();
+    this.scenery = new Scenery(scene);
     this.setMap();
   }
 
@@ -206,6 +208,7 @@ export class Pitch {
     this._buildFlowers();
     this._buildTrees();
     if (!this.petals) this._buildPetals();
+    this.scenery.build();
   }
 
   _buildStatic() {
@@ -422,7 +425,7 @@ export class Pitch {
     merge(geo, geo2);
     this.flowerMats = [];
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3();
-    const area = (FIELD.hx + 15) * (FIELD.hz + 15) * 4, perVariant = Math.min(3200, Math.round(1300 * area / 2916));
+    const area = (FIELD.hx + 15) * (FIELD.hz + 15) * 4, perVariant = Math.min(900, Math.round(420 * area / 2916));
     for (const [petal, centre] of variants) {
       const mat = new THREE.MeshLambertMaterial({ map: flowerSprite(petal, centre), alphaTest: 0.5, side: THREE.DoubleSide });
       mat.onBeforeCompile = (sh) => {
@@ -446,7 +449,7 @@ export class Pitch {
           return along < FIELD.goalHalfW + 0.5 && out > g.line - 0.1 && out < g.line + GD + 0.5;
         })) continue;
         // denser close to the pitch
-        if (Math.random() > 1.25 - ex / 16) continue;
+        if (ex > 2.6) continue;
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI);
         const k = rnd(0.7, 1.35); sc.set(k, k * rnd(0.85, 1.2), k);
         m4.compose(p, q, sc); inst.setMatrixAt(n++, m4);
@@ -461,7 +464,7 @@ export class Pitch {
     const blossomMats = [0xffb3d1, 0xff9cc6, 0xffc9e0].map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
     const spots = [];
     for (let i = 0; i < 22; i++) {
-      const a = (i / 22) * Math.PI * 2 + rnd(-0.08, 0.08), k = rnd(13, 22);
+      const a = (i / 22) * Math.PI * 2 + rnd(-0.08, 0.08), k = rnd(16, 26);
       spots.push([Math.cos(a) * (FIELD.hx + k), Math.sin(a) * (FIELD.hz + k)]);
     }
     for (const [x, z] of spots) {
@@ -799,6 +802,7 @@ export class Pitch {
 
   update(dt, t) {
     this.time = t;
+    this.scenery.update(dt, t);
     for (const tex of this.padMats || []) tex.offset.y -= dt * 1.6;
     for (const s of Object.values(this.shields || {})) {
       s.k += (s.target - s.k) * Math.min(1, dt * (s.target ? 3 : 6));
@@ -864,5 +868,5 @@ export class Pitch {
     }
   }
 
-  cheer(_team, amount = 1) { this.excite = Math.max(this.excite, amount); }
+  cheer(_team, amount = 1) { this.excite = Math.max(this.excite, amount); this.scenery?.celebrate(); }
 }

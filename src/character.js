@@ -531,6 +531,11 @@ export class Character {
     this._qa = new THREE.Quaternion(); this._qp = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._ax = new THREE.Vector3();
     this.forward = new THREE.Vector3(0, 0, 1); this.right = new THREE.Vector3(-1, 0, 0);
     this.setFacing(0);
+    // rest orientation of the head and neck relative to the body: accessories are fitted in this frame
+    this.group.updateMatrixWorld(true);
+    const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
+    this._restQ = new Map();
+    for (const bn of [this.bones.head, this.bones.neck].filter(Boolean)) this._restQ.set(bn, gq.clone().multiply(bn.getWorldQuaternion(new THREE.Quaternion())));
 
     // measure the clips on *this* skeleton (legs differ between models)
     const cache = template._measure || (template._measure = {});
@@ -542,6 +547,22 @@ export class Character {
     this.phaseOffset = cache.phaseOffset;
     this.natural = cache.natural;
     this.kickCalib = cache.kick;
+  }
+
+  /** see-through (the phantom's sprint) */
+  setGhost(on) {
+    if (!!this._ghost === on) return;
+    this._ghost = on;
+    this.root.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of [].concat(o.material)) {
+        if (m.userData.g0 === undefined) m.userData.g0 = { t: m.transparent, o: m.opacity, d: m.depthWrite };
+        const g0 = m.userData.g0;
+        if (on) { m.transparent = true; m.opacity = 0.38 * g0.o; m.depthWrite = false; }
+        else { m.transparent = g0.t; m.opacity = g0.o; m.depthWrite = g0.d; }
+        m.needsUpdate = true;
+      }
+    });
   }
 
   /** frozen by an ice shot or the ice blast: the whole body turns to pale blue ice */
@@ -557,6 +578,138 @@ export class Character {
         m.needsUpdate = true;
       }
     });
+  }
+
+  /**
+   * Each character's own look: hair ornaments, headwear and a couple of little element orbs
+   * circling them. Built in world space against the current pose and attached to the bones.
+   */
+  setStyle(id) {
+    if (this._style === id) return;
+    this._style = id;
+    for (const o of this._acc || []) o.parent?.remove(o);
+    this._acc = []; this._orbit = []; this._sway = []; this._flick = [];
+    const b = this.bones;
+    // fit in the body frame (+x left, +z forward, +y up) and convert into the bone's rest frame,
+    // so the head's current turn (looking at the ball) doesn't skew anything
+    const put = (obj, bone, r, u, f) => {
+      const inv = (this._restQ.get(bone) || new THREE.Quaternion()).clone().invert();
+      const off = new THREE.Vector3(-r, u, f + (bone === b.head ? Fz : 0)).applyQuaternion(inv);
+      obj.position.copy(off); obj.quaternion.premultiply(inv);
+      bone.add(obj); this._acc.push(obj); return obj;
+    };
+    const glow = (c, e = 0.8) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: e, roughness: 0.4 });
+    const solid = (c) => new THREE.MeshToonMaterial({ color: c, gradientMap: null });
+    const Y = 0.04;  // head centre: a little above the head bone
+    const Fz = 0.07;  // and well in front of it
+    switch (id) {
+      case 'thunder': {
+        // a golden headband and a pair of lightning-bolt hairpins
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.016, 8, 32), glow(0xffd23f, 0.5)); band.rotation.x = Math.PI / 2 + 0.35;
+        put(band, b.head, 0, Y + 0.1, -0.01);
+        const bolt = new THREE.Shape([[-0.02, 0.07], [0.03, 0.07], [0.0, 0.015], [0.035, 0.015], [-0.03, -0.075], [-0.005, -0.005], [-0.04, -0.005]].map(([x, y]) => new THREE.Vector2(x, y)));
+        const bg = new THREE.ExtrudeGeometry(bolt, { depth: 0.012, bevelEnabled: false }); bg.scale(1.45, 1.45, 1);
+        for (const s of [-1, 1]) { const m = new THREE.Mesh(bg, glow(0xffe14a, 1.0)); m.rotation.y = s * Math.PI / 2; m.rotation.z = s * 0.3; put(m, b.head, s * 0.13, Y + 0.06, 0.0); this._flick.push(m); }
+        break;
+      }
+      case 'blaze': {
+        // a tiara of flames and a red scarf whose tails stream behind
+        for (const [r, h, x] of [[0.055, 0.2, 0], [0.042, 0.14, -0.075], [0.042, 0.14, 0.075]]) {
+          const fl = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), glow(x ? 0xff5a1a : 0xffa11a, 1.1));
+          put(fl, b.head, x, Y + 0.18 + h / 2 - 0.04, 0.05); this._flick.push(fl);
+        }
+        const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.03, 8, 20), solid(0xe8322a)); scarf.rotation.x = Math.PI / 2;
+        put(scarf, b.neck || b.head, 0, -0.02, 0.0);
+        for (const s of [-1, 1]) {
+          const tail = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.36).translate(0, -0.18, 0), new THREE.MeshToonMaterial({ color: 0xe8322a, side: THREE.DoubleSide }));
+          put(tail, b.neck || b.head, s * 0.035, -0.03, -0.08); this._sway.push({ m: tail, ph: s, base: tail.quaternion.clone() });
+        }
+        break;
+      }
+      case 'frost': {
+        // an ice crown and a snowflake pin
+        const iceMat = new THREE.MeshStandardMaterial({ color: 0xc8f0ff, emissive: 0x6fd0ff, emissiveIntensity: 0.6, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.9 });
+        for (let k = 0; k < 7; k++) {
+          const a = (k / 7) * Math.PI * 2, h = k === 0 ? 0.17 : 0.09 + (k % 2) * 0.04;
+          const c = new THREE.Mesh(new THREE.ConeGeometry(0.026, h, 5), iceMat);
+          put(c, b.head, Math.sin(a) * 0.105, Y + 0.095 + h / 2, Math.cos(a) * 0.105);
+        }
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.108, 0.012, 6, 28), iceMat); ring.rotation.x = Math.PI / 2;
+        put(ring, b.head, 0, Y + 0.095, 0);
+        const flake = new THREE.Group();
+        for (let k = 0; k < 3; k++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.01), glow(0xdff8ff, 0.9)); bar.rotation.z = (k / 3) * Math.PI; flake.add(bar); }
+        flake.rotation.y = Math.PI / 2; flake.scale.setScalar(1.6); put(flake, b.head, 0.15, Y + 0.05, 0.0);
+        break;
+      }
+      case 'gale': {
+        // feathered wing ornaments either side of the head and a green scarf
+        const feather = (s) => {
+          const g = new THREE.Group();
+          for (let k = 0; k < 3; k++) {
+            const f = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshStandardMaterial({ color: k === 1 ? 0xffffff : 0xd8fff0, emissive: 0x8fffc0, emissiveIntensity: 0.35 }));
+            f.scale.set(0.014, 0.1 - k * 0.015, 0.04);              // a flat leaf/feather, pointing up
+            f.position.set(0, 0.05 - k * 0.005, -k * 0.03); f.rotation.x = -0.35 - k * 0.3; g.add(f);
+          }
+          g.rotation.z = -s * 0.55; return g;
+        };
+        for (const s of [-1, 1]) put(feather(s), b.head, s * 0.13, Y + 0.07, -0.02);
+        const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.028, 8, 20), solid(0x3fcf7a)); scarf.rotation.x = Math.PI / 2;
+        put(scarf, b.neck || b.head, 0, -0.02, 0);
+        const tail = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.42).translate(0, -0.21, 0), new THREE.MeshToonMaterial({ color: 0x3fcf7a, side: THREE.DoubleSide }));
+        put(tail, b.neck || b.head, 0.03, -0.03, -0.08); this._sway.push({ m: tail, ph: 0, base: tail.quaternion.clone() });
+        break;
+      }
+      case 'phantom': {
+        // a crooked pointed hat with a star, and two little ghosts that follow her round
+        const hat = new THREE.Group();
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.015, 24), solid(0x4b2a8a)); hat.add(brim);
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 20), solid(0x5b34a8)); cone.position.y = 0.16; cone.rotation.z = -0.25; cone.position.x = 0.03; hat.add(cone);
+        const bandH = new THREE.Mesh(new THREE.CylinderGeometry(0.128, 0.13, 0.04, 20), solid(0xb58cff)); bandH.position.y = 0.025; hat.add(bandH);
+        const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.03), glow(0xffe14a, 1)); star.position.set(0.0, 0.07, 0.125); hat.add(star);
+        hat.rotation.z = 0.12;
+        put(hat, b.head, 0, Y + 0.14, -0.01);
+        for (let k = 0; k < 2; k++) {
+          const ghost = new THREE.Group();
+          const body = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 10), new THREE.MeshStandardMaterial({ color: 0xf2eaff, emissive: 0xb58cff, emissiveIntensity: 0.5, transparent: true, opacity: 0.85 }));
+          body.scale.set(1, 1.25, 1); ghost.add(body);
+          const tailG = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.1, 10), body.material); tailG.rotation.x = Math.PI; tailG.position.y = -0.1; ghost.add(tailG);
+          for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 4), new THREE.MeshBasicMaterial({ color: 0x2a1a40 })); e.position.set(s * 0.025, 0.015, 0.062); ghost.add(e); }
+          this.group.add(ghost); this._acc.push(ghost); this._orbit.push({ m: ghost, r: 0.55, h: 1.25 + k * 0.25, sp: 1.6, ph: k * Math.PI });
+        }
+        break;
+      }
+      case 'cannon': {
+        // big headphones and goggles pushed up on the forehead
+        const dark = solid(0x2a2a36), yel = glow(0xffd23f, 0.4);
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 8, 24, Math.PI), dark);
+        put(band, b.head, 0, Y + 0.02, 0);
+        for (const s of [-1, 1]) {
+          const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.055, 18), dark); cup.rotation.z = Math.PI / 2; put(cup, b.head, s * 0.16, Y + 0.0, 0);
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.013, 6, 18), yel); rim.rotation.y = Math.PI / 2; put(rim, b.head, s * 0.19, Y + 0.0, 0);
+        }
+        for (const s of [-1, 1]) {
+          const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 16), new THREE.MeshStandardMaterial({ color: 0xff8a2a, emissive: 0xff6a00, emissiveIntensity: 0.5, roughness: 0.1, metalness: 0.4 }));
+          lens.rotation.x = Math.PI / 2 - 0.4; put(lens, b.head, s * 0.05, Y + 0.12, 0.11);
+        }
+        const strap = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.012, 6, 28), dark); strap.rotation.x = Math.PI / 2 - 0.35; put(strap, b.head, 0, Y + 0.11, 0.0);
+        break;
+      }
+    }
+    // everyone: two little element orbs circling at waist height
+    const col = { thunder: 0x5fe1ff, blaze: 0xff6a2b, frost: 0x9fe6ff, gale: 0x6dff9a, phantom: 0xb58cff, cannon: 0xffd23f }[id] || 0xffffff;
+    if (id !== 'phantom') for (let k = 0; k < 2; k++) {
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })); orb.add(halo);
+      this.group.add(orb); this._acc.push(orb); this._orbit.push({ m: orb, r: 0.48, h: 0.95, sp: 2.4, ph: k * Math.PI });
+    }
+  }
+
+  _styleTick(dt) {
+    this._st = (this._st || 0) + dt;
+    const t = this._st;
+    for (const o of this._orbit || []) { const a = t * o.sp + o.ph; o.m.position.set(Math.cos(a) * o.r, o.h + Math.sin(t * 2.3 + o.ph) * 0.08 + this.root.position.y, Math.sin(a) * o.r); }
+    for (const f of this._flick || []) { const k = 1 + Math.sin(t * 17 + f.id) * 0.12; f.scale.set(k, 1 + Math.sin(t * 13 + f.id * 2) * 0.18, k); }
+    for (const s of this._sway || []) { s.m.quaternion.copy(s.base); s.m.rotateX(0.15 + Math.sin(t * 6 + s.ph) * 0.12 + Math.min(0.6, this.speed * 0.1)); }
   }
 
   /** characters each have their own hair colour */
@@ -742,6 +895,7 @@ export class Character {
   }
 
   update(dt, { speed = 0, turnRate = 0 } = {}) {
+    this._styleTick?.(dt);
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
     const nat = this.natural || { walk: 1.5, run: 3.4 };
@@ -793,6 +947,12 @@ export class Character {
     const mir = R ? 1 : -1;
     if (ch.drop) this.root.position.y = ch.drop;
     if (ch.hop) this.root.position.y += ch.hop;
+    // flying through the air after a big hit: lifted and tumbling round the waist
+    const tb = this.tumble || 0;
+    this.root.rotation.x = tb;
+    this.root.position.z = tb ? -0.9 * Math.sin(tb) : 0;
+    if (tb) this.root.position.y += 0.9 - 0.9 * Math.cos(tb);
+    this.root.position.y += this.airY || 0;
     this._rot(b.hips, r, ch.body || 0);
     this._rot(b.hips, f, -(ch.roll || 0) * (ch._side === 'Left' ? -1 : 1));
     this._rot(b.spine1, r, -(ch.lean || 0));

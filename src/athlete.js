@@ -69,7 +69,7 @@ export class Athlete {
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
     this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
-    this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0; this.holding = null; this._ready = false; if (this.power) { this.power = null; this.char.group.visible = !this.out; }
+    this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0; this.holding = null; this._ready = false; this.air = null; this.slipT = 0; if (this.power) { this.power = null; this.char.group.visible = !this.out; }
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
     this._sync(0);
@@ -153,6 +153,10 @@ export class Athlete {
     this.knockFree = Math.max(0, (this.knockFree || 0) - dt);
     this._skillTick(dt);
     this.stunT = Math.max(0, this.stunT - dt);
+    this.slipT = Math.max(0, (this.slipT || 0) - dt); this.burnCD = Math.max(0, (this.burnCD || 0) - dt);
+    if (this.stunT > 0 || this.frozen || g.state !== 'play') this.sprinting = false;
+    this.ghost = this.charId === 'phantom' && this.sprinting;
+    if (this.sprinting) this._elementSprint();
     this.ignoreBall = Math.max(0, this.ignoreBall - dt);
     if (this.receive) { this.receive.t += dt; if (this.receive.t > this.receive.ta + 0.3) this.receive = null; }
 
@@ -226,13 +230,14 @@ export class Athlete {
     else if (this.slide) this._slideMotion(dt);
     else if (this.poke) this._pokeMotion(dt);
     else if (this.header && this.header.jumped && (this.header.kind === 'dive' || this.header.kind === 'bicycle')) this._headerBodyMotion(dt);
-    else if (this.stunT > 0) { this.vel.multiplyScalar(Math.max(0, 1 - dt * 5)); this.pos.addScaledVector(this.vel, dt); }
+    else if (this.air) this._airMotion(dt);
+    else if (this.stunT > 0) { this.vel.multiplyScalar(Math.max(0, 1 - dt * (this.slipT > 0 ? 1.2 : 5))); this.pos.addScaledVector(this.vel, dt); }
     else if (this.kick) this._kickMotion(dt);
     else {
       const mag = Math.min(1, it.move.length());
       let target = PLAYER.runSpeed;
       const wantsSprint = it.sprint && mag > 0.5 && !this.exhausted;
-      if (wantsSprint) target = PLAYER.sprintSpeed;
+      if (wantsSprint) target = PLAYER.sprintSpeed * (this.charId === 'thunder' ? 1.12 : this.charId === 'gale' ? 1.08 : 1);
       if (mag < 0.7) target = PLAYER.walkSpeed + (PLAYER.runSpeed - PLAYER.walkSpeed) * Math.max(0, (mag - 0.25) / 0.45);
       if (this.charging) target *= 0.55;
       if (this.receive && this.receive.type !== 'trapFoot') target *= 0.6; // settle under a dropping ball
@@ -276,13 +281,15 @@ export class Athlete {
         if (dl > 0.02) desired.multiplyScalar(Math.min(sp, dl * 6) / dl); else desired.set(0, 0, 0);
       }
       const dv = this._w.copy(desired).sub(this.vel);
-      const a = (desired.lengthSq() > this.vel.lengthSq() ? PLAYER.accel : PLAYER.decel) * dt;
+      const a = (desired.lengthSq() > this.vel.lengthSq() ? PLAYER.accel : PLAYER.decel) * dt * (this.slipT > 0 ? 0.18 : 1);
       if (dv.length() > a) dv.setLength(a);
       this.vel.add(dv);
 
       // stamina
-      const sprinting = wantsSprint && this.vel.length() > PLAYER.runSpeed * 0.95;
-      this.stamina = clamp(this.stamina + (sprinting ? -PLAYER.staminaDrain * (this.burstT > 0 ? 1.6 : 1) : PLAYER.staminaRegen) * dt, 0, 1);
+      const sprinting = wantsSprint && this.vel.length() > PLAYER.runSpeed * this.speedMul * 0.95;
+      this.sprinting = sprinting;
+      const drain = this.charId === 'gale' ? 0.6 : 1;                     // gliding on the wings is easy work
+      this.stamina = clamp(this.stamina + (sprinting ? -PLAYER.staminaDrain * drain * (this.burstT > 0 ? 1.6 : 1) : PLAYER.staminaRegen) * dt, 0, 1);
       if (this.stamina <= 0.01) this.exhausted = true; else if (this.stamina > 0.3) this.exhausted = false;
 
       // facing
@@ -437,7 +444,8 @@ export class Athlete {
           // the character's element hits them too
           if (sl.kind === 'thunder') { o.zap('thunder', sl.dir); g.fx('bolt', { x: o.pos.x, y: 1, z: o.pos.z }, { x: 0, z: 0 }, 16, 3); }
           else if (sl.kind === 'frost') o.freeze(1.4);
-          else if (sl.kind === 'cannon') { o.fall(sl.dir, 14, 9); g.onImpact?.(o, 0xffd23f); g.shake = Math.max(g.shake, 0.2); }
+          else if (sl.kind === 'cannon') { o.launch(sl.dir, 5.5, 8); g.onImpact?.(o, 0xffd23f); g.shake = Math.max(g.shake, 0.2); }
+          else if (sl.kind === 'blaze') { o.launch(sl.dir, 7, 3.2); g.fx('fire', { x: o.pos.x, y: 0.8, z: o.pos.z }, { x: 0, z: 0 }, 20, 3); }
           else { if (sp > 3) o.fall(sl.dir, sp); else o.knock(sl.dir, sp); if (sl.kind === 'blaze') g.fx('fire', { x: o.pos.x, y: 0.8, z: o.pos.z }, { x: 0, z: 0 }, 20, 3); }
           g.sfx.bump(sp); g.rumble(this, 0.4, 70);
         }
@@ -494,6 +502,49 @@ export class Athlete {
     this.char.play('stagger', { duration: this.stunT + 0.15 });
     this.char.face('surprised', 0.8); this.faceT = 0.6;
     this.game.rumble(this, 0.8, 140);
+  }
+
+  /** sent flying: up into the air, tumbling, then a heavy landing (cannon / fire blasts) */
+  launch(dir, h, v) {
+    if (this.frozen) return;
+    this.knock(dir, 0);
+    const tAir = (2 * v) / 9.81;
+    this.air = { y: 0, vy: v, rot: 0, spin: (Math.PI * 2 * (1 + (v > 8 ? 1 : 0))) / tAir * (Math.random() < 0.5 ? -1 : 1) };
+    this.vel.copy(dir).setY(0).normalize().multiplyScalar(h);
+    this.stunT = tAir + 1.2; this.iceT = 0;
+    this.char.play('fallB', { duration: tAir + 1.3 });
+    this.char.face('surprised', 1); this.faceT = tAir + 0.5;
+    this.game.rumble(this, 1, 300);
+  }
+  _airMotion(dt) {
+    const A = this.air;
+    A.vy -= 9.81 * dt; A.y += A.vy * dt; A.rot += A.spin * dt;
+    this.pos.addScaledVector(this.vel, dt);
+    if (A.y <= 0) {
+      this.air = null; this.vel.multiplyScalar(0.3);
+      const g = this.game;
+      g.fx('dust', { x: this.pos.x, y: 0.1, z: this.pos.z }, { x: 0, z: 0 }, 18, 3);
+      g.sfx.bump(12); g.shake = Math.max(g.shake, 0.12);
+      g.onImpact?.(this, 0xffffff);
+    }
+  }
+
+  /** what my sprint does to the people round me */
+  _elementSprint() {
+    const g = this.game;
+    if (this.charId !== 'cannon') return;
+    // the cannon barges straight through: anyone in the way is bowled over
+    for (const o of g.live) {
+      if (!this._isOpp(o) || o.stunT > 0 || o.air || (o.bargeHit || 0) > g.time) continue;
+      const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+      const f = this.forward, ahead = (dx * f.x + dz * f.z) / (d || 1);
+      if (d < 0.85 && ahead > 0.4) {
+        o.bargeHit = g.time + 1.5;
+        o.fall(new THREE.Vector3(dx / d, 0, dz / d), 10, 6);
+        g.onImpact?.(o, 0xffd23f); g.sfx.bump(12); g.shake = Math.max(g.shake, 0.12);
+        this.vel.multiplyScalar(0.85);
+      }
+    }
   }
 
   /** knocked clean off my feet: hit the deck (face down if shoved from behind, else on my back), then get up */
@@ -587,8 +638,10 @@ export class Athlete {
       this.knock(dir, 1); this.vel.multiplyScalar(0.3);
       this.stunT = 1.3;
       this.char.play('stagger', { duration: 1.4 }); this.char.face('surprised', 1); this.faceT = 1.3;
+    } else if (kind === 'cannon') {
+      this.launch(dir, 6.5, 8.5);
     } else {
-      this.fall(dir, kind === 'cannon' ? 11 : 8);
+      this.launch(dir, 8.5, 4);
     }
     this.game.rumble(this, 1, 260);
   }
@@ -637,8 +690,14 @@ export class Athlete {
     const g = this.game, ball = g.ball, pk = this.poke;
     const carrier = g.possessor && g.possessor !== this ? g.possessor : (ball.lastTouch && ball.lastTouch !== this && ball.lastTouch.dribbling ? ball.lastTouch : null);
     let chance = 1;
+    // can I even reach it?
+    if (Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) > 1.3 || ball.pos.y > 0.7) chance = 0;
     if (carrier) {
-      chance = 0.74;
+      chance *= 0.74;
+      // how exposed is the ball: tight at the carrier's boots it's hard to get at; knocked a stride
+      // ahead (between touches) it's there for the taking
+      const dcb = Math.hypot(ball.pos.x - carrier.pos.x, ball.pos.z - carrier.pos.z);
+      chance *= 0.4 + 0.95 * clamp((dcb - 0.32) / 0.5, 0, 1);
       // the carrier's body between me and the ball: shielded
       const bx = ball.pos.x - carrier.pos.x, bz = ball.pos.z - carrier.pos.z, mx = this.pos.x - carrier.pos.x, mz = this.pos.z - carrier.pos.z;
       const cos = (bx * mx + bz * mz) / ((Math.hypot(bx, bz) * Math.hypot(mx, mz)) || 1);
@@ -649,7 +708,7 @@ export class Athlete {
       if ((mx * f.x + mz * f.z) / (Math.hypot(mx, mz) || 1) < -0.35) chance *= 0.7;
       if (carrier.dodging) chance *= 0.08;                 // caught out by a skill move
       if (carrier.charging || carrier.kick) chance *= 1.2;  // busy setting up a shot
-      if (carrier.stunT > 0) chance = 1;
+      if (carrier.stunT > 0) chance = Math.max(chance, 0.95);
     }
     const c = this.game.controllers[this.team];
     if (c && c.type === 'ai') chance *= 0.55 + 0.45 * this.skill;
@@ -918,7 +977,7 @@ export class Athlete {
       if (ahead > -0.2 && ahead < 1.1 && side < 0.85) {
         P.hit.add(o);
         const away = new THREE.Vector3(P.dir.x + (dx - P.dir.x * ahead) * 0.8, 0, P.dir.z + (dz - P.dir.z * ahead) * 0.8).normalize();
-        o.fall(away, 14, 9);
+        o.launch(away, 6.5, 9.5);                       // sent sky-high
         g.onImpact?.(o, 0xffd23f);
         g.sfx.bump(14); g.shake = Math.max(g.shake, 0.2);
         g.fx('dust', { x: o.pos.x, y: 0.2, z: o.pos.z }, { x: away.x, z: away.z }, 16, 4);
@@ -938,7 +997,7 @@ export class Athlete {
       const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
       if (d > R0) continue;
       const away = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
-      if (kind === 'blaze') { if (d < 2.9) o.fall(away, 10, 7); else o.knock(away, 7); }
+      if (kind === 'blaze') { if (d < 3.0) o.launch(away, 11 - d * 1.5, 4.5); else o.knock(away, 7); }   // blown far away
       else { o.freeze(2.2); }
     }
   }
@@ -1186,6 +1245,9 @@ export class Athlete {
 
   _sync(dt) {
     if (this.iceT > 0) { this.iceT = Math.max(0, this.iceT - dt); dt = 0; }   // frozen: the pose holds
+    this.char.airY = this.air ? this.air.y : (this.netAir ? this.netAir[0] : 0);
+    this.char.tumble = this.air ? this.air.rot : (this.netAir ? this.netAir[1] : 0);
+    this.char.setGhost?.(!!this.ghost);
     const iced = this.iceT > 0;
     if (iced !== !!this._iced) { this._iced = iced; this.char.setIce(iced); }   // an ice statue
     this.char.group.position.copy(this.pos);

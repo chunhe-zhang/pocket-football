@@ -286,7 +286,7 @@ export class Game {
     if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode, map }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })), chars: this.athletes.map((a) => a.charId) });
   }
 
-  _setChar(a, id) { a.charId = CHAR[id] ? id : 'thunder'; a.char.setHair(a.charDef.hair); }
+  _setChar(a, id) { a.charId = CHAR[id] ? id : 'thunder'; a.char.setHair(a.charDef.hair); a.char.setStyle(a.charId); }
 
   /**
    * 5v5: humans each take a cursor on one side ('humans' pairing: all on blue; 'vs': alternate),
@@ -316,6 +316,8 @@ export class Game {
     for (const c of this.cursors) if (c.char) this._setChar(A[c.idx], c.char);
     const humanSide = new Set(this.cursors.map((c) => c.side));
     this.ais = A.map((a) => new AIController(a, this, level, level === 'gf' && humanSide.has(a.gi)));
+    // the humans' players aren't CPUs: full skill and speed (the AI made them its level)
+    for (const c of this.cursors) { const a = A[c.idx]; a.speedMul = 1; a.skill = 1; }
     // ten players on one pitch: everyone a bit slower, so it's football rather than a scrum
     for (const a of A) a.speedMul *= 0.8;
     this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
@@ -634,6 +636,7 @@ export class Game {
     } else this.ball.sync(dt);
 
     this._updatePossession(dt);
+    this._trails(dt, true);
     this.pitch.update(dt, this.time);
     this.particles.update(dt);
     this.chargeFx.update(rawDt, this.athletes, this.time, this);
@@ -647,6 +650,40 @@ export class Game {
       this.snapT -= rawDt;
       if (this.snapT <= 0) { this.snapT = SNAP_INTERVAL; this._sendSnapshot(); }
     }
+  }
+
+  /**
+   * Fire and ice left behind by sprinting (blaze / frost). Runs on guests too, for the looks;
+   * only the host applies what they do: fire scorches opponents out of the way, ice takes their grip.
+   */
+  _trails(dt, host) {
+    const P = this.patches || (this.patches = []);
+    for (const a of this.athletes) {
+      if (a.out || !a.sprinting || (a.charId !== 'blaze' && a.charId !== 'frost')) { a._trailAt = null; continue; }
+      const L = a._trailAt;
+      if (!L || Math.hypot(a.pos.x - L.x, a.pos.z - L.z) > 0.5) {
+        a._trailAt = { x: a.pos.x, z: a.pos.z };
+        P.push({ x: a.pos.x, z: a.pos.z, kind: a.charId === 'blaze' ? 'fire' : 'ice', life: a.charId === 'blaze' ? 1.5 : 2.6, max: a.charId === 'blaze' ? 1.5 : 2.6, owner: a });
+      }
+    }
+    for (const p of P) p.life -= dt;
+    this.patches = P.filter((p) => p.life > 0);
+    if (host && this.state === 'play') {
+      for (const p of this.patches) for (const o of this.live) {
+        if (!p.owner._isOpp(o) || o.air) continue;
+        const dx = o.pos.x - p.x, dz = o.pos.z - p.z, d = Math.hypot(dx, dz);
+        if (d > 0.6) continue;
+        if (p.kind === 'ice') o.slipT = 0.4;
+        else if ((o.burnCD || 0) <= 0 && o.stunT <= 0) {
+          o.burnCD = 1.2;
+          const v = Math.hypot(o.vel.x, o.vel.z), away = v > 0.5 ? new THREE.Vector3(-o.vel.x / v, 0, -o.vel.z / v) : new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
+          o.knock(away, 5); o.vel.copy(away).multiplyScalar(4);
+          this.fx('fire', { x: o.pos.x, y: 0.6, z: o.pos.z }, { x: 0, z: 0 }, 14, 2.5);
+          this.sfx.body(8);
+        }
+      }
+    }
+    this.powerFx.trails?.(this.patches, this.athletes, dt);
   }
 
   _distBall(a) { return Math.hypot(this.ball.pos.x - a.pos.x, this.ball.pos.z - a.pos.z); }
@@ -722,6 +759,7 @@ export class Game {
     for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) {
       const a = A[i], b = A[j];
       if ((a.power && a.power.type !== 'cannon') || (b.power && b.power.type !== 'cannon')) continue;   // dashing / flying / teleporting past
+      if (a.ghost || b.ghost || a.air || b.air) continue;                                                // phantom sprint: straight through people
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
       if (d < min && d > 1e-4) {
         const push = (min - d) / 2, nx = dx / d, nz = dz / d;
@@ -858,7 +896,7 @@ export class Game {
         a.touch ? [r(a.touch.t, 1000), r(a.touch.dur, 1000), a.touch.side === 'Left' ? 1 : 0] : 0,
         r(a.trapT, 1000), r(a.holdW), r(a.turnRate),
         (a.armed ? a.armed.type : a.chargeType) === 'pass' ? 2 : (a.armed ? a.armed.type : a.chargeType) === 'chip' ? 1 : 0,
-        r(a.energy),
+        r(a.energy), a.sprinting ? 1 : 0, a.air ? [r(a.air.y), r(a.air.rot)] : 0,
       ]),
       ev: this.events,
     };
@@ -990,6 +1028,7 @@ export class Game {
       const T = A1[9];
       a.touch = T ? { t: T[0], dur: T[1], side: T[2] ? 'Left' : 'Right' } : null;
       a.trapT = A1[10]; a.holdW = A1[11]; a.turnRate = A1[12]; a.energy = A1[14] ?? 0;
+      a.sprinting = !!A1[15]; a.ghost = a.sprinting && a.charId === 'phantom'; a.netAir = A1[16] || null;
       a.char.lookTarget = b.pos;
       a._feet(dt);
       a._sync(dt);
@@ -998,6 +1037,7 @@ export class Game {
     this.particles.update(dt);
     this.chargeFx.update(dt, this.athletes, this.time, this);
     this.specialFx.update(dt, this);
+    this._trails(dt, false);
     this.powerFx.update(dt, this.camera.position);
     this._updateCamera(dt);
     this.ui.updateHud(this);

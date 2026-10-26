@@ -141,6 +141,78 @@ export class PowerFx {
     }
   }
 
+  /** a pair of wings for one player (the cyclone's sprint) */
+  _wingsFor(a) {
+    this._wingMap = this._wingMap || new Map();
+    let w = this._wingMap.get(a);
+    if (!w) {
+      const g = new THREE.Group();
+      const R = new THREE.Mesh(this.wingR.geometry, this.wingR.material.clone()), L = new THREE.Mesh(this.wingR.geometry, R.material); L.scale.x = -1;
+      g.add(R, L); g.visible = false; g.renderOrder = 5; this.scene.add(g);
+      w = { g, R, L, k: 0 }; this._wingMap.set(a, w);
+    }
+    return w;
+  }
+
+  /**
+   * Every frame: what sprinting looks like for each character, plus the fire / ice they leave.
+   * patches: [{ x, z, kind: 'fire' | 'ice', life, max }]
+   */
+  trails(patches, athletes, dt) {
+    const T = this.T;
+    // ice: pale discs on the grass; fire: flames licking up off the ground
+    this._iceDecals = this._iceDecals || [];
+    let n = 0;
+    for (const p of patches) {
+      const u = p.life / p.max;
+      if (p.kind === 'fire') {
+        if (Math.random() < dt * 9) this.puff(T.flame, { x: p.x + (Math.random() - 0.5) * 0.4, y: 0.1, z: p.z + (Math.random() - 0.5) * 0.4 }, { x: 0, y: 1.5 + Math.random(), z: 0 }, 0.5, 0.5 * u + 0.15, 0.1, 0xffffff, -1, true, 0.9);
+      } else {
+        let d = this._iceDecals[n];
+        if (!d) {
+          d = new THREE.Mesh(new THREE.CircleGeometry(0.42, 18), new THREE.MeshStandardMaterial({ color: 0xd8f4ff, emissive: 0x6fc8ff, emissiveIntensity: 0.35, roughness: 0.05, metalness: 0.3, transparent: true, depthWrite: false }));
+          d.rotation.x = -Math.PI / 2; d.renderOrder = 1; this.scene.add(d); this._iceDecals.push(d);
+        }
+        d.visible = true; d.position.set(p.x, 0.015 + n * 0.0001, p.z); d.material.opacity = 0.75 * Math.min(1, u * 3);
+        if (Math.random() < dt * 1.5) this.puff(T.snow, { x: p.x, y: 0.15, z: p.z }, { x: 0, y: 0.5, z: 0 }, 0.5, 0.2, 0.3, 0xe6f8ff, 0, true);
+        n++;
+      }
+    }
+    for (let i = n; i < this._iceDecals.length; i++) this._iceDecals[i].visible = false;
+    // the sprint itself
+    for (const a of athletes) {
+      const w = a.charId === 'gale' ? this._wingsFor(a) : null;
+      const on = a.sprinting && !a.out;
+      if (w) {
+        w.k += ((on ? 1 : 0) - w.k) * Math.min(1, dt * 8);
+        w.g.visible = w.k > 0.02;
+        if (w.g.visible) {
+          const flap = Math.sin(performance.now() / 1000 * 14) * 0.45;
+          w.g.position.set(a.pos.x, a.char.root.position.y + 1.25, a.pos.z); w.g.rotation.set(0, a.facing, 0); w.g.translateZ(-0.2);
+          w.g.scale.setScalar(w.k);
+          w.R.rotation.set(0, -0.5 - flap * 0.4, 0.25 + flap); w.L.rotation.set(0, 0.5 + flap * 0.4, -0.25 - flap);
+          w.R.material.opacity = 0.95 * w.k;
+          if (on && Math.random() < dt * 8) this.puff(T.wind, { x: a.pos.x, y: 1.2, z: a.pos.z }, { x: -a.vel.x * 0.4, y: 0.4, z: -a.vel.z * 0.4 }, 0.35, 0.35, 0.6, 0x9fffc0, 0, false, 0.6);
+        }
+      }
+      if (!on) continue;
+      const p = a.pos, v = a.vel, vl = Math.hypot(v.x, v.z) || 1, bx = -v.x / vl, bz = -v.z / vl;
+      if (a.charId === 'thunder') {
+        if (Math.random() < dt * 14) this.bolt({ x: p.x + bx * 0.3, y: 0.3 + Math.random() * 1.2, z: p.z + bz * 0.3 }, { x: p.x + bx * (1 + Math.random()), y: Math.random() * 1.3, z: p.z + bz * (1 + Math.random()) + (Math.random() - 0.5) }, 0.1, 0.05);
+        if (Math.random() < dt * 12) this.puff(T.glow, { x: p.x, y: 0.9, z: p.z }, { x: 0, y: 0, z: 0 }, 0.15, 0.8, 0.3, 0x3fb8ff, 0, false, 0.5);
+      } else if (a.charId === 'blaze') {
+        if (Math.random() < dt * 14) this.puff(T.flame, { x: p.x + bx * 0.3, y: 0.25 + Math.random() * 0.8, z: p.z + bz * 0.3 }, { x: bx * 2, y: 1.5, z: bz * 2 }, 0.4, 0.45, 0.1, 0xffffff, -1, true, 0.85);
+      } else if (a.charId === 'frost') {
+        if (Math.random() < dt * 10) this.puff(T.snow, { x: p.x + (Math.random() - 0.5) * 0.6, y: 0.4 + Math.random() * 1.2, z: p.z + (Math.random() - 0.5) * 0.6 }, { x: bx, y: 0.3, z: bz }, 0.6, 0.25, 0.35, 0xe6f8ff, 0, true);
+      } else if (a.charId === 'phantom') {
+        if (Math.random() < dt * 12) this.puff(T.glow, { x: p.x + bx * 0.4, y: 0.4 + Math.random() * 1.2, z: p.z + bz * 0.4 }, { x: 0, y: 0.6, z: 0 }, 0.5, 0.6, 0.15, 0x9060ff, 0, false, 0.7);
+      } else if (a.charId === 'cannon') {
+        if (Math.random() < dt * 12) this.puff(T.smoke, { x: p.x + bx * 0.5, y: 0.2, z: p.z + bz * 0.5 }, { x: bx, y: 0.5, z: bz }, 0.6, 0.4, 1.2, 0xffffff, -0.2, true, 0.55);
+        if (Math.random() < dt * 10) this.puff(T.streak, { x: p.x + (Math.random() - 0.5), y: 0.5 + Math.random(), z: p.z + (Math.random() - 0.5) }, { x: -bx * 6, y: 0, z: -bz * 6 }, 0.15, 0.8, 1.1, 0xffe8a0, 0, false, 0.7);
+      }
+    }
+  }
+
   /** a flat shockwave ring on the grass */
   shock(x, z, color, R1, life = 0.5, normal = false) {
     const S = this.shocks.find((q) => q.life <= 0) || this.shocks[0];
