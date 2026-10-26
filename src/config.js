@@ -107,6 +107,11 @@ export const MAPS = {
   // 方块乐园: a small square where each whole side is a goal and the middle is packed with
   // square gadgets (four of each, the layout repeats every 90°, so it's fair to everyone).
   // Kick it hard and see where it ends up.
+  // classic five-a-side: a long rectangle, one goal at each end, boards round the sides (no throw-ins)
+  pitch5: {
+    name: '五人制球场', hx: 20, hz: 12.5, cornerR: 2.4, goalHalfW: 2.5, goalH: 2.05, boxHalfW: 6, boxDepth: 5,
+    lives: 99, kickoff: 6, follow: true, goals: 2, lines: true,
+    islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
   track: {
     name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
     lives: 3, kickoff: 3, follow: false, square: true, shields: true,   // goals start behind a barrier that has to be broken first
@@ -144,6 +149,26 @@ export const SIDES = [
 ];
 
 export const GOALS = TEAMS.map((_, i) => goalInfo(i));
+
+// ---- characters: everyone has their own special shot -----------------------------------
+// The energy bar fills during play; once it's full, the next 爆射 struck at half power or more
+// becomes the special shot.
+export const CHARS = [
+  { id: 'thunder', name: '雷霆', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
+    desc: '贯穿人墙，碰到的人全身麻痹', speed: 1.38 },
+  { id: 'blaze', name: '焰姬', skill: '火焰射门', icon: '🔥', css: '#ff6a2b', color: 0xff6a2b, hair: '#ff4a2a',
+    desc: '火球穿过人群，烧到的人被掀翻', speed: 1.28 },
+  { id: 'frost', name: '冰晶', skill: '冰冻射门', icon: '❄️', css: '#9fe6ff', color: 0x9fe6ff, hair: '#d8f6ff',
+    desc: '穿人的寒冰球，碰到的人被冻住', speed: 1.18 },
+  { id: 'gale', name: '旋风', skill: '旋风射门', icon: '🌪️', css: '#6dff9a', color: 0x6dff9a, hair: '#5fe08a',
+    desc: '走 S 形弯道，门将很难判断', speed: 1.2 },
+  { id: 'phantom', name: '幻影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
+    desc: '球忽隐忽现，门将来不及反应', speed: 1.24 },
+  { id: 'cannon', name: '巨炮', skill: '重炮射门', icon: '💣', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
+    desc: '最快最重，门将也挡不住，撞谁谁倒', speed: 1.5 },
+];
+export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
+export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
 /** which goal (team index) a goal-line side belongs to */
 export function goalIndexFor(axis, sign) { return GOALS.findIndex((g) => g.axis === axis && g.sign === sign); }
 /** half extent along an axis */
@@ -167,8 +192,8 @@ export function setMap(name) {
   FIELD.vortices = m.vortices.map((c) => ({ ...c }));
   FIELD.wheels = m.wheels.map((c) => ({ ...c }));
   FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
-  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields;
-  GOALS.length = 0; TEAMS.forEach((_, i) => GOALS.push(goalInfo(i)));
+  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields; FIELD.lines = !!m.lines;
+  GOALS.length = 0; TEAMS.slice(0, m.goals || 4).forEach((_, i) => GOALS.push(goalInfo(i)));
   OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true, sq: !!b.sq });
   _nav = null;
 }

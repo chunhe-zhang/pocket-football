@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Pocket Football</title>
-  <meta name="description" content="四门混战足球网页游戏：动漫球员、物理足球、蓄力射门，可联机四人对战。" />
+  <meta name="description" content="足球网页游戏：四门混战、2v2、5v5 比赛，每个角色有自己的必杀射门。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&display=swap" />
   <link rel="stylesheet" href="./style.css" />
@@ -43,7 +43,7 @@
   <div id="touch" class="hidden">
     <div id="stick"><div id="knob"></div></div>
     <div id="btns">
-      <button id="btn-pass" class="hidden">传球</button>
+      <button id="btn-pass" class="hidden">换人</button>
       <button id="btn-tackle">抢断</button>
       <button id="btn-sprint">冲刺</button>
       <button id="btn-lob">挑射</button>
@@ -54,7 +54,7 @@
   <div id="menu" class="overlay">
     <div class="menu-card">
       <div class="brand">POCKET<span>FOOTBALL</span></div>
-      <p class="tag">每人守一个球门 · 每人 2 条命，被进两球出局 · 四门混战或 2v2 组队</p>
+      <p class="tag">四门混战 · 2v2 组队 · 5v5 正式比赛 · 每个角色都有自己的必杀射门</p>
       <div class="seg tabs" data-key="net">
         <button data-v="local" class="on">本地游戏</button>
         <button data-v="online">联机对战</button>
@@ -71,7 +71,15 @@
           </div>
         </div>
         <p class="note" id="humans-note">其余位置由电脑补上。</p>
-        <div class="row">
+        <div class="row char-row">
+          <label>角色</label>
+          <div class="seg who-seg hidden" data-key="who">
+            <button data-v="0" class="on">P1</button><button data-v="1">P2</button><button data-v="2">P3</button><button data-v="3">P4</button>
+          </div>
+        </div>
+        <div class="char-pick"></div>
+        <p class="note char-note"></p>
+        <div class="row map-row">
           <label>地图</label>
           <div class="seg" data-key="map">
             <button data-v="classic" class="on">经典圆场</button>
@@ -84,6 +92,7 @@
           <div class="seg" data-key="mode">
             <button data-v="ffa" class="on">四门混战</button>
             <button data-v="team">2v2 组队</button>
+            <button data-v="match5">5v5 比赛</button>
           </div>
         </div>
         <div class="row pairing-row hidden">
@@ -129,8 +138,11 @@
       <div class="title">房间 <span id="lobby-code" class="code"></span></div>
       <p class="note" id="lobby-hint">把房间号发给朋友，在“联机对战”里输入即可加入。</p>
       <ol id="lobby-slots"></ol>
+      <div class="row char-row"><label>角色</label></div>
+      <div class="char-pick"></div>
+      <p class="note char-note"></p>
       <div id="lobby-host">
-        <div class="row">
+        <div class="row map-row">
           <label>地图</label>
           <div class="seg" data-key="map">
             <button data-v="classic" class="on">经典圆场</button>
@@ -143,6 +155,7 @@
           <div class="seg" data-key="mode">
             <button data-v="ffa" class="on">四门混战</button>
             <button data-v="team">2v2 组队</button>
+            <button data-v="match5">5v5 比赛</button>
           </div>
         </div>
         <div class="row pairing-row hidden">

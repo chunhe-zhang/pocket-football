@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
@@ -62,6 +62,7 @@ function ballMaterial() {
 class RainbowTrail {
   constructor(scene, n = 44) {
     this.n = n; this.pts = Array.from({ length: n }, () => new THREE.Vector3()); this.heat = 0; this.t = 0;
+    this.tint = null; this.wide = 1;   // special shots: one element colour, a fatter ribbon
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 2 * 4), 4));
@@ -88,9 +89,10 @@ class RainbowTrail {
       this._s.crossVectors(this._d, UP);
       if (this._s.lengthSq() < 1e-8) this._s.set(1, 0, 0);
       const u = i / (this.n - 1);
-      this._s.setLength(R * 0.95 * (1 - u * 0.7));
+      this._s.setLength(R * 0.95 * this.wide * (1 - u * 0.7));
       pa.set([p.x + this._s.x, p.y, p.z + this._s.z, p.x - this._s.x, p.y, p.z - this._s.z], i * 6);
-      this.col.setHSL((u * 1.2 - this.t * 0.6) % 1 + 1, 0.95, 0.6);
+      if (this.tint) { this.col.copy(this.tint).offsetHSL(0, 0, 0.25 * (1 - u) * Math.sin(this.t * 30 + i)); }
+      else this.col.setHSL((u * 1.2 - this.t * 0.6) % 1 + 1, 0.95, 0.6);
       const a = this.heat * Math.pow(1 - u, 1.3) * 0.85;
       ca.set([this.col.r, this.col.g, this.col.b, a, this.col.r, this.col.g, this.col.b, a], i * 8);
     }
@@ -151,6 +153,7 @@ export class Ball {
   reset(x = 0, z = 0) {
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
     this.lastTouch = null; this.goalTeam = -1;
+    this.special = null; this.specialType = null;
     this.sq.amp = 0;
     this.trail.reset(this.pos);
     this.sync();
@@ -163,6 +166,19 @@ export class Ball {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
     this.lastTouch = by;
+    this.endSpecial();     // any new strike ends a special shot in flight
+  }
+
+  /** a character's special shot is in flight: see _special and _bodies */
+  startSpecial(type, owner, dir) {
+    const l = Math.hypot(dir.x, dir.z) || 1;
+    this.special = { type, owner, t: 0, hit: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1 };
+    this.specialType = type;
+    this.spin.set(0, 0, 0);
+  }
+  endSpecial() {
+    if (this.special) this.events.push({ type: 'specialEnd', kind: this.special.type });
+    this.special = null; this.specialType = null;
   }
 
   /** visual squash along an impact direction (any vector), amount ~0..0.25 */
@@ -185,10 +201,13 @@ export class Ball {
 
   /** @param u how far through the frame this substep ends (bodies are swept from their last pose) */
   _step(h, u = 1) {
+    this._clockT = (this._clockT || 0) + h;
     const p = this.pos, v = this.vel, w = this.spin;
     const grounded = p.y <= R + 0.002 && Math.abs(v.y) < 0.35;
+    const sp = this.special;
+    if (sp) this._special(h);
     if (!grounded) {
-      v.y -= BALL.gravity * h;
+      v.y -= BALL.gravity * h * (sp ? (sp.type === 'thunder' ? 0.25 : sp.type === 'cannon' ? 0.5 : sp.type === 'gale' ? 0.7 : 0.8) : 1);
       const s = v.length();
       if (s > 0) v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * h));
       v.x += BALL.magnus * (w.y * v.z - w.z * v.y) * h;
@@ -236,6 +255,23 @@ export class Ball {
     this._bodies(u);
   }
 
+  // special shot in flight: its own little bit of physics, and it fizzles out once it has slowed
+  _special(h) {
+    const sp = this.special, v = this.vel;
+    sp.t += h;
+    if (sp.type === 'gale') {
+      // S-bend: a sideways push that swings one way, then the other
+      const f = 46 * Math.cos(sp.t * 6.8 + 0.3) * sp.sgn;
+      v.x += -sp.dz * f * h; v.z += sp.dx * f * h;
+    }
+    if (sp.type === 'thunder' && sp.t < 1.2) {
+      // keeps its pace: lightning doesn't slow down
+      const s = Math.hypot(v.x, v.z), want = sp.v0 || (sp.v0 = s);
+      if (s > 1 && s < want) { v.x *= want / s; v.z *= want / s; }
+    }
+    if (sp.t > 2.2 || this.speed < 7 || this.goalTeam >= 0 || this.pos.y > 4.5) this.endSpecial();
+  }
+
   // the ball meets heads, chests, thighs, shins and boots as real spheres
   // limbs are capsules (pos → b); everything moves from its previous pose to the
   // current one over the frame, so a fast-swinging leg can't skip past the ball
@@ -256,6 +292,17 @@ export class Ball {
       const d = Math.hypot(dx, dy, dz), min = R + c.r;
       if (d >= min || d < 1e-6) continue;
       const nx = dx / d, ny = dy / d, nz = dz / d;
+      const spc = this.special;
+      if (spc && c.owner !== spc.owner) {
+        const who = c.owner;
+        // a goalkeeper in their own box gets a body in the way (except of the cannon), but still feels it
+        const keeper = inOwnBox(who.gi, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
+        const pierce = spc.type === 'thunder' || spc.type === 'blaze' || spc.type === 'frost' || spc.type === 'cannon';
+        if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, n: [spc.dx, 0, spc.dz] }); }
+        if (pierce && !(keeper && spc.type !== 'cannon')) continue;   // straight through them
+        if (pierce) { v.multiplyScalar(0.55); }                         // the keeper takes the sting out of it
+        this.endSpecial();
+      } else if (spc && c.owner === spc.owner) continue;
       p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
       const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
       const vn = rvx * nx + rvy * ny + rvz * nz;
@@ -284,7 +331,7 @@ export class Ball {
       if (g !== this.goalTeam && Math.abs(p[A]) > H) return;
     }
     const gi = goalIndexFor(A, side);
-    const mouth = Math.abs(p[B]) < FIELD.goalHalfW - R * 0.2 && p.y < FIELD.goalH - R * 0.2 && !this.closedGoals.has(gi) && !this.shields.has(gi);
+    const mouth = gi >= 0 && Math.abs(p[B]) < FIELD.goalHalfW - R * 0.2 && p.y < FIELD.goalH - R * 0.2 && !this.closedGoals.has(gi) && !this.shields.has(gi);
     const inside = Math.abs(p[A]) > H;
     if (!inside && !mouth) {
       // never let a ball that is inside the other axis' goal be bounced by this wall
@@ -450,7 +497,13 @@ export class Ball {
       for (const pt of FIELD.portals) {
         if (!inShape(pt, p.x, p.z)) continue;
         const out = FIELD.portals.find((q) => q.idx === (pt.idx + 2) % 4) || pt;
-        const ux = gs > 0.2 ? v.x / gs : (out.x > 0 ? -1 : 1) * 0.7, uz = gs > 0.2 ? v.z / gs : (out.z > 0 ? -1 : 1) * 0.7;
+        let ux = gs > 0.2 ? v.x / gs : (out.x > 0 ? -1 : 1) * 0.7, uz = gs > 0.2 ? v.z / gs : (out.z > 0 ? -1 : 1) * 0.7;
+        // a little twist on the way through, so a ball can't shuttle between two portals forever
+        const tw = (Math.random() - 0.5) * 0.7, c = Math.cos(tw), sn = Math.sin(tw);
+        [ux, uz] = [ux * c - uz * sn, ux * sn + uz * c];
+        if (gs > 0.2) { v.x = ux * gs; v.z = uz * gs; }
+        this._portalHits = (this._portalHits || []).filter((t) => this._clockT - t < 5); this._portalHits.push(this._clockT);
+        if (this._portalHits.length > 3) { v.x *= 0.5; v.z *= 0.5; }
         const ex = (out.r + R + 0.08) * (out.sq ? 1.42 : 1);   // pop out clear of the far edge (square: past the corner too)
         p.x = out.x + ux * ex; p.z = out.z + uz * ex;
         if (gs < 2.5) { v.x = ux * 2.5; v.z = uz * 2.5; }            // never leave a ball sitting inside one
@@ -503,6 +556,7 @@ export class Ball {
       const H = halfOf(A);
       if (Math.abs(Math.abs(p[A]) - H) > R + postR + 0.05) continue;
       const s = Math.sign(p[A]) || 1;
+      if (goalIndexFor(A, s) < 0) continue;
       const pt = (a, y, b) => (A === 'x' ? [s * H, y, b] : [b, y, s * H]);
       this._capsule(...pt(0, 0, -FIELD.goalHalfW), ...pt(0, FIELD.goalH, -FIELD.goalHalfW));
       this._capsule(...pt(0, 0, FIELD.goalHalfW), ...pt(0, FIELD.goalH, FIELD.goalHalfW));

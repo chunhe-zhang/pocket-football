@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, setMap } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, setMap, randomChar, inOwnBox } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -7,6 +7,7 @@ import { Athlete } from './athlete.js';
 import { AIController } from './ai.js';
 import { ChargeFx } from './chargefx.js';
 import { Particles } from './fx.js';
+import { SpecialFx } from './specials.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -26,6 +27,7 @@ const INTERP_DELAY = 0.12;  // guests render this far behind the newest snapshot
 export class Game {
   constructor({ scene, camera, template, sfx, input, ui }) {
     Object.assign(this, { scene, camera, input, ui });
+    this.template = template;
     this.realSfx = sfx;
     this.sfx = this._recordingSfx(sfx);
     this.goals = GOALS;
@@ -34,13 +36,18 @@ export class Game {
     this.ball = new Ball(scene, this.sfx);
     this.chargeFx = new ChargeFx(scene);
     this.particles = new Particles(scene);
+    this.specialFx = new SpecialFx(scene, this.particles);
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
       const a = new Athlete(this, i, ch, t.cpuName);
+      a.css = t.css;
       this._recordCharacter(a, i);
       return a;
     });
+    this.roster4 = this.athletes; this.roster10 = null;
+    this.m5 = false;              // 5v5 match: two sides of five, one goal each
+    this.cursors = [];            // 5v5: which player each human is controlling
     this.controllers = [];
     this.state = 'menu';
     this.conceded = TEAMS.map(() => 0);
@@ -83,7 +90,52 @@ export class Game {
     this.ui.onMapChange?.(this);
   }
   get bigMap() { return !!FIELD.follow; }    // big arenas: follow camera + minimap
-  activeGoal(team) { return this.alive[team]; }
+  activeGoal(team) { return this.m5 ? true : this.alive[team]; }
+  /** is this goal one I mustn't score in (my own, or my team-mate's)? */
+  friendlyGoal(ath, gt) { return this.m5 ? ath.gi === gt : gt === ath.team || this.sameSide(ath.team, gt); }
+  /** who's guarding this goal */
+  keeperOf(gt) { return this.m5 ? this.athletes.find((a) => a.gi === gt && a.role === 'gk') || null : this.athletes[gt] || null; }
+
+  // ------------------------------------------------------------- 5v5 roster --
+  _makeRoster10() {
+    const NAMES = [['阿蓝', '海盐', '蓝鲸', '天空', '蓝莓'], ['柿子', '南瓜', '芒果', '橙橙', '橘子']];
+    const ROLES = ['gk', 'defL', 'defR', 'attL', 'attR'];
+    const NO = [['1', '4', '5', '7', '10'], ['1', '3', '6', '9', '11']];
+    const list = [];
+    for (let s = 0; s < 2; s++) for (let k = 0; k < 5; k++) {
+      const t = TEAMS[s], gk = k === 0;
+      const kit = { ...t.kit, no: NO[s][k], hair: null };
+      if (gk) Object.assign(kit, s === 0 ? { shirt: '#2bd17e', number: '#ffffff' } : { shirt: '#ffd23f', number: '#2c2a33' });
+      const ch = new Character(this.template, kit);
+      this.scene.add(ch.group); ch.group.visible = false;
+      const a = new Athlete(this, list.length, ch, NAMES[s][k]);
+      a.gi = s; a.role = ROLES[k]; a.css = t.css; a.no = NO[s][k];
+      this._recordCharacter(a, list.length);
+      list.push(a);
+    }
+    return list;
+  }
+
+  /** swap the set of players on the pitch (4 for the free-for-all, 10 for 5v5) */
+  setRoster(m5) {
+    const want = m5 ? (this.roster10 || (this.roster10 = this._makeRoster10())) : this.roster4;
+    if (this.athletes === want) return;
+    for (const a of this.athletes) { a.char.group.visible = false; a.place(80, 80, 0); }
+    this.athletes = want;
+    for (const a of want) { a.char.group.visible = true; a.out = false; }
+    this.ui.onRoster?.(this);
+  }
+
+  /** menu preview of a mode: the right map and the right number of players */
+  previewMode(mode, map) {
+    const m5 = mode === 'match5';
+    this.setRoster(m5);
+    this.m5 = m5;
+    this.applyMap(m5 ? 'pitch5' : map || 'classic');
+    this.side = m5 ? this.athletes.map((a) => a.gi) : null;
+    this.placeAll();
+    this.side = null;
+  }
   get live() { return this.athletes.filter((a) => !a.out); }
   get teamMode() { return !!this.side; }
   sameSide(a, b) { return !!this.side && a !== b && this.side[a] === this.side[b]; }
@@ -153,12 +205,30 @@ export class Game {
   // ------------------------------------------------------------------ flow --
   /** kickoff spots: in front of each player's own goal, facing the centre */
   placeAll() {
+    if (this.m5) { this._place5(); return; }
     this.athletes.forEach((a, i) => {
       const g = GOALS[i];
       if (a.out) { a.place(60 + i * 3, 60, 0); return; }   // parked far off the pitch
       const k = FIELD.kickoff || 5;
       a.place(g.centre.x + g.inward.x * k, g.centre.z + g.inward.z * k, Math.atan2(g.inward.x, g.inward.z));
     });
+  }
+
+  /** 5v5 kickoff formation; the side kicking off has its striker on the ball */
+  _place5() {
+    const HX = FIELD.hx, HZ = FIELD.hz, kick = this.kickSide ?? 0;
+    for (const a of this.athletes) {
+      const s = a.gi, d = s === 0 ? 1 : -1;            // blue attacks +x, orange −x
+      let x, z;
+      switch (a.role) {
+        case 'gk': x = -HX + 1.0; z = 0; break;
+        case 'defL': x = -HX * 0.6; z = -HZ * 0.42; break;
+        case 'defR': x = -HX * 0.6; z = HZ * 0.42; break;
+        case 'attL': x = s === kick ? -2.6 : -HX * 0.28; z = -HZ * 0.3; break;
+        default: x = s === kick ? -0.45 : -HX * 0.22; z = s === kick ? 0.12 : HZ * 0.22;
+      }
+      a.place(x * d, z * d, Math.atan2(d, 0));
+    }
   }
 
   /** take a player off and close their goal with a board */
@@ -185,12 +255,15 @@ export class Game {
   start(settings) {
     Object.assign(this.settings, settings);
     const { level, duration } = this.settings;
+    this.m5 = this.settings.mode === 'match5';
+    this.setRoster(this.m5);
+    if (this.m5) { this._start5(); return; }
     this.applyMap(this.settings.map || 'classic');
     this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
     this.possession = TEAMS.map(() => 0);
     this.clock = 0;
     this._resetElimination();
-    for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; }
+    for (const a of this.athletes) { a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0, specials: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; a.energy = 0.35; a.iceT = 0; }
     let slots = this.settings.slots || this._localSlots(this.settings.humans);
     this.side = null;
     if (this.settings.mode === 'team') ({ slots, side: this.side } = this._assignTeams(slots, this.settings.pairing));
@@ -198,6 +271,7 @@ export class Game {
     this.controllers = slots.map((s, i) => {
       const a = this.athletes[i];
       a.label = s.name || TEAMS[i].cpuName;
+      this._setChar(a, s.char || randomChar());
       if (s.kind === 'local') return { type: 'human', scheme: s.scheme };
       if (s.kind === 'remote') return { type: 'remote', id: s.id };
       return { type: 'ai', ai: new AIController(a, this, level, level === 'gf') };
@@ -207,13 +281,95 @@ export class Game {
     this.ui.onScore(this);
     this.kickoff();
     if (this.side) this.banner('2v2 组队', SIDES.map((s, k) => `${s.icon} ${s.name}：${this.athletes.filter((a) => this.side[a.team] === k).map((a) => a.label).join(' + ')}`).join('　'));
-    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode, map }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })) });
+    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode, map }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })), chars: this.athletes.map((a) => a.charId) });
+  }
+
+  _setChar(a, id) { a.charId = CHAR[id] ? id : 'thunder'; a.char.setHair(a.charDef.hair); }
+
+  /**
+   * 5v5: humans each take a cursor on one side ('humans' pairing: all on blue; 'vs': alternate),
+   * the rest of both sides are CPUs. A human's chosen character is their side's star striker.
+   */
+  _start5() {
+    const { level } = this.settings;
+    this.applyMap('pitch5');
+    const A = this.athletes;
+    this.side = A.map((a) => a.gi);
+    this.conceded = [0, 0]; this.scored = A.map(() => 0); this.possession = A.map(() => 0);
+    this.alive = A.map(() => true); this.outOrder = []; this.knockedBy = A.map(() => null);
+    this.ball.closedGoals.clear();
+    this.clock = this.settings.duration || MATCH.defaultDuration; this.golden = false;
+    for (const a of A) { a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0, specials: 0, goals: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; a.energy = 0.3; a.iceT = 0; a.out = false; }
+    const humans = (this.settings.slots || this._localSlots(this.settings.humans)).filter((s) => s.kind === 'local' || s.kind === 'remote' || s.kind === 'host');
+    const order = ['attR', 'attL', 'defR', 'defL'];
+    const used = [0, 0];
+    this.cursors = humans.map((h, k) => {
+      const side = this.settings.pairing === 'vs' ? k % 2 : 0;
+      const role = order[used[side]++] || 'defL';
+      const a = A.find((x) => x.gi === side && x.role === role);
+      return { kind: h.kind === 'remote' ? 'remote' : 'local', scheme: h.scheme || 'solo', id: h.id, name: h.name || `P${k + 1}`, side, idx: a.team, lastSwitch: -9, prevSwap: false, char: h.char };
+    });
+    // characters: humans' picks go to the player they start on, everyone else is random
+    for (const a of A) this._setChar(a, randomChar());
+    for (const c of this.cursors) if (c.char) this._setChar(A[c.idx], c.char);
+    const humanSide = new Set(this.cursors.map((c) => c.side));
+    this.ais = A.map((a) => new AIController(a, this, level, level === 'gf' && humanSide.has(a.gi)));
+    this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
+    this._applyCursors();
+    this.endShown = false;
+    this.kickSide = Math.random() < 0.5 ? 0 : 1;
+    this.ui.onScore(this);
+    this.kickoff();
+    this.banner('5v5 比赛', `${TEAMS[0].cn}队 vs ${TEAMS[1].cn}队 · ${Math.round(this.clock / 60)} 分钟`);
+    if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration: this.settings.duration, mode: 'match5', map: 'pitch5' }, side: this.side,
+      slots: this.slots, chars: A.map((a) => a.charId), cur: this._curSnap() });
+  }
+
+  _curSnap() { return this.cursors.map((c) => [c.kind === 'remote' ? c.id : (this.role === 'host' ? this.net?.id : null), c.idx, c.name]); }
+
+  _applyCursors() {
+    this.controllers = this.athletes.map((a, i) => {
+      const c = this.cursors.find((x) => x.idx === i);
+      if (c) return c.kind === 'remote' ? { type: 'remote', id: c.id, cursor: c } : { type: 'human', scheme: c.scheme, cursor: c };
+      return { type: 'ai', ai: this.ais[i] };
+    });
+  }
+
+  /** 5v5: hand each human the team-mate who should have the ball (or the one they asked for) */
+  _updateCursors() {
+    if (!this.m5 || !this.cursors.length) return;
+    const A = this.athletes, b = this.ball.pos, holder = this.possessor;
+    let changed = false;
+    const dist = (a) => Math.hypot(b.x - a.pos.x, b.z - a.pos.z);
+    for (const c of this.cursors) {
+      const cur = A[c.idx], it = cur.intent;
+      const swapPressed = !!it.swap && !c.prevSwap; c.prevSwap = !!it.swap;
+      if (this.state !== 'play' && this.state !== 'kickoff') continue;
+      if (cur.charging || cur.armed || cur.kick || cur.header || cur.slide || cur.trick || cur.dive) continue;
+      // the goalkeeper always stays with the computer
+      const mates = A.filter((a) => a.gi === c.side && a !== cur && a.role !== 'gk' && !this.cursors.some((o) => o !== c && o.idx === a.team));
+      let to = null;
+      if (holder && holder.gi === c.side && holder !== cur && mates.includes(holder)) to = holder;    // my pass arrived
+      else if (swapPressed) to = mates.reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null);
+      else if (this.state === 'play' && this.time - c.lastSwitch > 0.8 && !(holder && holder.gi === c.side) && this.time - cur.lastTouchTime > 0.6) {
+        const best = mates.reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null);
+        if (best && dist(best) < dist(cur) - 2.2) to = best;
+      }
+      if (to) {
+        c.idx = to.team; c.lastSwitch = this.time; changed = true;
+        this.ais[to.team].shooting = null;
+        to.intent.kick = to.intent.lob = false; to._prevKick = to._prevLob = true;
+        if (swapPressed) this.sfx.touch();
+      }
+    }
+    if (changed) this._applyCursors();
   }
 
   _localSlots(humans) {
     // keyboard: one player uses the whole keyboard, two split it; players 3-4 need gamepads
     const schemes = humans === 1 ? ['solo'] : humans === 2 ? ['p1', 'p2'] : ['p1', 'p2', 'pad0', 'pad1'];
-    return TEAMS.map((t, i) => (i < humans ? { kind: 'local', scheme: schemes[i], name: humans === 1 ? 'YOU' : `P${i + 1}` } : { kind: 'cpu', name: t.cpuName }));
+    const chars = this.settings.chars || [];
+    return TEAMS.map((t, i) => (i < humans ? { kind: 'local', scheme: schemes[i], name: humans === 1 ? 'YOU' : `P${i + 1}`, char: chars[i] } : { kind: 'cpu', name: t.cpuName }));
   }
 
   kickoff() {
@@ -232,6 +388,7 @@ export class Game {
   }
 
   goal(team) {
+    if (this.m5) { this._goal5(team); return; }
     const toucher = this.ball.lastTouch;
     const own = !toucher || toucher.team === team || this.sameSide(toucher.team, team);
     this.conceded[team]++;
@@ -263,8 +420,40 @@ export class Game {
     this.emit({ e: 'focus', i: this.focus ? this.focus.team : -1 });
   }
 
+  _goal5(team) {
+    const toucher = this.ball.lastTouch, side = 1 - team;
+    const own = !toucher || toucher.gi === team;
+    this.conceded[team]++;
+    if (!own) { this.scored[toucher.team]++; toucher.stats.goals = (toucher.stats.goals || 0) + 1; }
+    this.state = 'goal'; this.timer = MATCH.goalPause;
+    this.sfx.cheer(); this.sfx.net();
+    this.pitch.cheer(team, 1); this.emit({ e: 'cheer' });
+    this.focus = toucher || null;
+    for (const a of this.athletes) {
+      a.frozen = true; a.charging = false;
+      if (a.gi === side && (a === toucher || Math.random() < 0.5)) a.char.play('celebrate'); else if (a.gi === team && a.role === 'gk') a.char.play('deject');
+    }
+    const sc = `${TEAMS[0].cn} ${this.conceded[1]} : ${this.conceded[0]} ${TEAMS[1].cn}`;
+    const who = own ? `${toucher ? toucher.label : ''} 乌龙球` : `${toucher.label} 为${TEAMS[side].cn}队进球`;
+    this.banner(own ? '乌龙球！' : this.golden ? '金球绝杀！' : '进球！', `${who} · ${sc}`);
+    this.kickSide = team;          // the side that conceded kicks off
+    this.ui.onScore(this);
+    this.emit({ e: 'focus', i: this.focus ? this.focus.team : -1 });
+  }
+
+  _end5() {
+    this.state = 'ended'; this.timer = 2.4;
+    this.sfx.whistle([0.3, 0.3, 0.75]);
+    const s0 = this.conceded[1], s1 = this.conceded[0];
+    const win = s0 === s1 ? -1 : s0 > s1 ? 0 : 1;
+    for (const a of this.athletes) { a.frozen = true; if (a.gi === win) a.char.play('celebrate'); else if (win >= 0) a.char.play('deject'); }
+    this.banner(win < 0 ? '平局' : `${TEAMS[win].cn}队获胜！`, `全场比分 ${TEAMS[0].cn} ${s0} : ${s1} ${TEAMS[1].cn}`);
+    this.sfx.cheer();
+  }
+
   /** the last player standing wins */
   end() {
+    if (this.m5) { this._end5(); return; }
     this.state = 'ended'; this.timer = 2.2;
     this.sfx.whistle([0.3, 0.3, 0.75]);
     const w = this.alive.indexOf(true);
@@ -281,6 +470,14 @@ export class Game {
   }
 
   results() {
+    if (this.m5) {
+      const tot = this.possession.reduce((s, x) => s + x, 0) || 1;
+      const s0 = this.conceded[1], s1 = this.conceded[0];
+      return { m5: true, score: [s0, s1], win: s0 === s1 ? -1 : s0 > s1 ? 0 : 1,
+        players: this.athletes.map((a, i) => ({ i, side: a.gi, name: a.label, no: a.no, char: a.charId, goals: a.stats.goals || 0, shots: a.stats.shots, specials: a.stats.specials || 0,
+          human: this.cursors.some((c) => c.side === a.gi), possession: Math.round((this.possession[i] / tot) * 100) }))
+          .sort((p, q) => p.side - q.side || q.goals - p.goals || q.shots - p.shots) };
+    }
     const tot = this.possession.reduce((s, x) => s + x, 0) || 1;
     // placing: the winner first, then reverse order of elimination
     let order = [...this.alive.map((v, i) => (v ? i : -1)).filter((i) => i >= 0), ...[...this.outOrder].reverse()];
@@ -307,7 +504,7 @@ export class Game {
     }
     // a shot if the ball is heading for an opponent's goal mouth
     for (const g of GOALS) {
-      if (g.team === ath.team || this.sameSide(g.team, ath.team)) continue;
+      if (this.friendlyGoal(ath, g.team)) continue;
       const A = g.axis, B = A === 'x' ? 'z' : 'x', line = g.sign * g.line;
       if (Math.abs(vel[A]) < 0.1) continue;
       const t = (line - this.ball.pos[A]) / vel[A];
@@ -323,6 +520,23 @@ export class Game {
   }
 
   onWhiff() {}
+
+  /** a character's special shot leaves the boot */
+  onSpecial(ath, def) {
+    ath.stats.specials = (ath.stats.specials || 0) + 1;
+    this.hitstop = 0.12; this.shake = Math.max(this.shake, 0.3); this.emit({ e: 'shake', v: 0.3 });
+    this.sfx.kick(1); this.sfx.post(14); this.sfx.crowd(0.2, 0.6); this.sfx.ooh();
+    if (def.id === 'cannon') this.sfx.board(18);
+    this.fx(def.id === 'blaze' ? 'fire' : def.id === 'frost' ? 'ice' : def.id === 'thunder' ? 'bolt' : def.id === 'gale' ? 'wind' : def.id === 'phantom' ? 'ghost' : 'smoke', this.ball.pos, { x: 0, z: 0 }, 30, 5);
+    this.banner(`${def.icon} ${def.skill}！`, `${ath.label} · ${def.name}`);
+    this.rumble(ath, 1, 220);
+  }
+
+  /** a player's special is ready */
+  onEnergyFull(ath) {
+    const c = this.controllers[ath.team];
+    if (c && (c.type === 'human')) { this.sfx.touch(); this.ui.toast?.(`${ath.charDef.icon} ${ath.charDef.skill} 准备好了：蓄力过半的爆射就会放出来`); }
+  }
 
   /** released a shot in the sweet window */
   onPerfect(ath) { this.emit({ e: 'perfect', i: ath.team }); this.sfx.touch(); }
@@ -349,12 +563,21 @@ export class Game {
       // remote intents are written by the network handler
     });
     if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = a.intent.pass = false; }
+    this._updateCursors();
 
     if (this.state === 'kickoff') {
       this.timer -= rawDt;
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
-      this.clock += dt;
+      if (this.m5) {
+        if (!this.golden) {
+          this.clock = Math.max(0, this.clock - dt);
+          if (this.clock <= 0) {
+            if (this.conceded[0] !== this.conceded[1]) this.end();
+            else { this.golden = true; this.banner('金球加时', '平局！下一个进球直接获胜'); this.sfx.whistle([0.3, 0.3]); }
+          }
+        }
+      } else this.clock += dt;
       // how long the ball has been sitting dead (used by the CPUs to unstick play)
       this.idleT = this.ball.speed < 0.15 && !this.possessor ? (this.idleT || 0) + dt : 0;
       // a broken shield grows back if nobody scores on that goal in time
@@ -374,8 +597,11 @@ export class Game {
       this.timer -= rawDt;
       if (this.timer <= 0) {
         // the knocked-out player leaves and their goal is boarded up
-        for (let i = 0; i < this.alive.length; i++) if (!this.alive[i] && !this.athletes[i].out) this.eliminate(i);
-        if (this._standing() <= 1) this.end(); else this.kickoff();
+        if (this.m5) { if (this.golden || this.clock <= 0) this.end(); else this.kickoff(); }
+        else {
+          for (let i = 0; i < this.alive.length; i++) if (!this.alive[i] && !this.athletes[i].out) this.eliminate(i);
+          if (this._standing() <= 1) this.end(); else this.kickoff();
+        }
       }
     } else if (this.state === 'ended') {
       this.timer -= rawDt;
@@ -403,6 +629,7 @@ export class Game {
     this.pitch.update(dt, this.time);
     this.particles.update(dt);
     this.chargeFx.update(rawDt, this.athletes, this.time, this);
+    this.specialFx.update(rawDt, this);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -427,6 +654,16 @@ export class Game {
         break;
       }
       case 'goal': if (this.state === 'play') this.goal(e.team); break;
+      case 'zap': {
+        const a = e.who, dir = new THREE.Vector3(e.n[0], 0, e.n[2]);
+        a.zap(e.kind, dir);
+        const kind = e.kind === 'blaze' ? 'fire' : e.kind === 'frost' ? 'ice' : e.kind === 'thunder' ? 'bolt' : 'smoke';
+        this.fx(kind, { x: a.pos.x, y: 1.0, z: a.pos.z }, { x: dir.x, z: dir.z }, 22, 4);
+        this.sfx.body(14); if (e.kind === 'thunder') this.sfx.post(10);
+        this.shake = Math.max(this.shake, 0.15);
+        this.emit({ e: 'zap', i: a.team, k: e.kind, d: [dir.x, dir.z] });
+        break;
+      }
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
       case 'shield':
         (this.shieldBroken || (this.shieldBroken = {}))[e.team] = this.time;
@@ -580,11 +817,12 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     const it = this.athletes[i].intent;
-    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = false; it.analog = !!d.an;
+    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = false; it.analog = !!d.an; it.swap = !!d.sw;
   }
 
   /** host: a remote player left mid-game — a CPU takes over their goal */
   remoteLeft(id) {
+    if (this.m5) { this.cursors = this.cursors.filter((c) => !(c.kind === 'remote' && c.id === id)); this._applyCursors(); return; }
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     this.controllers[i] = { type: 'ai', ai: new AIController(this.athletes[i], this, this.settings.level, this.settings.level === 'gf') };
@@ -598,6 +836,7 @@ export class Game {
     const snap = {
       k: 's', t: r(this.time, 1000), st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
       c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label), sh: [...this.ball.shields],
+      bs: this.ball.specialType || 0, gold: this.golden ? 1 : 0, cur: this.m5 ? this._curSnap() : 0,
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
       a: this.athletes.map((a) => [
         r(a.pos.x, 1000), r(a.pos.z, 1000), r(a.vel.x), r(a.vel.z), r(a.facing, 1000),
@@ -606,6 +845,7 @@ export class Game {
         a.touch ? [r(a.touch.t, 1000), r(a.touch.dur, 1000), a.touch.side === 'Left' ? 1 : 0] : 0,
         r(a.trapT, 1000), r(a.holdW), r(a.turnRate),
         (a.armed ? a.armed.type : a.chargeType) === 'pass' ? 2 : (a.armed ? a.armed.type : a.chargeType) === 'chip' ? 1 : 0,
+        r(a.energy),
       ]),
       ev: this.events,
     };
@@ -630,17 +870,28 @@ export class Game {
   startGuest(msg, myId) {
     this.role = 'guest';
     this.settings = { ...this.settings, ...msg.settings };
-    this.applyMap(this.settings.map || 'classic');
+    this.m5 = this.settings.mode === 'match5';
+    this.setRoster(this.m5);
+    this.applyMap(this.m5 ? 'pitch5' : this.settings.map || 'classic');
     this.slots = msg.slots;
     this.side = msg.side || null;
-    this.mySlot = msg.slots.findIndex((s) => s.id === myId);
-    this.controllers = msg.slots.map((s, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net' }));
+    this.myId = myId;
+    this.mySlot = this.m5 ? (msg.cur || []).find((c) => c[0] === myId)?.[1] ?? -1 : msg.slots.findIndex((s) => s.id === myId);
+    this._guestControllers();
+    if (msg.chars) msg.chars.forEach((c, i) => this.athletes[i] && this._setChar(this.athletes[i], c));
+    if (this.m5) { this.conceded = [0, 0]; this.golden = false; this._curNames = msg.cur || []; }
     this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
     this._resetElimination();
-    this.conceded = TEAMS.map(() => 0); this.scored = TEAMS.map(() => 0);
+    if (!this.m5) { this.conceded = TEAMS.map(() => 0); } else { this.alive = this.athletes.map(() => true); }
+    this.scored = this.athletes.map(() => 0);
     this.ui.onScore(this);
     this.inputT = 0;
+  }
+
+  _guestControllers() {
+    const names = this.m5 ? new Map((this._curNames || []).map((c) => [c[1], c[2]])) : null;
+    this.controllers = this.athletes.map((_, i) => (i === this.mySlot ? { type: 'self', scheme: 'solo' } : { type: 'net', cursorName: names?.get(i) }));
   }
 
   _guestUpdate(dt) {
@@ -649,10 +900,10 @@ export class Game {
     if (me) {
       this.input.intent('solo', me.intent);
       this.inputT -= dt;
-      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog}`;
+      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog},${it.swap}`;
       if (this.inputT <= 0 || sig !== this._lastSig) {
         this.inputT = 0.05; this._lastSig = sig;
-        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0 });
+        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0, sw: it.swap ? 1 : 0 });
       }
     }
     const S = this.snaps;
@@ -678,7 +929,17 @@ export class Game {
       });
       if (changed) this.ui.onScore(this);
     }
-    if (s1.lb) s1.lb.forEach((n, i) => { this.athletes[i].label = n; });
+    if (s1.lb) s1.lb.forEach((n, i) => { if (this.athletes[i]) this.athletes[i].label = n; });
+    this.ball.specialType = s1.bs || null; this.golden = !!s1.gold;
+    if (s1.cur) {
+      const key = JSON.stringify(s1.cur);
+      if (key !== this._curKey) {
+        this._curKey = key; this._curNames = s1.cur;
+        const mine = s1.cur.find((c) => c[0] === this.myId);
+        this.mySlot = mine ? mine[1] : -1;
+        this._guestControllers();
+      }
+    }
     if (s1.sh) { const key = s1.sh.join(','); if (key !== this._shKey) { this._shKey = key; const set = new Set(s1.sh); for (const t of this.ball.shields) if (!set.has(t)) this.pitch.breakShield(t); this.ball.shields = set; this.pitch.setShields(set, true); } }
     // events whose time has come
     const due = [];
@@ -715,7 +976,7 @@ export class Game {
       } else a.kick = null;
       const T = A1[9];
       a.touch = T ? { t: T[0], dur: T[1], side: T[2] ? 'Left' : 'Right' } : null;
-      a.trapT = A1[10]; a.holdW = A1[11]; a.turnRate = A1[12];
+      a.trapT = A1[10]; a.holdW = A1[11]; a.turnRate = A1[12]; a.energy = A1[14] ?? 0;
       a.char.lookTarget = b.pos;
       a._feet(dt);
       a._sync(dt);
@@ -723,6 +984,7 @@ export class Game {
     this.pitch.update(dt, (this.time += dt));
     this.particles.update(dt);
     this.chargeFx.update(dt, this.athletes, this.time, this);
+    this.specialFx.update(dt, this);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -740,6 +1002,7 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
+      case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }

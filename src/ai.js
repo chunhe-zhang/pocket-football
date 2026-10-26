@@ -92,7 +92,7 @@ export class AIController {
     this.think -= dt;
     this.passCD = Math.max(0, this.passCD - dt);
     if (g.possessor !== me) this._had = false; else if (!this._had) { this._had = true; this.passCD = Math.max(this.passCD, 0.5); }
-    if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); this._decide(); }
+    if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); if (g.m5) this._decide5(); else this._decide(); }
     this._avoidObstacles();
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
     it.sprint = this.plan.sprint && this.cfg.sprint;
@@ -121,7 +121,9 @@ export class AIController {
 
   _keeper() {
     const me = this.me, g = this.game, ball = g.ball, it = me.intent;
-    if (me.dive || me.slide || me.slideCD > 0 || !inOwnBox(me.team, me.pos.x, me.pos.z)) return false;
+    if (me.dive || me.slide || me.slideCD > 0 || !inOwnBox(me.gi, me.pos.x, me.pos.z)) return false;
+    if (me.role && me.role !== 'gk') return false;               // 5v5: only the goalkeeper dives
+    if (ball.special && ball.special.owner?.gi !== me.gi && ball.specialType === 'phantom') return false;   // never saw it
     const home = me.home, v = ball.vel, sp = Math.hypot(v.x, v.z);
     // decide once per shot whether I react at all (easier CPUs sometimes freeze)
     const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
@@ -437,7 +439,7 @@ export class AIController {
     const me = this.me, g = this.game;
     // aim at the post furthest from that goal's owner
     const goal = g.goals.find((x) => Math.abs(x.centre.x - tgt.x) < 0.1 && Math.abs(x.centre.z - tgt.z) < 0.1);
-    const owner = goal ? g.athletes[goal.team] : null;
+    const owner = goal ? g.keeperOf(goal.team) : null;
     const along = goal?.axis === 'x' ? 'z' : 'x';
     let off = (Math.random() < 0.5 ? -1 : 1);
     if (owner) off = owner.pos[along] > tgt[along] ? -1 : 1;
@@ -447,6 +449,179 @@ export class AIController {
     const [a, b] = this.cfg.charge;
     let power = a + Math.random() * (b - a);
     if (gd < 5) power *= 0.75;
+    if (me.energy >= 1 && !this.assist && this.cfg.skill > 0.2) power = Math.max(power, 0.62 + Math.random() * 0.2);   // let the special rip
     this.shooting = { hold: 0.05 + power * 0.8, aim, lob };
+  }
+
+  // ===================================================================== 5v5 ==
+  /** where my role wants me: a formation slot that slides with the ball */
+  _slot5(attacking) {
+    const me = this.me, g = this.game, bp = g.ball.pos, HX = FIELD.hx, HZ = FIELD.hz;
+    const d = me.gi === 0 ? 1 : -1;                 // blue attacks +x
+    const bx = bp.x * d, bz = bp.z * d;             // the ball in my side's frame
+    const base = { defL: [-0.62, -0.4], defR: [-0.62, 0.4], attL: [-0.2, -0.34], attR: [-0.05, 0.26] }[me.role] || [-0.4, 0];
+    let X = base[0] * HX + bx * 0.5 + (attacking ? (me.role.startsWith('att') ? 4 : 2.5) : 0);
+    let Z = base[1] * HZ + bz * 0.35;
+    if (!attacking && me.role.startsWith('def')) X = Math.min(X, bx - 1.5);   // stay goal-side of the ball
+    if (attacking && me.role.startsWith('att')) X = Math.min(X, HX - 3);
+    X = clamp(X, -HX + 3, HX - 1.5); Z = clamp(Z, -HZ + 1, HZ - 1);
+    return legal(X * d, Z * d, 0.8).clone();
+  }
+
+  _decide5() {
+    const me = this.me, g = this.game, ball = g.ball, plan = this.plan, bp = ball.pos;
+    plan.sprint = false;
+    const dist = (a, p = bp) => Math.hypot(p.x - a.pos.x, p.z - a.pos.z);
+    const myDist = dist(me);
+    const mates = g.live.filter((a) => a !== me && a.gi === me.gi);
+    const opps = g.live.filter((a) => a.gi !== me.gi);
+    const holder = g.possessor, iHave = holder === me;
+    const lt = ball.lastTouch, fresh = lt && g.time - lt.lastTouchTime < 3 && !holder;
+    const home = me.home;
+    // a pass on its way to me: go and meet it
+    if (fresh && lt !== me && lt.passedTo === me && lt.gi === me.gi) {
+      const run = 5.2 * this.cfg.speed;
+      let px = bp.x, pz = bp.z;
+      const lofted = bp.y > 0.8 || ball.vel.y > 1.5;
+      for (let t = 0; t <= 2.6; t += 0.1) {
+        const q = ball.predict(t);
+        if (lofted && q.y > 2.1) continue;
+        px = q.x; pz = q.z;
+        if (Math.hypot(q.x - me.pos.x, q.z - me.pos.z) <= run * t + 0.4) break;
+      }
+      this._goTo(px, pz, 0.3, 1.2);
+      return;
+    }
+    if (iHave) { this._carry5(mates, opps); return; }
+    // who on my side goes for the ball: whoever gets there first (the keeper only in the box)
+    const pred = ball.predict(clamp(myDist / 6, 0, 0.8));
+    const inBox = inOwnBox(me.gi, bp.x, bp.z);
+    const eta = (a) => dist(a, pred) / (a.speedMul || 1) + (a.stunT > 0 ? 3 : 0) + (a.role === 'gk' && !inBox ? 99 : 0);
+    const side = [me, ...mates].sort((a, b) => eta(a) - eta(b));
+    const chaser = side[0], second = side[1];
+    const ours = holder && holder.gi === me.gi;
+    if (me.role === 'gk' && chaser !== me) { this._gk5(); return; }
+    if (chaser === me && !ours) { this._chase5(holder, myDist); return; }
+    // the opponents have it: the next player in steps up goal-side of it
+    if (holder && !ours && second === me && me.role !== 'gk') {
+      const gx = home.centre.x - bp.x, gz = home.centre.z - bp.z, gl = Math.hypot(gx, gz) || 1;
+      const q = legal(bp.x + (gx / gl) * 2.6, bp.z + (gz / gl) * 2.6, 0.6);
+      this._goTo(q.x, q.z, 0.5, 3);
+      return;
+    }
+    const s = this._slot5(ours || (lt && lt.gi === me.gi && fresh));
+    this._goTo(s.x, s.z, 0.9, 4);
+  }
+
+  _gk5() {
+    const me = this.me, g = this.game, bp = g.ball.pos, home = me.home;
+    const dx = bp.x - home.centre.x, dz = bp.z - home.centre.z, dl = Math.hypot(dx, dz) || 1;
+    const out = clamp(dl * 0.16, 0.6, 2.4);
+    let x = home.centre.x + (dx / dl) * out, z = home.centre.z + (dz / dl) * out;
+    z = clamp(z, -FIELD.goalHalfW - 0.4, FIELD.goalHalfW + 0.4);
+    this._goTo(x, z, 0.35, 2);
+  }
+
+  _chase5(holder, myDist) {
+    const me = this.me, g = this.game, ball = g.ball, bp = ball.pos, plan = this.plan;
+    const humanHas = holder && this._isHuman(holder);
+    if (!this.cfg.noTackle && !(this.assist && humanHas) && holder && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
+      const bx = bp.x - holder.pos.x, bz = bp.z - holder.pos.z, mx = me.pos.x - holder.pos.x, mz = me.pos.z - holder.pos.z;
+      const shielded = (bx * mx + bz * mz) / ((Math.hypot(bx, bz) * Math.hypot(mx, mz)) || 1) < -0.2;
+      if (shielded && this.cfg.skill > 0.6 && Math.random() < this.cfg.skill * 0.8) {
+        const bl = Math.hypot(bx, bz) || 1;
+        const q = legal(bp.x + (bx / bl) * 0.7, bp.z + (bz / bl) * 0.7, 0.4);
+        this._goTo(q.x, q.z, 0.3, 1.5); return;
+      }
+      const poke = myDist < 1.6;
+      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.15 * this.cfg.skill)) {
+        plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize();
+        plan.tackle = true;
+        return;
+      }
+    }
+    // loose in front of my own goal: just hoof it clear
+    const toHome = Math.hypot(bp.x - me.home.centre.x, bp.z - me.home.centre.z);
+    if (!holder && toHome < 6 && myDist < 1.3 && bp.y < 0.6) {
+      const out = new THREE.Vector2(me.home.inward.x, me.home.inward.z).rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * 1.2);
+      this.shooting = { hold: 0.5, aim: out, lob: Math.random() < 0.4 };
+      return;
+    }
+    const t = clamp(myDist / 5.5, 0, 1.2);
+    const pred = ball.predict(t);
+    const tgt = me.goalTarget();
+    const dir = new THREE.Vector2(tgt.x - pred.x, tgt.z - pred.z).normalize();
+    let bx = pred.x - dir.x * 0.6, bz = pred.z - dir.y * 0.6;
+    const inFront = (me.pos.x - pred.x) * dir.x + (me.pos.z - pred.z) * dir.y > 0.1;
+    if (inFront && myDist < 3) { bx += -dir.y * 0.9; bz += dir.x * 0.9; }
+    this._goTo(bx, bz, 0.4, 2.5);
+  }
+
+  /** on the ball in 5v5: shoot, pass or run with it */
+  _carry5(mates, opps) {
+    const me = this.me, g = this.game, plan = this.plan;
+    const tgt = me.goalTarget();
+    const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z), gd = to.length();
+    const near = (p, r) => opps.some((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < r);
+    const pressure = near(me.pos, 1.9);
+    const range = this.cfg.shootRange * (me.energy >= 1 ? 1.5 : 1.05);
+    const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
+    if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5 || me.energy >= 1)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
+    // look for a team-mate
+    if (this.passCD <= 0) {
+      const d = me.gi === 0 ? 1 : -1;
+      let best = null, bestS = -Infinity;
+      for (const m of mates) {
+        if (m.stunT > 0 || m.role === 'gk') continue;
+        const dm = Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z);
+        if (dm < 3 || dm > 22) continue;
+        if (this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)) continue;
+        const free = Math.min(4, Math.min(...opps.map((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z))));
+        let sc = (m.pos.x - me.pos.x) * d * 0.45 + free * 0.8 - dm * 0.05;
+        if (this._isHuman(m)) sc += this.assist ? 6 : 1.5;
+        if (sc > bestS) { bestS = sc; best = m; }
+      }
+      const want = me.role === 'gk' ? -99 : pressure ? 0.2 : me.role.startsWith('def') ? 1.2 : 2.2;
+      if (best && (bestS > want || (this.assist && this._isHuman(best)))) {
+        const dm = Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z);
+        const bgd = Math.hypot(best.goalTarget().x - best.pos.x, best.goalTarget().z - best.pos.z);
+        if (bgd < 9 && dm > 9 && Math.random() < 0.25 + 0.3 * this.cfg.skill) this._crossTo(best);
+        else this._kickTo(best, 0.1 + Math.random() * 0.3 + (dm > 12 ? 0.15 : 0));
+        this.passCD = 1.3;
+        return;
+      }
+      if (me.role === 'gk') {   // nobody free: launch it up the pitch
+        const aim = new THREE.Vector2(me.home.inward.x, me.home.inward.z).rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * 0.9);
+        this.shooting = { hold: 0.5, aim, lob: true };
+        return;
+      }
+    }
+    // run with it, round anyone in the way
+    const dir = to.clone().normalize();
+    const blocker = opps.find((a) => {
+      const rx = a.pos.x - me.pos.x, rz = a.pos.z - me.pos.z, d = Math.hypot(rx, rz);
+      return d < 2.6 && (rx * to.x + rz * to.y) / (d * gd || 1) > 0.5;
+    });
+    if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.trick && Math.random() < 0.18 + 0.35 * this.cfg.skill) {
+      const r = me.rightDir, bx = blocker.pos.x - me.pos.x, bz = blocker.pos.z - me.pos.z;
+      const sideOf = (bx * r.x + bz * r.z) > 0 ? -1 : 1;
+      const mv = new THREE.Vector2(r.x * sideOf, r.z * sideOf);
+      plan.skillMove = mv; plan.skillSprint = false; plan.tackle = true; plan.move.copy(mv);
+      return;
+    }
+    if (blocker) {
+      if (this.dodge <= 0) {
+        const side = (blocker.pos.x - me.pos.x) * -dir.y + (blocker.pos.z - me.pos.z) * dir.x > 0 ? -1 : 1;
+        this.dodgeSide = side * (Math.random() < 0.8 ? 1 : -1); this.dodge = 0.8;
+      }
+      dir.rotateAround(new THREE.Vector2(), 0.8 * this.dodgeSide);
+      plan.sprint = true;
+    }
+    this.dodge -= this.cfg.react;
+    const ahead = legal(me.pos.x + dir.x * 1.4, me.pos.z + dir.y * 1.4, 1.0);
+    dir.set(ahead.x - me.pos.x, ahead.z - me.pos.z);
+    if (dir.lengthSq() < 0.04) dir.set(-me.pos.x, -me.pos.z);
+    plan.move.copy(dir.normalize());
+    plan.sprint = plan.sprint || !pressure;
   }
 }

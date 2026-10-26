@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtils.js';
 import { ANIM } from './config.js';
+import { dyeHair } from './avatar.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -410,6 +411,9 @@ export class Character {
     this.natural = cache.natural;
     this.kickCalib = cache.kick;
   }
+
+  /** characters each have their own hair colour */
+  setHair(color) { dyeHair(this.root, color); }
 
   _sampleClip(clip, fn, N = 60) {
     const m = new THREE.AnimationMixer(this.root);

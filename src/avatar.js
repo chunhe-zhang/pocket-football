@@ -366,6 +366,7 @@ function styleAvatar(root, kit) {
         transparent: m.transparent, alphaTest: m.alphaTest, side: m.side, opacity: m.opacity,
       });
       t.emissive = new THREE.Color(0xffffff); t.emissiveMap = map; t.emissiveIntensity = isSkin ? 0.22 : 0.12;
+      if (/HAIR/.test(n) && m.map) t.userData.hairSrc = m.map;   // so the hair can be re-dyed per character
       if (!m.transparent && !/FACE/.test(n)) wantsOutline = true;
       return t;
     });
@@ -378,4 +379,24 @@ function styleAvatar(root, kit) {
     ol.frustumCulled = false; ol.castShadow = false; ol.renderOrder = -1;
     o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale);
   }
+}
+
+/** dye an avatar's hair (characters each have their own colour); null restores the original */
+const _dyeCache = new Map();
+export function dyeHair(root, color) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) {
+      const src = m.userData?.hairSrc; if (!src) continue;
+      if (m.userData.dye === color) continue;
+      m.userData.dye = color;
+      let t = src;
+      if (color) {
+        const key = src.uuid + color;
+        t = _dyeCache.get(key);
+        if (!t) { t = tintedTexture(src, color, null, 'color'); _dyeCache.set(key, t); }
+      }
+      m.map = t; m.emissiveMap = t; m.needsUpdate = true;
+    }
+  });
 }

@@ -32,14 +32,14 @@ export class Input {
   padIntent(index, out) {
     const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
     const p = pads[index];
-    if (!p) { out.move.set(0, 0); out.kick = out.lob = out.sprint = out.tackle = out.pass = false; return out; }
+    if (!p) { out.move.set(0, 0); out.kick = out.lob = out.sprint = out.tackle = out.pass = out.swap = false; return out; }
     let x = p.axes[0] || 0, z = p.axes[1] || 0;
     const m = Math.hypot(x, z);
     if (m < 0.2) { x = 0; z = 0; } else if (m > 1) { x /= m; z /= m; }
     // d-pad as a fallback
     const b = (i) => !!p.buttons[i]?.pressed;
     if (b(14)) x = -1; if (b(15)) x = 1; if (b(12)) z = -1; if (b(13)) z = 1;
-    out.move.set(x, z); out.kick = b(0); out.lob = b(1); out.tackle = b(2) || b(3); out.pass = false; out.sprint = b(5) || b(7) || b(4) || b(6);
+    out.move.set(x, z); out.kick = b(0); out.lob = b(1); out.tackle = b(2); out.swap = b(3); out.pass = false; out.sprint = b(5) || b(7) || b(4) || b(6);
     out.analog = true;
     return out;
   }
@@ -61,7 +61,7 @@ export class Input {
     }
     const m = Math.hypot(x, z);
     if (m > 1) { x /= m; z /= m; }
-    out.move.set(x, z); out.kick = kick; out.lob = lob; out.sprint = sprint; out.tackle = tackle; out.pass = false; void pass;
+    out.move.set(x, z); out.kick = kick; out.lob = lob; out.sprint = sprint; out.tackle = tackle; out.pass = false; out.swap = pass;
     out.analog = analog;
     return out;
   }

@@ -102,6 +102,7 @@ export class ChargeFx {
     while (this.items.length < athletes.length) this.items.push(this._make());
     while (this.previews.length < athletes.length) this.previews.push(this._makePreview());
     const aim = new THREE.Vector3();
+    for (let i = athletes.length; i < this.items.length; i++) { this.items[i].g.visible = false; this.items[i].opacity = 0; this.previews[i].pts.visible = this.previews[i].ring.visible = false; }
     athletes.forEach((a, i) => {
       const pv = this.previews[i];
       const type = game?.controllers[i]?.type;
@@ -127,7 +128,8 @@ export class ChargeFx {
         pv.ring.rotation.set(0, plan.goal.axis === 'x' ? Math.PI / 2 : 0, 0);
         pv.ring.visible = true;
       } else pv.ring.visible = false;
-      const col = !onTarget && hit ? 0xff5a4a : over ? 0xff5a4a : perfect ? 0xffd23f : 0xffffff;
+      let col = !onTarget && hit ? 0xff5a4a : over ? 0xff5a4a : perfect ? 0xffd23f : 0xffffff;
+      if (a.energy >= 1 && a.chargeType === 'kick' && a.charge >= 0.5) col = a.charDef.color;   // this one will be the special
       pv.ring.material.color.setHex(col); pv.pts.material.color.setHex(col);
       pv.cross.visible = !onTarget && !!hit;
       const s = perfect ? 1 + Math.sin(time * 18) * 0.08 : 1; pv.ring.scale.setScalar(s);

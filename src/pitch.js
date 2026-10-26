@@ -96,6 +96,19 @@ function grassTexture() {
       g.beginPath(); g.arc(BD + 1.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
       g.restore();
     }
+    // five-a-side: halfway line, penalty spots, corner arcs
+    if (FIELD.lines) {
+      g.save(); g.strokeStyle = 'rgba(255,255,255,0.92)'; g.lineWidth = 0.1 * ppm;
+      g.beginPath(); g.moveTo(X(0), Y(-HZ)); g.lineTo(X(0), Y(HZ)); g.stroke();
+      g.beginPath(); g.arc(X(0), Y(0), 3.2 * ppm, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = '#fff';
+      for (const s of [-1, 1]) {
+        g.beginPath(); g.arc(X(s * (HX - 6)), Y(0), 0.13 * ppm, 0, Math.PI * 2); g.fill();
+        // the arc at the top of the box
+        g.beginPath(); g.arc(X(s * (HX - FIELD.boxDepth)), Y(0), 1.6 * ppm, s < 0 ? -Math.PI / 2 : Math.PI / 2, s < 0 ? Math.PI / 2 : Math.PI * 1.5); g.stroke();
+      }
+      g.restore();
+    }
     // boundary
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.09 * ppm;
     rounded(HX, HZ, RC); g.stroke();
@@ -230,16 +243,19 @@ export class Pitch {
     const face = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 });
     const top = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const withRepeat = (len) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(len / 5, 1); const f = face.clone(); f.map = t; f.emissiveMap = t; return f; };
-    for (const goal of GOALS) {
-      // from the goal post to where the corner curve starts
-      const seg = (goal.axis === 'x' ? CZ : CX) - FIELD.goalHalfW;
+    for (const [axis, sign] of [['x', -1], ['x', 1], ['z', -1], ['z', 1]]) {
+      const goal = GOALS.find((g) => g.axis === axis && g.sign === sign);
+      const line = axis === 'x' ? FIELD.hx : FIELD.hz, run = axis === 'x' ? CZ : CX;
+      // with a goal: from the post to where the corner curve starts; without: the whole side
+      const gap = goal ? FIELD.goalHalfW : 0, seg = run - gap;
       if (seg < 0.05) continue;
-      for (const z of [-1, 1]) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(seg, BH, T), [top, top, top, top, withRepeat(seg), withRepeat(seg)]);
+      for (const z of goal ? [-1, 1] : [0]) {
+        const len = goal ? seg : 2 * run;
+        const m = new THREE.Mesh(new THREE.BoxGeometry(len, BH, T), [top, top, top, top, withRepeat(len), withRepeat(len)]);
         m.castShadow = true; m.receiveShadow = true;
-        const along = z * (FIELD.goalHalfW + seg / 2);
-        if (goal.axis === 'x') { m.rotation.y = Math.PI / 2; m.position.set(goal.sign * (goal.line + T / 2), BH / 2, along); }
-        else m.position.set(along, BH / 2, goal.sign * (goal.line + T / 2));
+        const along = goal ? z * (gap + seg / 2) : 0;
+        if (axis === 'x') { m.rotation.y = Math.PI / 2; m.position.set(sign * (line + T / 2), BH / 2, along); }
+        else m.position.set(along, BH / 2, sign * (line + T / 2));
         this.root.add(m);
       }
     }

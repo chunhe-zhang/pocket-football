@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, SIDES, FIELD, GOALS } from './config.js';
+import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -18,6 +18,8 @@ const HELP = {
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
     <b>闪身步</b><span>带球时按 <kbd>L</kbd>：带着球往旁边一闪（按左右选方向，不按就往远离对手的一边），这一下对手很难抢到</span>
+    <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。头顶彩条满了以后，蓄力过半的爆射就会变成必杀；地上的预览线会变成角色的颜色</span>
+    <b>5v5 换人</b><span><kbd>Q</kbd> 或 <kbd>I</kbd>（双人：P1 <kbd>R</kbd>，P2 <kbd>,</kbd>；手柄 Y）切到离球最近的队友，平时会自动切换</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
@@ -32,7 +34,9 @@ const HELP = {
 export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
-    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', map: 'classic', duration: 180 };
+    const saved = (store.get('pf-chars') || '').split(',');
+    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', map: 'classic', duration: 180, who: '0',
+      chars: [0, 1, 2, 3].map((i) => (CHAR[saved[i]] ? saved[i] : CHARS[i].id)) };
     this.muted = false;
     this.tags = [];
     this.net = null;
@@ -49,7 +53,9 @@ export class UI {
         const key = seg.dataset.key, v = b.dataset.v;
         for (const s2 of document.querySelectorAll(`.seg[data-key="${key}"]`)) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
         this.settings[key] = key === 'duration' || key === 'humans' ? +v : v;
-        if (key === 'map' && this.game.state === 'menu') this.game.applyMap(v);
+        if (key === 'map' && this.game.state === 'menu' && this.settings.mode !== 'match5') this.game.applyMap(v);
+        if (key === 'mode' && this.game.state === 'menu') this.game.previewMode(v, this.settings.map);
+        if (key === 'humans' && +this.settings.who >= +v) this._setWho('0');
         this._refreshMenu();
         if (this.lobby) { this._renderLobby(); this._broadcastLobby(); }
       });
@@ -75,18 +81,59 @@ export class UI {
     addEventListener('gamepadconnected', () => this._refreshMenu());
     addEventListener('gamepaddisconnected', () => this._refreshMenu());
 
+    // character picker (menu: per local player; lobby: my own)
+    for (const box of document.querySelectorAll('.char-pick')) {
+      box.innerHTML = CHARS.map((c) => `<button class="char-card" data-c="${c.id}" style="--cc:${c.css}"><span class="ic">${c.icon}</span><b>${c.name}</b><small>${c.skill}</small></button>`).join('');
+      box.addEventListener('click', (e) => {
+        const b = e.target.closest('.char-card'); if (!b) return;
+        const who = this.net || this.guestLobby ? 0 : +this.settings.who;
+        this.settings.chars[who] = b.dataset.c;
+        store.set('pf-chars', this.settings.chars.join(','));
+        this.sfx.init(); this.sfx.touch?.();
+        this._refreshChars();
+        this._sendMyChar();
+      });
+    }
+    this.onRoster(game);
     // scoreboard chips
     $('#chips').innerHTML = TEAMS.map((t, i) => `<div class="chip" id="chip${i}" style="--c:${t.css}"><i></i><span class="nm"></span><b class="ga">0</b></div>`).join('');
 
-    // name tags / charge + stamina meters
-    const tagsRoot = $('#tags');
-    this.tags = game.athletes.map((a, i) => {
-      const el = document.createElement('div'); el.className = 'tag-el';
-      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${TEAMS[i].css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
-      tagsRoot.appendChild(el);
-      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
-    });
     this._refreshMenu();
+  }
+
+  /** name tags / charge + stamina + special meters, one per player on the pitch */
+  onRoster(game) {
+    const tagsRoot = $('#tags');
+    tagsRoot.innerHTML = '';
+    this.tags = game.athletes.map((a) => {
+      const el = document.createElement('div'); el.className = 'tag-el';
+      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="energy"><i></i><em></em></div><div class="meter"><i></i><span class="pct"></span></div>`;
+      tagsRoot.appendChild(el);
+      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i'),
+        en: el.querySelector('.energy'), enFill: el.querySelector('.energy i'), enTxt: el.querySelector('.energy em') };
+    });
+  }
+
+  _setWho(v) {
+    this.settings.who = v;
+    for (const s2 of document.querySelectorAll('.seg[data-key="who"]')) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
+  }
+
+  _refreshChars() {
+    const online = !!(this.net || this.guestLobby);
+    const n = this.settings.humans, multi = !online && n > 1;
+    for (const w of document.querySelectorAll('.who-seg')) { w.classList.toggle('hidden', !multi); w.querySelectorAll('button').forEach((b) => b.classList.toggle('hidden', +b.dataset.v >= n)); }
+    const who = online ? 0 : +this.settings.who;
+    const cur = CHAR[this.settings.chars[who]] || CHARS[0];
+    for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
+    const m5 = this.settings.mode === 'match5';
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。能量条（头顶彩条）满了以后，蓄力过半的爆射就是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+  }
+
+  _sendMyChar() {
+    const c = this.settings.chars[0];
+    if (this.lobby) { const me = this.lobby.slots[0]; if (me) me.char = c; this._renderLobby(); this._broadcastLobby(); }
+    else if (this.guestLobby && this.net) this.net.toHost({ k: 'char', c });
   }
 
   _refreshMenu() {
@@ -98,19 +145,25 @@ export class UI {
     const cpus = TEAMS.slice(n).map((t) => t.cpuName).join('、');
     let note = n === 4 ? '' : `其余位置由电脑${cpus}补上。`;
     if (n >= 3) note += ` 3、4 号玩家需要手柄（已连接 ${pads} 个${pads < n - 2 ? '，按一下手柄按键让浏览器识别' : ''}）。`;
+    if (this.settings.mode === 'match5') note = `每个真人控制一名场上球员（门将永远由电脑控制），其余由电脑踢。${n >= 3 ? ` 3、4 号玩家需要手柄（已连接 ${pads} 个）。` : ''}`;
     $('#humans-note').textContent = note.trim();
     let help = online || n === 1 ? HELP[1] : HELP[2];
     if (!online && n >= 3) help += HELP.pads;
     if (isTouch && (online || n === 1)) help = HELP.touch;
     $('#controls-help').innerHTML = help;
-    const team = this.settings.mode === 'team';
+    const team = this.settings.mode === 'team' || this.settings.mode === 'match5';
+    const m5 = this.settings.mode === 'match5';
+    for (const r of document.querySelectorAll('.map-row, .map-note')) r.classList.toggle('hidden', m5);
+    this._refreshChars();
     const people = online ? (this.lobby ? this.lobby.slots.length : (this.guestLobby?.slots.length || 1)) : n;
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
     for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
       ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
-    for (const m of document.querySelectorAll('.mode-note')) m.textContent = team
+    for (const m of document.querySelectorAll('.mode-note')) m.textContent = m5
+      ? `经典长方形五人制球场，两队各 5 人（1 门将 + 2 后卫 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你控制离球最近的队友，会自动切换；按 Q（双人：R / 逗号，手柄 Y）手动换人。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
+      : team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';
   }
@@ -131,7 +184,8 @@ export class UI {
     $('#touch').classList.add('hidden');
     $('#menu').classList.add('show');
     const g = this.game;
-    g.role = 'local'; g.net = null; g.state = 'menu'; g.controllers = []; g.side = null;
+    g.role = 'local'; g.net = null; g.state = 'menu'; g.controllers = []; g.side = null; g.cursors = [];
+    g.previewMode(this.settings.mode, this.settings.map);
     g._resetElimination();
     for (const a of g.athletes) { a.frozen = false; a.puppet = false; a.char.stopEmotes(); }
     g.placeAll();
@@ -144,10 +198,11 @@ export class UI {
     const solo = this.settings.net === 'online' || this.settings.humans === 1;
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     const team = this.game.teamMode;
-    $('#btn-pass').classList.add('hidden');
+    $('#btn-pass').classList.toggle('hidden', !this.game.m5);
+    $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　蓄力时按方向键微调瞄准`
+      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺${this.game.m5 ? '　·　<b>Q</b> 换人' : ''}　·　能量满了蓄力过半的爆射＝必杀`
       : `P1：WASD + F 爆射 / G 挑射 / H 抢断　·　P2：方向键 + Enter / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -156,7 +211,7 @@ export class UI {
   startLocal() {
     this.sfx.init();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, slots: null });
+    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration, chars: this.settings.chars.slice(), slots: null });
     this._showHud();
   }
 
@@ -181,6 +236,12 @@ export class UI {
   }
 
   onScore(g) {
+    if (g.m5) {
+      const gold = g.golden ? ' <span class="gold">金球</span>' : '';
+      $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">${TEAMS[0].cn}</span><span class="n">${g.conceded[1]} : ${g.conceded[0]}</span><span class="t" style="background:${TEAMS[1].css}">${TEAMS[1].cn}</span><span class="tm">${this._mmss(g.clock)}</span>${gold}</span>`;
+      this._clockKey = null;
+      return;
+    }
     g.athletes.forEach((a, i) => {
       const c = $(`#chip${i}`); if (!c) return;
       const alive = g.alive ? g.alive[i] : true;
@@ -199,6 +260,8 @@ export class UI {
       : `剩 ${left} 人`;
   }
 
+  _mmss(t) { t = Math.max(0, Math.ceil(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
+
   banner(big, small) {
     const b = $('#banner');
     if (!big) { b.classList.remove('show'); return; }
@@ -210,7 +273,8 @@ export class UI {
   updateHud(g) {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
-    $('#clock').classList.toggle('low', !g.side && left === 2);
+    $('#clock').classList.toggle('low', g.m5 ? g.clock < 15 && !g.golden : !g.side && left === 2);
+    if (g.m5) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : ''); if (tm && key !== this._clockKey) { this._clockKey = key; if (g.golden && !$('#clock .gold')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];
@@ -218,13 +282,20 @@ export class UI {
       if (this._v.z > 1 || a.out) { t.el.style.display = 'none'; return; }
       t.el.style.display = '';
       t.el.style.transform = `translate(${(this._v.x * 0.5 + 0.5) * w}px, ${(-this._v.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
-      const s = g.side ? SIDES[g.side[i]] : null, key = (s ? s.icon : '') + a.label;
+      const ctl = g.controllers[i];
+      const s = g.side && !g.m5 ? SIDES[g.side[i]] : null, d = a.charDef;
+      const nm = g.m5 ? (ctl?.cursor?.name || ctl?.cursorName || (ctl?.type === 'self' ? '我' : '') || `${a.no} ${a.label}`) : a.label;
+      const key = (s ? s.icon : '') + nm + d.id;
       if (t.key !== key) {
         t.key = key;
-        t.lbl.innerHTML = (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(a.label);
+        t.lbl.innerHTML = `<span class="ci">${d.icon}</span>` + (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(nm);
         t.el.classList.toggle('side', !!s);
         if (s) t.el.style.setProperty('--sc', s.css);
+        t.en.style.setProperty('--ec', d.css);
+        t.enTxt.textContent = `${d.icon} 必杀就绪`;
       }
+      t.enFill.style.width = `${Math.round((a.energy || 0) * 100)}%`;
+      t.en.classList.toggle('full', (a.energy || 0) >= 1);
       const showing = a.charging || a.armed;
       const cv = a.armed ? a.armed.power : a.charge;
       t.meter.style.display = showing ? '' : 'none';
@@ -240,9 +311,10 @@ export class UI {
       t.stamFill.style.width = `${Math.round(a.stamina * 100)}%`;
       t.stam.classList.toggle('low', a.exhausted || a.stamina < 0.25);
       t.el.classList.toggle('me', type === 'self' || (type === 'human' && g.role !== 'guest'));
+      t.el.classList.toggle('cpu5', g.m5 && !human && !ctl?.cursorName);
     });
     this._drawMinimap(g);
-    g.athletes.forEach((a, i) => { const c = $(`#chip${i}`); if (c) c.classList.toggle('shielded', !!g.ball.shields?.has(i)); });
+    if (!g.m5) g.athletes.forEach((a, i) => { const c = $(`#chip${i}`); if (c) c.classList.toggle('shielded', !!g.ball.shields?.has(i)); });
     const ni = $('#netinfo');
     if (this.net && g.role !== 'local') ni.textContent = `房间 ${this.net.code} · 延迟 ${Math.round(this.net.rtt)} ms`;
     else ni.textContent = '';
@@ -282,7 +354,7 @@ export class UI {
     for (const sp of FIELD.springs) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(X(sp.x), Y(sp.z), Math.max(2, sp.r * s), 0, Math.PI * 2); ctx.fill(); }
     // goals
     for (const go of GOALS) {
-      const open = g.alive ? g.alive[go.team] : true;
+      const open = g.m5 || (g.alive ? g.alive[go.team] : true);
       ctx.strokeStyle = open ? TEAMS[go.team].css : 'rgba(255,255,255,0.5)'; ctx.lineWidth = 4;
       const gw = FIELD.goalHalfW * s;
       ctx.beginPath();
@@ -294,15 +366,16 @@ export class UI {
     g.athletes.forEach((a, i) => {
       if (a.out) return;
       const type = g.controllers[i]?.type, me = type === 'self' || (type === 'human' && g.role !== 'guest');
-      ctx.fillStyle = TEAMS[i].css; ctx.beginPath(); ctx.arc(X(a.pos.x), Y(a.pos.z), me ? 5 : 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = a.css || TEAMS[i].css; ctx.beginPath(); ctx.arc(X(a.pos.x), Y(a.pos.z), me ? 5 : 4, 0, Math.PI * 2); ctx.fill();
       if (me) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
-      if (g.side) { ctx.fillStyle = SIDES[g.side[i]].css; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(SIDES[g.side[i]].icon, X(a.pos.x), Y(a.pos.z) - 7); }
+      if (g.side && !g.m5) { ctx.fillStyle = SIDES[g.side[i]].css; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(SIDES[g.side[i]].icon, X(a.pos.x), Y(a.pos.z) - 7); }
     });
     ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(X(g.ball.pos.x), Y(g.ball.pos.z), 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
 
   showEnd(g, res) {
+    if (res.m5) { this._showEnd5(g, res); return; }
     const win = res[0];
     const team = win.side !== null && win.side !== undefined;
     if (team) {
@@ -316,6 +389,18 @@ export class UI {
     const last = Math.max(...res.map((r) => r.place));
     $('#end-stats').innerHTML = '<tr><th>名次</th><th>球员</th><th>被谁淘汰</th><th>淘汰别人</th><th>射门</th></tr>' + res.map((r) =>
       `<tr class="${r.place === last ? 'lose' : ''}"><td>${r.place === 1 ? '🏆' : r.place}</td><td>${team ? `<span class="side-badge" style="--sc:${SIDES[r.side].css}">${SIDES[r.side].icon}</span>` : ''}<i class="dot" style="background:${TEAMS[r.i].css}"></i>${esc(r.name)}</td><td>${esc(r.by) || '—'}</td><td><b>${r.kos}</b></td><td>${r.shots}</td></tr>`).join('');
+    $('#btn-again').classList.toggle('hidden', g.role === 'guest');
+    $('#btn-again').textContent = g.role === 'host' ? '回到房间' : '再来一局';
+    $('#end').classList.add('show');
+    $('#touch').classList.add('hidden');
+  }
+
+  _showEnd5(g, res) {
+    const [a, b] = res.score;
+    $('#end-title').innerHTML = `<span style="color:${TEAMS[0].css}">${TEAMS[0].cn}队</span> ${a} : ${b} <span style="color:${TEAMS[1].css}">${TEAMS[1].cn}队</span>`;
+    $('#end-sub').textContent = res.win < 0 ? '平局' : `${TEAMS[res.win].cn}队赢得了比赛`;
+    $('#end-stats').innerHTML = '<tr><th>队</th><th>球员</th><th>角色</th><th>进球</th><th>射门</th><th>必杀</th></tr>' + res.players.map((r) =>
+      `<tr class="${res.win >= 0 && r.side !== res.win ? 'lose' : ''}"><td><i class="dot" style="background:${TEAMS[r.side].css}"></i></td><td>${esc(r.no)} ${esc(r.name)}</td><td>${CHAR[r.char]?.icon || ''} ${CHAR[r.char]?.name || ''}</td><td><b>${r.goals}</b></td><td>${r.shots}</td><td>${r.specials}</td></tr>`).join('');
     $('#btn-again').classList.toggle('hidden', g.role === 'guest');
     $('#btn-again').textContent = g.role === 'host' ? '回到房间' : '再来一局';
     $('#end').classList.add('show');
@@ -347,6 +432,7 @@ export class UI {
   _leaveNet() {
     if (this.net) { const n = this.net; this.net = null; n.close(); }
     this.lobby = null;
+    this.guestLobby = null;
   }
 
   async createRoom() {
@@ -354,7 +440,7 @@ export class UI {
     const name = this._name();
     const net = await this._connect(); if (!net) return;
     try { await net.create(name); } catch (e) { this._status(e.message, true); return; }
-    this.lobby = { slots: [{ kind: 'local', scheme: 'solo', name, id: net.id }] };
+    this.lobby = { slots: [{ kind: 'local', scheme: 'solo', name, id: net.id, char: this.settings.chars[0] }] };
     net.on('peer-join', (m) => {
       if (!this.lobby) return;
       const free = this.lobby.slots.length < 4;
@@ -367,7 +453,10 @@ export class UI {
       this._renderLobby(); this._broadcastLobby();
       this.toast('有玩家离开，电脑接替了 TA 的球门');
     });
-    net.on('from', (m) => { if (m.data?.k === 'in') this.game.remoteInput(m.id, m.data); });
+    net.on('from', (m) => {
+      if (m.data?.k === 'in') this.game.remoteInput(m.id, m.data);
+      else if (m.data?.k === 'char' && this.lobby && CHAR[m.data.c]) { const sl = this.lobby.slots.find((x) => x.id === m.id); if (sl) { sl.char = m.data.c; this._renderLobby(); this._broadcastLobby(); } }
+    });
     this._showLobby();
   }
 
@@ -382,6 +471,7 @@ export class UI {
     net.on('host-left', () => { this.banner('房主离开了', '房间已关闭'); setTimeout(() => this.showMenu(), 1500); });
     this.guestLobby = { code, slots: [] };
     this._showLobby(false);
+    this._sendMyChar();
   }
 
   _onHost(d) {
@@ -390,7 +480,7 @@ export class UI {
       this.guestLobby.slots = d.slots;
       if (d.settings) {
         this.guestLobby.settings = d.settings;
-        if (d.settings.map && g.state === 'menu') g.applyMap(d.settings.map);   // preview the host's map
+        if (g.state === 'menu') g.previewMode(d.settings.mode, d.settings.map);   // preview the host's map
       }
       if (g.role === 'guest') { g.role = 'local'; g.state = 'menu'; }
       this._hideAll(); this._showLobby(false);
@@ -419,9 +509,11 @@ export class UI {
     const slots = this.lobby ? this.lobby.slots : this.guestLobby?.slots || [];
     $('#lobby-slots').innerHTML = TEAMS.map((t, i) => {
       const s = slots[i];
-      const who = s ? `${esc(s.name)}${s.id === this.net?.id ? '（你）' : ''}${i === 0 ? ' · 房主' : ''}` : `<span class="cpu">电脑 · ${t.cpuName}</span>`;
+      const ch = s && CHAR[s.char];
+      const who = s ? `${ch ? ch.icon + ' ' : ''}${esc(s.name)}${s.id === this.net?.id ? '（你）' : ''}${i === 0 ? ' · 房主' : ''}` : `<span class="cpu">电脑 · ${t.cpuName}</span>`;
       const st = this.lobby ? this.settings : this.guestLobby?.settings || {};
       let where = `${t.cn}色球门`;
+      if (st.mode === 'match5') { const k = st.pairing === 'vs' ? i % 2 : 0; where = s ? `${TEAMS[k].cn}队` : ''; }
       if (st.mode === 'team') {
         const k = st.pairing === 'vs' ? i % 2 : i < 2 ? 0 : 1, sd = SIDES[k];
         where = `<span class="side-badge" style="--sc:${sd.css}">${sd.icon}</span>${sd.name} · 随机球门`;
@@ -433,7 +525,7 @@ export class UI {
 
   _broadcastLobby() {
     if (!this.lobby || !this.net) return;
-    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind }) => ({ name, id, kind })), settings: { level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration } });
+    this.net.broadcast({ k: 'lobby', slots: this.lobby.slots.map(({ name, id, kind, char }) => ({ name, id, kind, char })), settings: { level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration } });
   }
 
   startOnline() {
@@ -443,7 +535,7 @@ export class UI {
     const g = this.game;
     g.role = 'host'; g.net = this.net;
     for (const a of g.athletes) a.puppet = false;
-    g.start({ level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, slots });
+    g.start({ level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration, slots });
     this._showHud();
   }
 }

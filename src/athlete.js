@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const smoothstep = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
@@ -15,6 +15,11 @@ const R = BALL.r;
 export class Athlete {
   constructor(game, team, character, label) {
     this.game = game; this.team = team; this.char = character; this.label = label;
+    this.gi = team;          // the goal I defend (5v5: my side's goal)
+    this.role = null;        // 5v5: 'gk' | 'defL' | 'defR' | 'attL' | 'attR'
+    this.charId = 'thunder'; // character: decides the special shot
+    this.energy = 0;         // special-shot meter, 0..1
+    this.iceT = 0;           // frozen solid by an ice shot
     this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3();
     this.facing = 0; this.turnRate = 0;
     this.stamina = 1; this.exhausted = false;
@@ -45,9 +50,10 @@ export class Athlete {
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3(); this._f = new THREE.Vector3(); this._r = new THREE.Vector3();
   }
 
-  get home() { return GOALS[this.team]; }                       // the goal I defend
+  get home() { return GOALS[this.gi] || GOALS[0]; }             // the goal I defend
+  get charDef() { return CHAR[this.charId] || CHAR.thunder; }
   /** the goal mouth centres I can score in */
-  get targets() { return GOALS.filter((g) => g.team !== this.team && this.game.activeGoal(g.team) && !this.game.sameSide(this.team, g.team)); }
+  get targets() { return GOALS.filter((g) => !this.game.friendlyGoal(this, g.team) && this.game.activeGoal(g.team)); }
   /** 2v2: my team-mate still on the pitch (null in free-for-all) */
   get mate() { return this.game.mateOf(this.team); }
   /** my last touch was a pass to this team-mate (null otherwise) */
@@ -75,12 +81,12 @@ export class Athlete {
     for (const g of this.targets) {
       // on the track the distance that matters is the way round the flower beds
       const d = FIELD.islands.length ? route(this.pos.x, this.pos.z, g.centre.x + g.inward.x * 0.8, g.centre.z + g.inward.z * 0.8).dist : Math.hypot(g.centre.x - this.pos.x, g.centre.z - this.pos.z);
-      const owner = this.game.athletes[g.team];
+      const owner = this.game.keeperOf(g.team);
       const guard = owner ? Math.hypot(owner.pos.x - g.centre.x, owner.pos.z - g.centre.z) : 10;
       const cost = d - Math.min(guard, 8) * 0.6;
       if (cost < bestCost) { bestCost = cost; best = g; }
     }
-    best = best || GOALS[(this.team + 1) % GOALS.length];
+    best = best || GOALS[(this.gi + 1) % GOALS.length];
     return new THREE.Vector3(best.centre.x, 0, best.centre.z);
   }
 
@@ -145,6 +151,10 @@ export class Athlete {
     this.knockFree = Math.max(0, (this.knockFree || 0) - dt);
     this._skillTick(dt);
     this.stunT = Math.max(0, this.stunT - dt);
+    if (g.state === 'play' && this.energy < 1) {
+      this.energy = Math.min(1, this.energy + dt / (g.m5 ? 28 : 20));
+      if (this.energy >= 1) g.onEnergyFull?.(this);
+    }
     this.ignoreBall = Math.max(0, this.ignoreBall - dt);
     if (this.receive) { this.receive.t += dt; if (this.receive.t > this.receive.ta + 0.3) this.receive = null; }
 
@@ -162,7 +172,7 @@ export class Athlete {
         const sp = Math.hypot(this.vel.x, this.vel.z);
         const mateHas = holder && g.sameSide(holder.team, this.team);
         // in my own penalty box the tackle button is a goalkeeper dive
-        if (inOwnBox(this.team, this.pos.x, this.pos.z)) this._startDive();
+        if (inOwnBox(this.gi, this.pos.x, this.pos.z) && (!this.role || this.role === 'gk')) this._startDive();
         else if (mateHas && bd < 2.5) { /* never tackle my own team-mate */ }
         else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
         else this._startSlide();
@@ -440,6 +450,26 @@ export class Athlete {
     this.char.play('stagger', { duration: this.stunT + 0.15 });
     this.char.face('surprised', 0.8); this.faceT = 0.6;
     this.game.rumble(this, 0.8, 140);
+  }
+
+  /** hit by a special shot: lightning paralyses, fire bowls you over, ice freezes you solid, the cannon flattens you */
+  zap(kind, dir) {
+    if (this.frozen) return;
+    if (kind === 'frost') {
+      this.knock(dir, 0); this.vel.set(0, 0, 0);
+      this.stunT = 1.8; this.iceT = 1.8;
+      this.char.face('surprised', 1); this.faceT = 1.8;
+    } else if (kind === 'thunder') {
+      this.knock(dir, 1); this.vel.multiplyScalar(0.3);
+      this.stunT = 1.3;
+      this.char.play('stagger', { duration: 1.4 }); this.char.face('surprised', 1); this.faceT = 1.3;
+    } else {
+      const s = kind === 'cannon' ? 11 : 8;
+      this.knock(dir, s); this.vel.copy(dir).multiplyScalar(s * 0.75);
+      this.stunT = kind === 'cannon' ? 1.2 : 1.0;
+      this.char.play('stagger', { duration: this.stunT + 0.2 });
+    }
+    this.game.rumble(this, 1, 260);
   }
 
   // ---- standing tackle -----------------------------------------------------------------
@@ -833,6 +863,7 @@ export class Athlete {
   }
 
   _sync(dt) {
+    if (this.iceT > 0) { this.iceT = Math.max(0, this.iceT - dt); dt = 0; }   // frozen: the pose holds
     this.char.group.position.copy(this.pos);
     this.char.setFacing(this.facing);
     const hs = Math.hypot(this.vel.x, this.vel.z);
@@ -856,7 +887,7 @@ export class Athlete {
     // which goal line does this aim cross first? (for the preview only: the aim is never changed)
     let best = Infinity;
     for (const gg of GOALS) {
-      if (gg.team === this.team) continue;
+      if (gg.team === this.gi) continue;
       const A = gg.axis, line = gg.sign * gg.line;
       if (Math.abs(aim[A]) < 0.05) continue;
       const t = (line - this.pos[A]) / aim[A];
@@ -1019,6 +1050,13 @@ export class Athlete {
       // running into the shot adds pace
       speed += Math.max(0, this.vel.x * k.aim.x + this.vel.z * k.aim.z) * 0.55;
     }
+    // full energy + a proper 爆射: the character's special shot
+    const special = k.type === 'kick' && p >= 0.5 && this.energy >= 1 && g.state === 'play' ? this.charDef : null;
+    if (special) {
+      speed = clamp(speed * special.speed, 26, 42);
+      if (special.id !== 'gale' && special.id !== 'phantom') elev = Math.min(elev, 0.07);   // driven at body height: it goes through people
+      k.perfect = true; k.over = false;
+    }
     // where the boot met the ball: off-centre contact slices, low contact lifts
     let slice = 0;
     if (footTouched) {
@@ -1047,6 +1085,7 @@ export class Athlete {
     else spin.addScaledVector(r2, -8 * p);
     spin.y = lateral * 16 * p * (k.type === 'chip' ? 0.6 : 1) + slice * 9 * p;
     ball.strike(vel, spin, this);
+    if (special) { this.energy = 0; ball.startSpecial(special.id, this, dir); g.onSpecial?.(this, special); }
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
     if (p > 0.4 && footTouched) g.fx('spark', ball.pos, { x: dir.x, z: dir.z }, Math.round(4 + 10 * p), 2 + 4 * p);
@@ -1072,6 +1111,8 @@ export class Athlete {
     const by = ball.pos.y;
 
     if (this.stunT > 0 || this.slide || this.dive || this.poke || (this.header && !this.header.hit)) { this.dribbling = false; return false; }
+    // a special shot in flight can't be trapped (it goes through people, or is too wild to control)
+    if (ball.special && ball.special.owner !== this) { this.dribbling = false; this.receive = null; return false; }
     this._anticipate();
     // a receive in progress owns the ball's arrival
     if (this.receive) {

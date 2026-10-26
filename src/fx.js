@@ -2,18 +2,29 @@ import * as THREE from 'three';
 
 // Small pooled particle system for grass kicked up by shots and slides,
 // and dust puffs when the ball slaps the ground.
-const N = 600;
+const N = 1400;
 const KINDS = {
   grass: [[0.33, 0.62, 0.3], [0.42, 0.72, 0.36], [0.28, 0.5, 0.25], [0.5, 0.42, 0.28]],
   dust:  [[0.95, 0.93, 0.88], [0.88, 0.9, 0.85]],
   petal: [[1.0, 0.72, 0.85], [1.0, 0.85, 0.92], [0.98, 0.6, 0.78]],
   spark: [[1.0, 1.0, 0.9], [1.0, 0.92, 0.55], [1.0, 0.8, 0.35]],
+  // special shots
+  fire:  [[1.0, 0.85, 0.3], [1.0, 0.55, 0.12], [1.0, 0.3, 0.08], [1.0, 0.95, 0.6]],
+  ice:   [[0.85, 0.97, 1.0], [0.6, 0.88, 1.0], [1.0, 1.0, 1.0]],
+  bolt:  [[0.75, 0.97, 1.0], [0.4, 0.85, 1.0], [1.0, 1.0, 1.0]],
+  wind:  [[0.6, 1.0, 0.72], [0.85, 1.0, 0.9], [0.45, 0.9, 0.6]],
+  ghost: [[0.72, 0.55, 1.0], [0.9, 0.8, 1.0], [0.5, 0.35, 0.9]],
+  smoke: [[0.35, 0.33, 0.38], [0.5, 0.47, 0.5], [1.0, 0.82, 0.3]],
 };
+// how each kind falls (m/s²; negative floats up) and how it puffs out
+const GRAV = { fire: -2.5, smoke: -0.8, ghost: -0.6, wind: 0, bolt: 0, ice: 4 };
+const GROW = { dust: 0.25, fire: 0.18, smoke: 0.5, ghost: 0.2, wind: 0.1 };
 
 export class Particles {
   constructor(scene) {
     this.pos = new Float32Array(N * 3); this.col = new Float32Array(N * 3); this.size = new Float32Array(N);
     this.alpha = new Float32Array(N); this.vel = new Float32Array(N * 3); this.life = new Float32Array(N); this.max = new Float32Array(N); this.grow = new Float32Array(N);
+    this.grav = new Float32Array(N); this.drag = new Float32Array(N);
     this.next = 0;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
@@ -52,13 +63,16 @@ export class Particles {
       const dx = (dir.x || 0) / dl, dz = (dir.z || 0) / dl;
       const ca = Math.cos(a), sa = Math.sin(a);
       const fx = dl > 0.01 ? dx * ca - dz * sa : Math.random() - 0.5, fz = dl > 0.01 ? dx * sa + dz * ca : Math.random() - 0.5;
-      const up = kind === 'dust' ? 0.4 : 1.2 + Math.random() * 1.6;
+      const soft = kind in GRAV;
+      const up = kind === 'dust' ? 0.4 : soft ? (Math.random() - 0.3) * speed * 0.6 : 1.2 + Math.random() * 1.6;
       this.vel.set([fx * s, up * (kind === 'dust' ? 0.5 : 1), fz * s], i * 3);
+      this.grav[i] = kind === 'dust' ? 0.3 : soft ? GRAV[kind] : 9;
+      this.drag[i] = kind === 'dust' ? 3 : soft ? 2.6 : 1.2;
       const c = pal[Math.floor(Math.random() * pal.length)];
       this.col.set(c, i * 3);
-      this.max[i] = this.life[i] = kind === 'dust' ? 0.45 : 0.6 + Math.random() * 0.5;
+      this.max[i] = this.life[i] = kind === 'dust' ? 0.45 : soft ? 0.35 + Math.random() * 0.4 : 0.6 + Math.random() * 0.5;
       this.size[i] = size * (0.6 + Math.random() * 0.8);
-      this.grow[i] = kind === 'dust' ? 0.25 : 0;
+      this.grow[i] = GROW[kind] || 0;
     }
   }
 
@@ -69,8 +83,8 @@ export class Particles {
       this.life[i] -= dt;
       const j = i * 3;
       const dust = this.grow[i] > 0;
-      V[j + 1] -= (dust ? 0.3 : 9) * dt;
-      const drag = dust ? 3 : 1.2;
+      V[j + 1] -= this.grav[i] * dt;
+      const drag = this.drag[i];
       V[j] *= 1 - drag * dt; V[j + 2] *= 1 - drag * dt;
       P[j] += V[j] * dt; P[j + 1] += V[j + 1] * dt; P[j + 2] += V[j + 2] * dt;
       if (P[j + 1] < 0.01) { P[j + 1] = 0.01; V[j] *= 0.5; V[j + 2] *= 0.5; V[j + 1] = 0; }
