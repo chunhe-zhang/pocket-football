@@ -46,7 +46,7 @@ export class Athlete {
     this.receive = null;     // anticipated first touch: { type, side, t, ta }
     this.ignoreBall = 0;     // own legs don't collide with the ball right after striking it
     this.colliders = null;
-    this._fa = new THREE.Vector3(); this._fb = new THREE.Vector3();
+    this._fa = new THREE.Vector3(); this._fb = new THREE.Vector3(); this._r2b = new THREE.Vector3();
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3(); this._f = new THREE.Vector3(); this._r = new THREE.Vector3();
   }
 
@@ -251,6 +251,16 @@ export class Athlete {
       const desired = this._v.set(it.move.x, 0, it.move.y);
       if (mag > 0.05) desired.normalize().multiplyScalar(target * (mag < 0.25 ? mag / 0.25 : 1)); else desired.set(0, 0, 0);
       if (this.trick) this._skillMove(desired, target);
+      const rc = this.receive;
+      if (rc && rc.ix !== undefined && rc.type !== 'header' && !this.frozen) {
+        // get across to the ball's line in time (the stick still steers, but the feet go to the ball)
+        const left = Math.max(0.06, rc.ta - rc.t);
+        const ex = rc.ix - this.pos.x, ez = rc.iz - this.pos.z, el = Math.hypot(ex, ez);
+        if (el > 0.08) {
+          const need = Math.min(PLAYER.sprintSpeed * this.speedMul, el / left);
+          desired.multiplyScalar(0.3).add(this._r2b.set(ex / el * need, 0, ez / el * need));
+        }
+      }
       if (this.header && !this.header.hit && !this.frozen && this.header.spot) {
         const sp = (it.sprint && !this.exhausted ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul;
         desired.set(this.header.spot.x - this.pos.x, 0, this.header.spot.z - this.pos.z);
@@ -1011,9 +1021,11 @@ export class Athlete {
     const w2 = wx * wx + wz * wz;
     if (w2 < 9) return; // slow balls are just collected
     const ta = -(dx * wx + dz * wz) / w2;
-    if (ta <= 0.04 || ta > 0.42) return;
+    if (ta <= 0.04 || ta > 0.6) return;
     const mx = dx + wx * ta, mz = dz + wz * ta;
-    if (Math.hypot(mx, mz) > 0.6) return;
+    // a ball going past within a long stride: step across and take it
+    const ct = this.game.controllers[this.team]?.type, human = ct === 'human' || ct === 'remote';
+    if (Math.hypot(mx, mz) > (human ? 1.25 : 0.85)) return;
     if (ball.lastTouch === this && this.game.time - this.lastTouchTime < 0.3) return;
     const h = Math.max(R, ball.pos.y + ball.vel.y * ta - 4.9 * ta * ta);
     const f = this.forward, lat = mx * -f.z + mz * f.x; // + = ball to my left? (right = f x up)
@@ -1026,7 +1038,10 @@ export class Athlete {
     if (!type) return;
     void lat;
     const c = 0.4;
-    this.receive = { type, side, t: 0, ta, h };
+    // where to be: on the ball's line, a boot-length short of where it'll be
+    const bv = Math.hypot(ball.vel.x, ball.vel.z) || 1;
+    const ix = ball.pos.x + ball.vel.x * ta - (ball.vel.x / bv) * 0.35, iz = ball.pos.z + ball.vel.z * ta - (ball.vel.z / bv) * 0.35;
+    this.receive = { type, side, t: 0, ta, h, ix, iz };
     this.char.play(type, { side: type === 'trapFoot' ? side : 'Right', contact: c, duration: clamp(ta / c, 0.32, 0.8) });
   }
 
@@ -1387,7 +1402,7 @@ export class Athlete {
     if (this.receive) {
       this.dribbling = false; this.touch = null;
       const r = this.receive;
-      if (r.t > r.ta + 0.06 && dist < 0.75 + R && by < 2.1) {
+      if (r.t > r.ta * 0.7 && dist < 1.0 + R && by < 2.1) {
         // didn't quite meet the planned body part: take it with whatever is closest
         const part = by > 1.45 ? 'head' : by > 0.9 ? 'chest' : by > 0.36 ? 'thigh' : 'foot';
         if (this.completeReceive(part)) return true;
@@ -1400,7 +1415,7 @@ export class Athlete {
     this.touch = null;
 
     if (this.touchCD > 0) return false;
-    const inZone = fwd > -0.15 && fwd < 0.95 + R && Math.abs(lat) < 0.6 && dist < 1.0 + R;
+    const inZone = fwd > -0.4 && fwd < 1.05 + R && Math.abs(lat) < 0.85 && dist < 1.1 + R;
     if (!inZone || by > 1.5) return false;
 
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
@@ -1409,7 +1424,7 @@ export class Athlete {
 
     // first touch of a fast or bouncing ball that I didn't see coming
     if ((rel > 5.5 && approaching) || (by > 0.45 && approaching)) {
-      if (rel > 19 && by < 0.5) return false; // too hot to handle: it just ricochets
+      if (rel > 24 && by < 0.5) return false; // too hot to handle: it just ricochets
       const keep = by > 0.45 ? 0.08 : 0.14;
       ball.vel.x = this.vel.x * 0.9 + rvx * keep; ball.vel.z = this.vel.z * 0.9 + rvz * keep;
       ball.vel.y = by > 0.45 ? -0.6 : 0;
