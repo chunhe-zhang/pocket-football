@@ -69,7 +69,7 @@ export class Athlete {
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
     this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
-    this.poke = null; this.trick = null; this.burstT = 0; this.header = null;
+    this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0;
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
     this._sync(0);

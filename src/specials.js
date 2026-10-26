@@ -108,9 +108,9 @@ export class SpecialFx {
         ring.material.opacity = 0.55 + 0.3 * Math.sin(this.t * 7 + i);
         if (Math.random() < dt * 6) this.particles.burst({ x: a.pos.x + (Math.random() - 0.5) * 0.8, y: 0.1, z: a.pos.z + (Math.random() - 0.5) * 0.8 }, { x: 0, z: 0 }, 1, 0.6, PARTS[d.id], 0.07);
       }
-      const frozen = live && a.iceT > 0;
-      ice.visible = frozen;
-      if (frozen) { ice.position.set(a.pos.x, 0, a.pos.z); ice.rotation.y = i; const s = Math.min(1, (1.8 - a.iceT) * 8 + 0.2); ice.scale.set(s, Math.min(1, s * 1.2), s); }
+      // frozen players just stand still with a little frost drifting off them (no ice block)
+      ice.visible = false;
+      if (live && a.iceT > 0 && Math.random() < dt * 10) this.particles.burst({ x: a.pos.x + (Math.random() - 0.5) * 0.5, y: 0.3 + Math.random() * 1.4, z: a.pos.z + (Math.random() - 0.5) * 0.5 }, { x: 0, z: 0 }, 1, 0.4, 'ice', 0.07);
     }
   }
 }
