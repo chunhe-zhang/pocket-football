@@ -8,6 +8,7 @@ import { AIController } from './ai.js';
 import { ChargeFx } from './chargefx.js';
 import { Particles } from './fx.js';
 import { SpecialFx } from './specials.js';
+import { PowerFx } from './powerfx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -37,6 +38,7 @@ export class Game {
     this.chargeFx = new ChargeFx(scene);
     this.particles = new Particles(scene);
     this.specialFx = new SpecialFx(scene, this.particles);
+    this.powerFx = new PowerFx(scene);
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
@@ -526,6 +528,9 @@ export class Game {
 
   onWhiff() {}
 
+  /** a character's skill move (过人) starts: its effects, here and on guests' screens */
+  onPower(ath, kind) { this.powerFx.start(ath, kind); this.emit({ e: 'power', i: ath.team, k: kind }); }
+
   /** a character's special shot leaves the boot */
   onSpecial(ath, def) {
     ath.stats.specials = (ath.stats.specials || 0) + 1;
@@ -629,6 +634,7 @@ export class Game {
     this.particles.update(dt);
     this.chargeFx.update(rawDt, this.athletes, this.time, this);
     this.specialFx.update(rawDt, this);
+    this.powerFx.update(rawDt);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -988,6 +994,7 @@ export class Game {
     this.particles.update(dt);
     this.chargeFx.update(dt, this.athletes, this.time, this);
     this.specialFx.update(dt, this);
+    this.powerFx.update(dt);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -1005,6 +1012,7 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
+      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k); break; }
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;

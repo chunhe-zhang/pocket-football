@@ -112,13 +112,8 @@ function grassTexture() {
     // boundary
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.09 * ppm;
     rounded(HX, HZ, RC); g.stroke();
-    // rainbow centre circle
-    const segs = 72, cr = 2.4 * ppm;
-    g.lineWidth = 0.18 * ppm;
-    for (let i = 0; i < segs; i++) {
-      g.strokeStyle = `hsl(${(i / segs) * 360}, 90%, 62%)`;
-      g.beginPath(); g.arc(X(0), Y(0), cr, (i / segs) * Math.PI * 2, ((i + 1.15) / segs) * Math.PI * 2); g.stroke();
-    }
+    // centre circle (plain white; the five-a-side pitch draws its own, larger one)
+    if (!FIELD.lines) { g.strokeStyle = 'rgba(255,255,255,0.92)'; g.lineWidth = 0.1 * ppm; g.beginPath(); g.arc(X(0), Y(0), 2.4 * ppm, 0, Math.PI * 2); g.stroke(); }
     g.fillStyle = '#fff'; g.beginPath(); g.arc(X(0), Y(0), 0.16 * ppm, 0, Math.PI * 2); g.fill();
 
   });
