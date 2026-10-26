@@ -129,7 +129,7 @@ export class ChargeFx {
         pv.ring.visible = true;
       } else pv.ring.visible = false;
       let col = !onTarget && hit ? 0xff5a4a : over ? 0xff5a4a : perfect ? 0xffd23f : 0xffffff;
-      if (a.energy >= 1 && a.chargeType === 'kick' && a.charge >= 0.5) col = a.charDef.color;   // this one will be the special
+      if (a.chargeType === 'kick' && a.charge >= 0.3) col = a.charDef.color;   // this one will be the special
       pv.ring.material.color.setHex(col); pv.pts.material.color.setHex(col);
       pv.cross.visible = !onTarget && !!hit;
       const s = perfect ? 1 + Math.sin(time * 18) * 0.08 : 1; pv.ring.scale.setScalar(s);

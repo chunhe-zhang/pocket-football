@@ -151,10 +151,6 @@ export class Athlete {
     this.knockFree = Math.max(0, (this.knockFree || 0) - dt);
     this._skillTick(dt);
     this.stunT = Math.max(0, this.stunT - dt);
-    if (g.state === 'play' && this.energy < 1) {
-      this.energy = Math.min(1, this.energy + dt / (g.m5 ? 28 : 20));
-      if (this.energy >= 1) g.onEnergyFull?.(this);
-    }
     this.ignoreBall = Math.max(0, this.ignoreBall - dt);
     if (this.receive) { this.receive.t += dt; if (this.receive.t > this.receive.ta + 0.3) this.receive = null; }
 
@@ -717,7 +713,6 @@ export class Athlete {
       if (big) { g.hitstop = Math.max(g.hitstop, 0.06); g.shake = Math.max(g.shake, 0.12); }
       g.rumble(this, big ? 0.8 : 0.5, 90);
       if (!h.jumped) this.char.play('header', { duration: 0.45, contact: 0.3 });
-      if (h.kind === 'bicycle') g.banner('倒钩！', this.label);
       g.onKick(this, { type: 'header', power: sp / 22 }, ball.vel);
       return;
     }
@@ -1050,10 +1045,10 @@ export class Athlete {
       // running into the shot adds pace
       speed += Math.max(0, this.vel.x * k.aim.x + this.vel.z * k.aim.z) * 0.55;
     }
-    // full energy + a proper 爆射: the character's special shot
-    const special = k.type === 'kick' && p >= 0.5 && this.energy >= 1 && g.state === 'play' ? this.charDef : null;
+    // every proper 爆射 (anything firmer than a side-footed pass) is the character's special shot
+    const special = k.type === 'kick' && p >= 0.3 && g.state === 'play' ? this.charDef : null;
     if (special) {
-      speed = clamp(speed * special.speed, 26, 42);
+      speed = clamp(speed * special.speed, 20, 42);
       if (special.id !== 'gale' && special.id !== 'phantom') elev = Math.min(elev, 0.07);   // driven at body height: it goes through people
       k.perfect = true; k.over = false;
     }
@@ -1085,7 +1080,7 @@ export class Athlete {
     else spin.addScaledVector(r2, -8 * p);
     spin.y = lateral * 16 * p * (k.type === 'chip' ? 0.6 : 1) + slice * 9 * p;
     ball.strike(vel, spin, this);
-    if (special) { this.energy = 0; ball.startSpecial(special.id, this, dir); g.onSpecial?.(this, special); }
+    if (special) { ball.startSpecial(special.id, this, dir, p); g.onSpecial?.(this, special); }
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
     if (p > 0.4 && footTouched) g.fx('spark', ball.pos, { x: dir.x, z: dir.z }, Math.round(4 + 10 * p), 2 + 4 * p);

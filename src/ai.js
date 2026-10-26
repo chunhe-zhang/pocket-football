@@ -449,7 +449,6 @@ export class AIController {
     const [a, b] = this.cfg.charge;
     let power = a + Math.random() * (b - a);
     if (gd < 5) power *= 0.75;
-    if (me.energy >= 1 && !this.assist && this.cfg.skill > 0.2) power = Math.max(power, 0.62 + Math.random() * 0.2);   // let the special rip
     this.shooting = { hold: 0.05 + power * 0.8, aim, lob };
   }
 
@@ -564,9 +563,9 @@ export class AIController {
     const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z), gd = to.length();
     const near = (p, r) => opps.some((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < r);
     const pressure = near(me.pos, 1.9);
-    const range = this.cfg.shootRange * (me.energy >= 1 ? 1.5 : 1.05);
+    const range = this.cfg.shootRange * 1.15;
     const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
-    if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5 || me.energy >= 1)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
+    if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
     // look for a team-mate
     if (this.passCD <= 0) {
       const d = me.gi === 0 ? 1 : -1;

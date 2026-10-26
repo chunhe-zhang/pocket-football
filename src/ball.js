@@ -170,9 +170,9 @@ export class Ball {
   }
 
   /** a character's special shot is in flight: see _special and _bodies */
-  startSpecial(type, owner, dir) {
+  startSpecial(type, owner, dir, power = 1) {
     const l = Math.hypot(dir.x, dir.z) || 1;
-    this.special = { type, owner, t: 0, hit: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1 };
+    this.special = { type, owner, power, t: 0, hit: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1 };
     this.specialType = type;
     this.spin.set(0, 0, 0);
   }
@@ -299,7 +299,7 @@ export class Ball {
         const keeper = inOwnBox(who.gi, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
         const pierce = spc.type === 'thunder' || spc.type === 'blaze' || spc.type === 'frost' || spc.type === 'cannon';
         if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, n: [spc.dx, 0, spc.dz] }); }
-        if (pierce && !(keeper && spc.type !== 'cannon')) continue;   // straight through them
+        if (pierce && !(keeper && !(spc.type === 'cannon' && spc.power >= 0.8))) continue;   // straight through them (a full-power cannon even through the keeper)
         if (pierce) { v.multiplyScalar(0.55); }                         // the keeper takes the sting out of it
         this.endSpecial();
       } else if (spc && c.owner === spc.owner) continue;

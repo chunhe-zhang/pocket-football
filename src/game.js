@@ -524,19 +524,13 @@ export class Game {
   /** a character's special shot leaves the boot */
   onSpecial(ath, def) {
     ath.stats.specials = (ath.stats.specials || 0) + 1;
-    this.hitstop = 0.12; this.shake = Math.max(this.shake, 0.3); this.emit({ e: 'shake', v: 0.3 });
+    this.hitstop = 0.05; this.shake = Math.max(this.shake, 0.15); this.emit({ e: 'shake', v: 0.15 });
     this.sfx.kick(1); this.sfx.post(14); this.sfx.crowd(0.2, 0.6); this.sfx.ooh();
     if (def.id === 'cannon') this.sfx.board(18);
     this.fx(def.id === 'blaze' ? 'fire' : def.id === 'frost' ? 'ice' : def.id === 'thunder' ? 'bolt' : def.id === 'gale' ? 'wind' : def.id === 'phantom' ? 'ghost' : 'smoke', this.ball.pos, { x: 0, z: 0 }, 30, 5);
-    this.banner(`${def.icon} ${def.skill}！`, `${ath.label} · ${def.name}`);
     this.rumble(ath, 1, 220);
   }
 
-  /** a player's special is ready */
-  onEnergyFull(ath) {
-    const c = this.controllers[ath.team];
-    if (c && (c.type === 'human')) { this.sfx.touch(); this.ui.toast?.(`${ath.charDef.icon} ${ath.charDef.skill} 准备好了：蓄力过半的爆射就会放出来`); }
-  }
 
   /** released a shot in the sweet window */
   onPerfect(ath) { this.emit({ e: 'perfect', i: ath.team }); this.sfx.touch(); }

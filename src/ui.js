@@ -18,7 +18,7 @@ const HELP = {
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
     <b>闪身步</b><span>带球时按 <kbd>L</kbd>：带着球往旁边一闪（按左右选方向，不按就往远离对手的一边），这一下对手很难抢到</span>
-    <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。头顶彩条满了以后，蓄力过半的爆射就会变成必杀；地上的预览线会变成角色的颜色</span>
+    <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。每一脚爆射（蓄力超过 30%，轻点的传球除外）都是必杀；地上的预览线会变成角色的颜色</span>
     <b>5v5 换人</b><span><kbd>Q</kbd> 或 <kbd>I</kbd>（双人：P1 <kbd>R</kbd>，P2 <kbd>,</kbd>；手柄 Y）切到离球最近的队友，平时会自动切换</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
@@ -107,10 +107,9 @@ export class UI {
     tagsRoot.innerHTML = '';
     this.tags = game.athletes.map((a) => {
       const el = document.createElement('div'); el.className = 'tag-el';
-      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="energy"><i></i><em></em></div><div class="meter"><i></i><span class="pct"></span></div>`;
+      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
       tagsRoot.appendChild(el);
-      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i'),
-        en: el.querySelector('.energy'), enFill: el.querySelector('.energy i'), enTxt: el.querySelector('.energy em') };
+      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
     });
   }
 
@@ -127,7 +126,7 @@ export class UI {
     const cur = CHAR[this.settings.chars[who]] || CHARS[0];
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
     const m5 = this.settings.mode === 'match5';
-    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。能量条（头顶彩条）满了以后，蓄力过半的爆射就是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
   _sendMyChar() {
@@ -202,7 +201,7 @@ export class UI {
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺${this.game.m5 ? '　·　<b>Q</b> 换人' : ''}　·　能量满了蓄力过半的爆射＝必杀`
+      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺${this.game.m5 ? '　·　<b>Q</b> 换人' : ''}　·　每脚爆射都是必杀`
       : `P1：WASD + F 爆射 / G 挑射 / H 抢断　·　P2：方向键 + Enter / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -262,7 +261,13 @@ export class UI {
 
   _mmss(t) { t = Math.max(0, Math.ceil(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
 
+  // no big text flashing in the middle of the screen: the scoreboard says what happened
   banner(big, small) {
+    void big; void small;
+    $('#banner').classList.remove('show');
+  }
+
+  _bannerOld(big, small) {
     const b = $('#banner');
     if (!big) { b.classList.remove('show'); return; }
     $('#banner-big').textContent = big; $('#banner-small').textContent = small;
@@ -291,11 +296,7 @@ export class UI {
         t.lbl.innerHTML = `<span class="ci">${d.icon}</span>` + (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(nm);
         t.el.classList.toggle('side', !!s);
         if (s) t.el.style.setProperty('--sc', s.css);
-        t.en.style.setProperty('--ec', d.css);
-        t.enTxt.textContent = `${d.icon} 必杀就绪`;
       }
-      t.enFill.style.width = `${Math.round((a.energy || 0) * 100)}%`;
-      t.en.classList.toggle('full', (a.energy || 0) >= 1);
       const showing = a.charging || a.armed;
       const cv = a.armed ? a.armed.power : a.charge;
       t.meter.style.display = showing ? '' : 'none';
@@ -399,8 +400,8 @@ export class UI {
     const [a, b] = res.score;
     $('#end-title').innerHTML = `<span style="color:${TEAMS[0].css}">${TEAMS[0].cn}队</span> ${a} : ${b} <span style="color:${TEAMS[1].css}">${TEAMS[1].cn}队</span>`;
     $('#end-sub').textContent = res.win < 0 ? '平局' : `${TEAMS[res.win].cn}队赢得了比赛`;
-    $('#end-stats').innerHTML = '<tr><th>队</th><th>球员</th><th>角色</th><th>进球</th><th>射门</th><th>必杀</th></tr>' + res.players.map((r) =>
-      `<tr class="${res.win >= 0 && r.side !== res.win ? 'lose' : ''}"><td><i class="dot" style="background:${TEAMS[r.side].css}"></i></td><td>${esc(r.no)} ${esc(r.name)}</td><td>${CHAR[r.char]?.icon || ''} ${CHAR[r.char]?.name || ''}</td><td><b>${r.goals}</b></td><td>${r.shots}</td><td>${r.specials}</td></tr>`).join('');
+    $('#end-stats').innerHTML = '<tr><th>队</th><th>球员</th><th>角色</th><th>进球</th><th>射门</th></tr>' + res.players.map((r) =>
+      `<tr class="${res.win >= 0 && r.side !== res.win ? 'lose' : ''}"><td><i class="dot" style="background:${TEAMS[r.side].css}"></i></td><td>${esc(r.no)} ${esc(r.name)}</td><td>${CHAR[r.char]?.icon || ''} ${CHAR[r.char]?.name || ''}</td><td><b>${r.goals}</b></td><td>${r.shots}</td></tr>`).join('');
     $('#btn-again').classList.toggle('hidden', g.role === 'guest');
     $('#btn-again').textContent = g.role === 'host' ? '回到房间' : '再来一局';
     $('#end').classList.add('show');

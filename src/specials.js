@@ -97,7 +97,7 @@ export class SpecialFx {
     for (let i = 0; i < this.rings.length; i++) {
       const a = A[i], ring = this.rings[i], ice = this.ice[i];
       const live = a && !a.out && game.state !== 'menu';
-      const ready = live && a.energy >= 1;
+      const ready = false;   // every shot is a special now: no 'ready' ring
       ring.visible = ready;
       if (ready) {
         const d = a.charDef;

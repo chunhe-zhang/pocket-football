@@ -151,8 +151,7 @@ export const SIDES = [
 export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 
 // ---- characters: everyone has their own special shot -----------------------------------
-// The energy bar fills during play; once it's full, the next 爆射 struck at half power or more
-// becomes the special shot.
+// Every 爆射 firmer than a side-footed pass (30% charge or more) is the special shot.
 export const CHARS = [
   { id: 'thunder', name: '雷霆', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
     desc: '贯穿人墙，碰到的人全身麻痹', speed: 1.38 },
@@ -165,7 +164,7 @@ export const CHARS = [
   { id: 'phantom', name: '幻影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
     desc: '球忽隐忽现，门将来不及反应', speed: 1.24 },
   { id: 'cannon', name: '巨炮', skill: '重炮射门', icon: '💣', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
-    desc: '最快最重，门将也挡不住，撞谁谁倒', speed: 1.5 },
+    desc: '最快最重，撞谁谁倒，蓄满时连门将也挡不住', speed: 1.5 },
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
 export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
