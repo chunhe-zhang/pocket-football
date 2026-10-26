@@ -69,7 +69,7 @@ export class Athlete {
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
     this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
-    this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0;
+    this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0; this.holding = null; this._ready = false;
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
     this._sync(0);
@@ -180,7 +180,7 @@ export class Athlete {
     const pressedKick = it.kick && !this._prevKick, pressedLob = it.lob && !this._prevLob;
     this._prevKick = it.kick; this._prevLob = it.lob;
     if (this.header) this._headerMotionTick(dt);
-    if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0) { this.charging = false; this.charge = 0; }
+    if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0 || this.holding) { this.charging = false; this.charge = 0; }
     else if (!this.kick && !this.header) {
       if ((pressedKick || pressedLob) && !this.charging && g.state === 'play' && (this._headerChance() || (pressedLob && this._headerChance(true)))) {
         this._startHeader(pressedLob);
@@ -215,6 +215,7 @@ export class Athlete {
     if (this.faceT > 0) { this.faceT -= dt; if (this.faceT <= 0) this.char.face('aa', 0); }
     this.trapT = Math.max(0, this.trapT - dt);
 
+    this._keeperTick(dt);
     // ---- movement ---------------------------------------------------------
     const ballPos = g.ball.pos;
     if (this.dive) this._diveMotion(dt);
@@ -232,6 +233,7 @@ export class Athlete {
       if (this.charging) target *= 0.55;
       if (this.receive && this.receive.type !== 'trapFoot') target *= 0.6; // settle under a dropping ball
       if (this.frozen) target = 0;
+      if (this.holding) target = this.holding.release ? 0 : Math.min(target, PLAYER.walkSpeed);   // keeper with the ball in his hands
       if (this.burstT > 0) target *= 1.3;                 // after a knock-on / feint: explode away
       target *= this.speedMul;
       // speed strips: faster running with the arrows, heavy going against them
@@ -271,7 +273,8 @@ export class Athlete {
 
       // facing
       let want = null;
-      if (this.trick) want = this._skillFacing();
+      if (this.holding) want = Math.atan2(this.home.inward.x, this.home.inward.z);   // keeper with the ball: face the pitch
+      else if (this.trick) want = this._skillFacing();
       else if (this.header && !this.header.hit) { const d = this.header.aim; want = this.header.bike ? Math.atan2(-d.x, -d.z) : Math.atan2(d.x, d.z); }
       else if (this.charging) { const d = this.aimDir(this._w); want = Math.atan2(d.x, d.z); }
       else if (this.armed && this.vel.length() < 2) { const d = this.armedAim(this._w); want = Math.atan2(d.x, d.z); }
@@ -392,7 +395,7 @@ export class Athlete {
         if (o === this || sl.hit.has(o) || o.slide || g.sameSide(this.team, o.team)) continue;
         const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         const ahead = (dx * sl.dir.x + dz * sl.dir.z) / (d || 1);
-        if (d < 0.85 && ahead > 0.2) { sl.hit.add(o); o.knock(sl.dir, sp); g.sfx.bump(sp); g.rumble(this, 0.4, 70); }
+        if (d < 0.85 && ahead > 0.2) { sl.hit.add(o); if (sp > 3) o.fall(sl.dir, sp); else o.knock(sl.dir, sp); g.sfx.bump(sp); g.rumble(this, 0.4, 70); }
       }
     }
     if (sl.t >= sl.total) { this.slide = null; this.vel.set(0, 0, 0); }
@@ -417,7 +420,7 @@ export class Athlete {
     }
     const side = s >= 0 ? 'Right' : 'Left';
     const dir = right.clone().multiplyScalar(s >= 0 ? 1 : -1);
-    this.dive = { t: 0, dur: 1.15, dir, speed0: 5.6, side };
+    this.dive = { t: 0, dur: 1.15, dir, speed0: this.role === 'gk' ? 7.2 : 5.6, side };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
     this.slideCD = 1.4;
     this.char.play('dive', { side, duration: 1.15 });
@@ -448,6 +451,86 @@ export class Athlete {
     this.game.rumble(this, 0.8, 140);
   }
 
+  /** knocked clean off my feet: hit the deck (face down if shoved from behind, else on my back), then get up */
+  fall(dir, strength = 6) {
+    if (this.frozen) return;
+    this.knock(dir, strength);
+    const f = this.forward, fromBehind = dir.x * f.x + dir.z * f.z > 0;
+    this.stunT = 1.35;
+    this.vel.copy(dir).multiplyScalar(Math.min(6, 1.5 + strength * 0.35));
+    this.char.play(fromBehind ? 'fallF' : 'fallB', { duration: 1.5 });
+    this.game.fx?.('dust', { x: this.pos.x + dir.x * 0.6, y: 0.05, z: this.pos.z + dir.z * 0.6 }, { x: dir.x, z: dir.z }, 10, 1.5);
+  }
+
+  // ---- goalkeeper (5v5): ready stance, catching, throwing it out --------------------------
+  get isKeeper() { return this.role === 'gk'; }
+
+  /** the ball arrived at my body: hold on to it if it's catchable */
+  tryCatch(part, v) {
+    const g = this.game, b = g.ball;
+    if (!this.isKeeper || g.state !== 'play' || this.holding || b.heldBy || b.noCatchT > 0 || this.stunT > 0) return false;
+    if (!inOwnBox(this.gi, this.pos.x, this.pos.z) || part === 'foot' || part === 'shin') return false;
+    const limit = this.dive ? 18 : 27;
+    if (v > limit || Math.random() < 0.15 + 0.5 * Math.max(0, (v - 14) / 14) ** 2) return false;   // too hot to hold: it's parried
+    b.hold(this);
+    this.holding = { t: 0 };
+    this.char.play('gkHold');
+    g.sfx.body(Math.min(10, v)); g.rumble(this, 0.4, 80);
+    return true;
+  }
+
+  /** where the ball sits while I'm holding it */
+  handPos(out) {
+    const f = this.forward;
+    return out.set(this.pos.x + f.x * 0.42, this.dive ? 0.45 : 0.98, this.pos.z + f.z * 0.42);
+  }
+
+  /** throw it out to a team-mate (or launch it up the pitch when there's nobody) */
+  distribute(to) {
+    const g = this.game, b = g.ball;
+    if (!this.holding || b.heldBy !== this) return;
+    this.char.stopEmotes();
+    this.char.play('gkThrow', { duration: 0.7 });
+    this.holding.release = { t: 0, to };
+  }
+
+  _keeperTick(dt) {
+    const g = this.game, b = g.ball;
+    if (!this.isKeeper) return;
+    if (this.holding) {
+      const h = this.holding; h.t += dt;
+      if (b.heldBy !== this) { this.holding = null; this.char.stopEmotes(); return; }
+      if (h.release) {
+        h.release.t += dt;
+        if (h.release.t >= 0.3) {
+          const to = h.release.to;
+          let vx, vz, vy, sp;
+          if (to) {
+            const t = this.passLead(to, 0.25);
+            const dx = t.x - this.pos.x, dz = t.z - this.pos.z, d = Math.hypot(dx, dz) || 1;
+            sp = clamp(6 + d * 0.75, 8, 18); vx = (dx / d) * sp; vz = (dz / d) * sp; vy = 1.2 + d * 0.06;
+            this.passTarget = to; this.intendTo = null;
+          } else {
+            const f = this.home.inward; sp = 17; vx = f.x * sp; vz = f.z * sp + (Math.random() - 0.5) * 6; vy = 7;
+            this.passTarget = null;
+          }
+          b.release();
+          b.strike(new THREE.Vector3(vx, vy, vz), new THREE.Vector3(), this);
+          this.lastTouchTime = g.time; this.passT = this.passTarget ? g.time : -1;
+          this.ignoreBall = 0.35; this.touchCD = 0.5;
+          this.holding = null;
+          g.sfx.kick(0.3);
+        }
+      }
+      return;
+    }
+    // set on the toes when the ball is coming my way
+    const near = Math.hypot(b.pos.x - this.home.centre.x, b.pos.z - this.home.centre.z) < 15;
+    const want = g.state === 'play' && near && !this.dive && !this.kick && this.stunT <= 0 && this.vel.length() < 2.6;
+    if (want && !this._ready) { this._ready = true; this.char.play('gkReady'); }
+    else if (!want && this._ready) { this._ready = false; this.char.stopEmotes(); }
+  }
+
   /** hit by a special shot: lightning paralyses, fire bowls you over, ice freezes you solid, the cannon flattens you */
   zap(kind, dir) {
     if (this.frozen) return;
@@ -460,10 +543,7 @@ export class Athlete {
       this.stunT = 1.3;
       this.char.play('stagger', { duration: 1.4 }); this.char.face('surprised', 1); this.faceT = 1.3;
     } else {
-      const s = kind === 'cannon' ? 11 : 8;
-      this.knock(dir, s); this.vel.copy(dir).multiplyScalar(s * 0.75);
-      this.stunT = kind === 'cannon' ? 1.2 : 1.0;
-      this.char.play('stagger', { duration: this.stunT + 0.2 });
+      this.fall(dir, kind === 'cannon' ? 11 : 8);
     }
     this.game.rumble(this, 1, 260);
   }
@@ -508,6 +588,7 @@ export class Athlete {
 
   /** did the standing tackle win the ball? depends on angle, shielding and timing */
   _resolvePoke() {
+    if (this.game.ball.heldBy) { this.poke && (this.poke.ok = false); return; }   // the keeper has it in his hands
     const g = this.game, ball = g.ball, pk = this.poke;
     const carrier = g.possessor && g.possessor !== this ? g.possessor : (ball.lastTouch && ball.lastTouch !== this && ball.lastTouch.dribbling ? ball.lastTouch : null);
     let chance = 1;
@@ -634,6 +715,7 @@ export class Athlete {
   // ---- headers / bicycle kicks -------------------------------------------------------------
   /** is there a ball in the air I could get to with my head (or, bike = true, an overhead kick)? */
   _headerChance(bike = false) {
+    if (this.game.ball.heldBy) return false;
     const b = this.game.ball;
     if (b.pos.y < 0.45 && b.vel.y < 1.5) return false;          // on the ground: that's a kick
     return !!this._headerSpot(PLAYER.runSpeed * this.speedMul, bike);
@@ -916,6 +998,7 @@ export class Athlete {
   /** could a strike started now meet the ball at the contact moment? */
   _inStrikeReach(type) {
     const ball = this.game.ball;
+    if (ball.heldBy) return false;
     const d = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
     if (ball.pos.y > (type === 'chip' ? 0.55 : 0.9)) return false;
     if (d < 0.75) return true;
@@ -1097,6 +1180,7 @@ export class Athlete {
   /** automatic ball control: first touch, dribbling, shielding */
   handleBall(dt) {
     const g = this.game, ball = g.ball;
+    if (ball.heldBy) { this.dribbling = false; return false; }      // in the keeper's hands
     if (this.frozen) { this.dribbling = false; return false; }
     if (this.kick && this.kick.t < this.kick.contactT + 0.1) { this.dribbling = false; return false; }
     const f = this.forward, r = this.rightDir;

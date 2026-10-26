@@ -403,7 +403,7 @@ export class Game {
     const loser = this.athletes[team];
     this.focus = own ? loser : toucher;
     for (const a of this.athletes) { a.frozen = true; a.charging = false; }
-    if (!own) toucher.char.play('celebrate');
+    if (!own) toucher.char.play(this._celebration());
     loser.char.play('deject');
     const livesLeft = this.lives - this.conceded[team];
     if (livesLeft <= 0) {
@@ -434,7 +434,7 @@ export class Game {
     this.focus = toucher || null;
     for (const a of this.athletes) {
       a.frozen = true; a.charging = false;
-      if (a.gi === side && (a === toucher || Math.random() < 0.5)) a.char.play('celebrate'); else if (a.gi === team && a.role === 'gk') a.char.play('deject');
+      if (a.gi === side && (a === toucher || Math.random() < 0.5)) a.char.play(this._celebration()); else if (a.gi === team && a.role === 'gk') a.char.play('deject');
     }
     const sc = `${TEAMS[0].cn} ${this.conceded[1]} : ${this.conceded[0]} ${TEAMS[1].cn}`;
     const who = own ? `${toucher ? toucher.label : ''} 乌龙球` : `${toucher.label} 为${TEAMS[side].cn}队进球`;
@@ -443,6 +443,8 @@ export class Game {
     this.ui.onScore(this);
     this.emit({ e: 'focus', i: this.focus ? this.focus.team : -1 });
   }
+
+  _celebration() { return ['celebrate', 'kneeSlide', 'airplane', 'fistPump'][Math.floor(Math.random() * 4)]; }
 
   _end5() {
     this.state = 'ended'; this.timer = 2.4;
@@ -688,6 +690,7 @@ export class Game {
       case 'wheel': this.sfx.post(6); this.pitch.pulse('wheel', e.x, e.z); this.emit({ e: 'pulse', k: 'wheel', x: e.x, z: e.z }); break;
       case 'body': {
         const a = e.who;
+        if (this.m5 && a.tryCatch(e.part, e.v)) break;
         if (a.completeReceive(e.part)) break;
         // an unplanned contact: the ball simply bounced off this player
         this.ball.lastTouch = a; a.lastTouchTime = this.time;
@@ -718,7 +721,8 @@ export class Game {
           // a hard shoulder-to-shoulder: the slower runner is pushed off balance
           const sa = a.vel.length(), sb = b.vel.length();
           const loser = sa < sb ? a : b, sgn = loser === a ? -1 : 1;
-          loser.knock(new THREE.Vector3(nx * sgn, 0, nz * sgn), closing * 0.6);
+          const push = new THREE.Vector3(nx * sgn, 0, nz * sgn);
+          if (closing > 9) loser.fall(push, closing * 0.6); else loser.knock(push, closing * 0.6);
           this.sfx.bump(closing);
         }
         // inelastic contact: whatever closing speed is left is shared out, so players lean

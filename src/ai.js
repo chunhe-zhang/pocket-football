@@ -123,11 +123,11 @@ export class AIController {
     const me = this.me, g = this.game, ball = g.ball, it = me.intent;
     if (me.dive || me.slide || me.slideCD > 0 || !inOwnBox(me.gi, me.pos.x, me.pos.z)) return false;
     if (me.role && me.role !== 'gk') return false;               // 5v5: only the goalkeeper dives
-    if (ball.special && ball.special.owner?.gi !== me.gi && ball.specialType === 'phantom') return false;   // never saw it
     const home = me.home, v = ball.vel, sp = Math.hypot(v.x, v.z);
     // decide once per shot whether I react at all (easier CPUs sometimes freeze)
     const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
-    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < this.cfg.guard; }
+    const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? Math.max(0.8, this.cfg.guard + 0.2) : this.cfg.guard) * (ball.specialType === 'phantom' ? 0.4 : 1); }   // the phantom shot is hard to pick up
     if (!this._willDive) return false;
     if (sp < 7 || ball.pos.y > 1.6) return false;
     // time until the ball reaches my position along the goal's inward axis
@@ -136,14 +136,14 @@ export class AIController {
     const myDepth = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
     const ballDepth = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
     const t = (ballDepth - myDepth) / toward;
-    if (t <= 0 || t > 0.45 + 0.1 * this.cfg.skill) return false;
+    if (t <= 0 || t > (gk ? 0.62 : 0.45) + 0.1 * this.cfg.skill) return false;
     const cx = ball.pos.x + v.x * t, cz = ball.pos.z + v.z * t;
     // only if it's heading for the goal mouth
     const along = home.axis === 'x' ? 'z' : 'x';
     const atLine = ball.pos[along] + v[along] * ((ballDepth) / toward);
     if (Math.abs(atLine) > FIELD.goalHalfW + 0.4) return false;
     const off = Math.hypot(cx - me.pos.x, cz - me.pos.z);
-    if (off < 0.45 || off > 2.4) return false;
+    if (off < (gk ? 0.35 : 0.45) || off > (gk ? 3 : 2.4)) return false;
     it.move.set(cx - me.pos.x, cz - me.pos.z).normalize();
     it.tackle = true; it.kick = it.lob = false;
     return true;
@@ -492,6 +492,14 @@ export class AIController {
       return;
     }
     if (iHave) { this._carry5(mates, opps); return; }
+    // a keeper has it in his hands
+    if (ball.heldBy) {
+      if (ball.heldBy === me) { this._gkDistribute(mates, opps); return; }
+      if (me.role === 'gk') { this._gk5(); return; }
+      const s = this._slot5(ball.heldBy.gi === me.gi);
+      this._goTo(s.x, s.z, 1, 8);
+      return;
+    }
     // who on my side goes for the ball: whoever gets there first (the keeper only in the box)
     const pred = ball.predict(clamp(myDist / 6, 0, 0.8));
     const inBox = inOwnBox(me.gi, bp.x, bp.z);
@@ -510,6 +518,23 @@ export class AIController {
     }
     const s = this._slot5(ours || (lt && lt.gi === me.gi && fresh));
     this._goTo(s.x, s.z, 1.2, 8);
+  }
+
+  /** ball in my hands: have a look, then throw it to a free team-mate (or launch it) */
+  _gkDistribute(mates, opps) {
+    const me = this.me;
+    this.plan.move.set(0, 0); this.plan.sprint = false;
+    if (!me.holding || me.holding.release || me.holding.t < 0.9 + Math.random() * 0.3) return;
+    let best = null, bestS = -Infinity;
+    for (const m of mates) {
+      const d = Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z);
+      if (m.role === 'gk' || d < 5 || d > 26) continue;
+      const free = Math.min(5, Math.min(...opps.map((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z))));
+      if (free < 2.5 || this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)) continue;
+      const sc = free - d * 0.08 + (this._isHuman(m) ? 2 : 0);
+      if (sc > bestS) { bestS = sc; best = m; }
+    }
+    me.distribute(best);
   }
 
   _gk5() {

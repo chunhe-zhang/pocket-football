@@ -154,6 +154,7 @@ export class Ball {
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
     this.lastTouch = null; this.goalTeam = -1;
     this.special = null; this.specialType = null;
+    this.heldBy = null;
     this.sq.amp = 0;
     this.trail.reset(this.pos);
     this.sync();
@@ -168,6 +169,14 @@ export class Ball {
     this.lastTouch = by;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
+
+  /** a goalkeeper catches it: it sits in his hands until he lets go */
+  hold(keeper) {
+    this.endSpecial();
+    this.heldBy = keeper; this.lastTouch = keeper;
+    this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
+  }
+  release() { this.heldBy = null; }
 
   /** a character's special shot is in flight: see _special and _bodies */
   startSpecial(type, owner, dir, power = 1) {
@@ -192,6 +201,12 @@ export class Ball {
   update(dt) {
     this.events.length = 0;
     this._hit.clear();
+    this.noCatchT = Math.max(0, (this.noCatchT || 0) - dt);
+    if (this.heldBy) {
+      const k = this.heldBy;
+      if (k.out || !k.holding) this.heldBy = null;
+      else { k.handPos(this.pos); this.vel.set(0, 0, 0); this.sync(dt); return this.events; }
+    }
     const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
     const h = dt / steps;
     for (let i = 0; i < steps; i++) this._step(h, (i + 1) / steps);
@@ -301,6 +316,7 @@ export class Ball {
         if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, n: [spc.dx, 0, spc.dz] }); }
         if (pierce && !(keeper && !(spc.type === 'cannon' && spc.power >= 0.8))) continue;   // straight through them (a full-power cannon even through the keeper)
         if (pierce) { v.multiplyScalar(0.55); }                         // the keeper takes the sting out of it
+        this.noCatchT = 0.3;                                            // a special shot is never held: it's beaten away
         this.endSpecial();
       } else if (spc && c.owner === spc.owner) continue;
       p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);

@@ -71,6 +71,8 @@ const KICK = (c) => ({
   armFwdR:[[0, 0], [0.2, 0.35], [c, -0.4], [c + 0.13, -0.55], [0.75, -0.15], [1, 0]],
   armOutR:[[0, 0], [0.2, 0.25], [c, 0.35], [0.75, 0.15], [1, 0]],
   drop:   [[0, 0], [0.2, -0.04], [c, -0.08], [c + 0.16, -0.06], [0.75, -0.02], [1, 0]],
+  hop:    [[0, 0], [c + 0.06, 0], [c + 0.2, 0.1], [c + 0.34, 0.02], [0.8, 0], [1, 0]],   // follow-through skip
+  headUp: [[0, 0], [0.2, -0.15], [c, -0.3], [c + 0.2, -0.1], [1, 0]],                 // eyes on the ball at contact
 });
 
 const CHIP = (c) => ({
@@ -336,6 +338,103 @@ const SIDESTEP = {
   armOutR: [[0, 0], [0.3, 0.5], [1, 0]],
 };
 
+// falling over (tackled, flattened by a shot) and getting back up: face down / on the back
+const FALL_F = {
+  body:    [[0, 0], [0.12, -0.6], [0.26, -1.42], [0.56, -1.45], [0.72, -0.9], [0.88, -0.25], [1, 0]],
+  drop:    [[0, 0], [0.12, -0.2], [0.26, -0.66], [0.56, -0.68], [0.72, -0.5], [0.88, -0.16], [1, 0]],
+  armFwdL: [[0, 0], [0.18, 1.3], [0.3, 1.0], [0.6, 1.1], [0.75, 0.5], [1, 0]],
+  armFwdR: [[0, 0], [0.18, 1.3], [0.3, 1.0], [0.6, 1.1], [0.75, 0.5], [1, 0]],
+  elbowL:  [[0, 0], [0.3, 0.4], [0.62, 1.2], [0.75, 0.3], [1, 0]],
+  elbowR:  [[0, 0], [0.3, 0.4], [0.62, 1.2], [0.75, 0.3], [1, 0]],
+  headUp:  [[0, 0], [0.26, 0.6], [0.56, 0.5], [0.8, 0.2], [1, 0]],
+  thigh:   [[0, 0], [0.26, -0.25], [0.6, -0.2], [0.75, 0.6], [0.9, 0.3], [1, 0]],
+  knee:    [[0, 0], [0.26, 0.5], [0.6, 0.6], [0.75, 1.4], [0.9, 0.6], [1, 0]],
+  supThigh:[[0, 0], [0.26, -0.15], [0.62, -0.1], [0.78, 0.9], [0.92, 0.3], [1, 0]],
+  supKnee: [[0, 0], [0.26, 0.3], [0.62, 0.4], [0.78, 1.5], [0.92, 0.6], [1, 0]],
+};
+const FALL_B = {
+  body:    [[0, 0], [0.12, 0.55], [0.26, 1.35], [0.56, 1.4], [0.72, 0.8], [0.88, 0.22], [1, 0]],
+  drop:    [[0, 0], [0.12, -0.25], [0.26, -0.7], [0.56, -0.72], [0.72, -0.5], [0.88, -0.15], [1, 0]],
+  thigh:   [[0, 0], [0.2, 0.9], [0.32, 0.6], [0.56, 0.5], [0.72, 1.2], [0.9, 0.4], [1, 0]],
+  knee:    [[0, 0], [0.2, 0.4], [0.56, 0.7], [0.72, 1.6], [0.9, 0.6], [1, 0]],
+  supThigh:[[0, 0], [0.22, 0.6], [0.56, 0.4], [0.75, 1.3], [0.92, 0.3], [1, 0]],
+  supKnee: [[0, 0], [0.22, 0.3], [0.56, 0.9], [0.75, 1.6], [0.92, 0.5], [1, 0]],
+  armOutL: [[0, 0], [0.18, 1.6], [0.3, 0.9], [0.6, 0.6], [1, 0]],
+  armOutR: [[0, 0], [0.18, 1.6], [0.3, 0.9], [0.6, 0.6], [1, 0]],
+  armFwdL: [[0, 0], [0.56, -0.5], [0.72, -0.9], [0.88, -0.2], [1, 0]],
+  armFwdR: [[0, 0], [0.56, -0.5], [0.72, -0.9], [0.88, -0.2], [1, 0]],
+  headUp:  [[0, 0], [0.26, 0.5], [0.56, 0.6], [1, 0]],
+};
+
+// goalkeeper: set on the toes, knees bent, hands ready; and cradling a caught ball
+const GK_READY = {
+  drop:    [[0, -0.18], [0.5, -0.21], [1, -0.18]],
+  lean:    [[0, 0.32], [1, 0.32]],
+  knee:    [[0, 0.8], [0.5, 0.88], [1, 0.8]],
+  supKnee: [[0, 0.8], [0.5, 0.88], [1, 0.8]],
+  thigh:   [[0, 0.42], [1, 0.42]],
+  supThigh:[[0, 0.42], [1, 0.42]],
+  armFwdL: [[0, 0.55], [1, 0.55]],
+  armFwdR: [[0, 0.55], [1, 0.55]],
+  armOutL: [[0, 0.15], [0.5, 0.22], [1, 0.15]],
+  armOutR: [[0, 0.15], [0.5, 0.22], [1, 0.15]],
+  elbowL:  [[0, 0.5], [1, 0.5]],
+  elbowR:  [[0, 0.5], [1, 0.5]],
+  headUp:  [[0, -0.15], [1, -0.15]],
+};
+const GK_HOLD = {
+  armFwdL: [[0, 0.8], [1, 0.8]],
+  armFwdR: [[0, 0.8], [1, 0.8]],
+  armOutL: [[0, -0.9], [1, -0.9]],
+  armOutR: [[0, -0.9], [1, -0.9]],
+  lean:    [[0, 0.1], [1, 0.1]],
+  headUp:  [[0, -0.25], [1, -0.25]],
+};
+// overarm throw out to a team-mate (release at 0.45)
+const GK_THROW = {
+  armFwdR: [[0, 0.8], [0.3, -0.6], [0.45, 1.6], [0.7, 0.9], [1, 0]],
+  armOutR: [[0, -0.9], [0.3, 1.5], [0.45, 0.6], [1, 0]],
+  armFwdL: [[0, 0.8], [0.3, 0.6], [0.45, 0.2], [1, 0]],
+  armOutL: [[0, -0.9], [0.3, 0.8], [1, 0]],
+  lean:    [[0, 0.1], [0.3, -0.25], [0.5, 0.35], [0.8, 0.1], [1, 0]],
+  twist:   [[0, 0], [0.3, -0.5], [0.5, 0.4], [1, 0]],
+  thigh:   [[0, 0], [0.3, 0.3], [0.5, 0.1], [1, 0]],
+  supKnee: [[0, 0], [0.3, 0.3], [0.5, 0.45], [1, 0]],
+};
+
+// goal celebrations
+const CELEB_KNEE = {    // on the knees, leaning back, arms flung wide
+  drop:    [[0, -0.55], [1, -0.55]],
+  body:    [[0, 0.35], [0.5, 0.42], [1, 0.35]],
+  thigh:   [[0, -0.15], [1, -0.15]],
+  knee:    [[0, 1.75], [1, 1.75]],
+  supThigh:[[0, -0.15], [1, -0.15]],
+  supKnee: [[0, 1.75], [1, 1.75]],
+  armOutL: [[0, 1.9], [0.5, 2.1], [1, 1.9]],
+  armOutR: [[0, 1.9], [0.5, 2.1], [1, 1.9]],
+  headUp:  [[0, 0.55], [1, 0.55]],
+};
+const CELEB_PLANE = {   // arms out like wings, banking from side to side
+  armOutL: [[0, 1.55], [1, 1.55]],
+  armOutR: [[0, 1.55], [1, 1.55]],
+  roll:    [[0, -0.28], [0.5, 0.28], [1, -0.28]],
+  lean:    [[0, 0.18], [1, 0.18]],
+  hop:     [[0, 0], [0.25, 0.08], [0.5, 0], [0.75, 0.08], [1, 0]],
+  headUp:  [[0, 0.2], [1, 0.2]],
+};
+const CELEB_FIST = {    // leap with a punch at the sky
+  hop:     [[0, 0], [0.15, -0.05], [0.35, 0.42], [0.55, 0.05], [0.7, 0], [1, 0]],
+  drop:    [[0, 0], [0.15, -0.14], [0.3, 0], [0.6, -0.1], [0.8, 0], [1, 0]],
+  armOutR: [[0, 0.6], [0.3, 2.9], [0.6, 2.7], [1, 0.6]],
+  elbowR:  [[0, 1.4], [0.3, 0.3], [0.6, 0.6], [1, 1.4]],
+  armOutL: [[0, 0.3], [0.3, 0.6], [1, 0.3]],
+  elbowL:  [[0, 1.2], [1, 1.2]],
+  knee:    [[0, 0], [0.35, 1.2], [0.6, 0.2], [1, 0]],
+  supKnee: [[0, 0.2], [0.35, 0.7], [0.6, 0.3], [1, 0.2]],
+  headUp:  [[0, 0.3], [0.35, 0.6], [1, 0.3]],
+  lean:    [[0, 0], [0.35, -0.2], [1, 0]],
+};
+
 // roll: + tips the whole body over sideways towards the dive side.
 const DIVE = {
   roll:    [[0, 0], [0.07, 0.6], [0.2, 1.42], [0.58, 1.48], [0.8, 0.75], [1, 0]],
@@ -484,13 +583,21 @@ export class Character {
       case 'trapThigh': g = new Gesture('trapThigh', opts.duration ?? 0.55, TRAP_THIGH(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
       case 'trapChest': g = new Gesture('trapChest', opts.duration ?? 0.55, TRAP_CHEST(c), { fadeIn: 0.06, fadeOut: 0.14, ...opts }); break;
       case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
+      case 'fallF': g = new Gesture('fallF', opts.duration ?? 1.5, FALL_F, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
+      case 'fallB': g = new Gesture('fallB', opts.duration ?? 1.5, FALL_B, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
+      case 'gkReady': g = new Gesture('gkReady', 1.4, GK_READY, { loop: true, fadeIn: 0.25, fadeOut: 0.2, ...opts }); break;
+      case 'gkHold': g = new Gesture('gkHold', 1, GK_HOLD, { loop: true, fadeIn: 0.1, fadeOut: 0.15, ...opts }); break;
+      case 'gkThrow': g = new Gesture('gkThrow', opts.duration ?? 0.7, GK_THROW, { fadeIn: 0.05, fadeOut: 0.15, ...opts }); break;
+      case 'kneeSlide': g = new Gesture('kneeSlide', 1.2, CELEB_KNEE, { loop: true, fadeIn: 0.25, fadeOut: 0.3, ...opts }); break;
+      case 'airplane': g = new Gesture('airplane', 1.3, CELEB_PLANE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
+      case 'fistPump': g = new Gesture('fistPump', 1.0, CELEB_FIST, { loop: true, fadeIn: 0.1, fadeOut: 0.3, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
+    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive', 'fallF', 'fallB', 'gkThrow'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);
-    if (name === 'celebrate') { this.face('happy', 1); }
+    if (name === 'celebrate' || name === 'kneeSlide' || name === 'airplane' || name === 'fistPump') { this.face('happy', 1); }
     if (name === 'deject') { this.face('sad', 0.9); }
     return g;
   }
