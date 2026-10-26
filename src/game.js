@@ -792,7 +792,8 @@ export class Game {
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     } else {
       // distance chosen so the pitch plus its goals fit the screen at this aspect
-      const fit = Math.max(1, 1.62 / aspect) * (FIELD.half / 9);
+      // fit the whole pitch (it may be a long rectangle) plus its goals at this aspect
+      const fit = FIELD.hx > FIELD.hz ? Math.max(FIELD.hz / 9, (FIELD.hx / 9) * (1.42 / aspect)) : Math.max(1, 1.62 / aspect) * (FIELD.half / 9);
       if (CAM_MODES[this.camMode] === 'high') { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
       else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
       // ease into the fixed spot when leaving the menu, then hold perfectly still
