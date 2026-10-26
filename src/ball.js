@@ -294,6 +294,7 @@ export class Ball {
     const p = this.pos, v = this.vel, A = this._ca || (this._ca = new THREE.Vector3()), B = this._cb || (this._cb = new THREE.Vector3());
     const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
+      if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
       A.copy(c.prev).lerp(c.pos, u);
       let s = 0;
       if (c.b) {

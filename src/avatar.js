@@ -396,7 +396,9 @@ export function dyeHair(root, color) {
         t = _dyeCache.get(key);
         if (!t) { t = tintedTexture(src, color, null, 'color'); _dyeCache.set(key, t); }
       }
-      m.map = t; m.emissiveMap = t; m.needsUpdate = true;
+      m.userData.dyeMap = t;
+      if (m.map) { m.map = t; m.emissiveMap = t; }   // (not while frozen into an ice statue)
+      m.needsUpdate = true;
     }
   });
 }

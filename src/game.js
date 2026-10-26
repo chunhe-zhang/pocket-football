@@ -711,6 +711,7 @@ export class Game {
     const A = this.live, min = 0.62;
     for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) {
       const a = A[i], b = A[j];
+      if ((a.power && a.power.type !== 'cannon') || (b.power && b.power.type !== 'cannon')) continue;   // dashing / flying / teleporting past
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
       if (d < min && d > 1e-4) {
         const push = (min - d) / 2, nx = dx / d, nz = dz / d;
@@ -1004,7 +1005,7 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
-      case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = 1.8; break; }
+      case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }

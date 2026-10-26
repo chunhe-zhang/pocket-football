@@ -435,6 +435,39 @@ const CELEB_FIST = {    // leap with a punch at the sky
   lean:    [[0, 0], [0.35, -0.2], [1, 0]],
 };
 
+// character moves: a low sprinter's dash, a tucked spinning leap, a chest-out roar
+const DASH = {
+  lean:    [[0, 0], [0.15, 0.5], [0.8, 0.5], [1, 0]],
+  drop:    [[0, 0], [0.15, -0.12], [0.8, -0.12], [1, 0]],
+  armFwdL: [[0, 0], [0.15, -0.9], [0.8, -0.9], [1, 0]],
+  armFwdR: [[0, 0], [0.15, -0.9], [0.8, -0.9], [1, 0]],
+  armOutL: [[0, 0], [0.15, 0.3], [1, 0]],
+  armOutR: [[0, 0], [0.15, 0.3], [1, 0]],
+  headUp:  [[0, 0], [0.15, 0.35], [0.8, 0.35], [1, 0]],
+};
+const GALE_LEAP = {
+  hop:     [[0, 0], [0.1, -0.06], [0.5, 1.15], [0.9, 0.05], [1, 0]],
+  drop:    [[0, 0], [0.1, -0.14], [0.22, 0], [0.88, -0.12], [1, 0]],
+  thigh:   [[0, 0], [0.2, 0.9], [0.5, 1.1], [0.85, 0.3], [1, 0]],
+  knee:    [[0, 0], [0.2, 1.6], [0.5, 1.8], [0.85, 0.5], [1, 0]],
+  supThigh:[[0, 0], [0.2, 0.7], [0.5, 1.0], [0.85, 0.3], [1, 0]],
+  supKnee: [[0, 0], [0.2, 1.4], [0.5, 1.7], [0.85, 0.6], [1, 0]],
+  armOutL: [[0, 0], [0.2, 1.5], [0.5, 1.6], [0.85, 0.8], [1, 0]],
+  armOutR: [[0, 0], [0.2, 1.5], [0.5, 1.6], [0.85, 0.8], [1, 0]],
+  lean:    [[0, 0], [0.5, 0.3], [1, 0]],
+};
+const ROAR = {
+  lean:    [[0, 0], [0.3, 0.25], [0.5, -0.35], [0.85, -0.25], [1, 0]],
+  drop:    [[0, 0], [0.3, -0.18], [0.5, -0.06], [1, 0]],
+  knee:    [[0, 0], [0.3, 0.55], [0.5, 0.25], [1, 0]],
+  supKnee: [[0, 0], [0.3, 0.55], [0.5, 0.25], [1, 0]],
+  armOutL: [[0, 0], [0.3, 0.3], [0.5, 1.9], [0.85, 1.8], [1, 0]],
+  armOutR: [[0, 0], [0.3, 0.3], [0.5, 1.9], [0.85, 1.8], [1, 0]],
+  elbowL:  [[0, 0], [0.3, 1.2], [0.5, 0.3], [1, 0]],
+  elbowR:  [[0, 0], [0.3, 1.2], [0.5, 0.3], [1, 0]],
+  headUp:  [[0, 0], [0.3, -0.3], [0.5, 0.55], [0.85, 0.5], [1, 0]],
+};
+
 // roll: + tips the whole body over sideways towards the dive side.
 const DIVE = {
   roll:    [[0, 0], [0.07, 0.6], [0.2, 1.42], [0.58, 1.48], [0.8, 0.75], [1, 0]],
@@ -509,6 +542,21 @@ export class Character {
     this.phaseOffset = cache.phaseOffset;
     this.natural = cache.natural;
     this.kickCalib = cache.kick;
+  }
+
+  /** frozen by an ice shot or the ice blast: the whole body turns to pale blue ice */
+  setIce(on) {
+    this.root.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of [].concat(o.material)) {
+        if (!m.isMeshToonMaterial) continue;
+        if (!m.userData.ice0) m.userData.ice0 = { c: m.color.clone(), e: m.emissive.clone(), ei: m.emissiveIntensity, map: m.map, em: m.emissiveMap };
+        const o0 = m.userData.ice0;
+        if (on) { m.map = null; m.emissiveMap = null; m.color.setRGB(0.55, 0.82, 1.0); m.emissive.setRGB(0.22, 0.52, 0.95); m.emissiveIntensity = 0.6; }
+        else { m.map = m.userData.dyeMap || o0.map; m.emissiveMap = m.userData.dyeMap || o0.em; m.color.copy(o0.c); m.emissive.copy(o0.e); m.emissiveIntensity = o0.ei; }
+        m.needsUpdate = true;
+      }
+    });
   }
 
   /** characters each have their own hair colour */
@@ -591,9 +639,12 @@ export class Character {
       case 'kneeSlide': g = new Gesture('kneeSlide', 1.2, CELEB_KNEE, { loop: true, fadeIn: 0.25, fadeOut: 0.3, ...opts }); break;
       case 'airplane': g = new Gesture('airplane', 1.3, CELEB_PLANE, { loop: true, fadeIn: 0.2, fadeOut: 0.3, ...opts }); break;
       case 'fistPump': g = new Gesture('fistPump', 1.0, CELEB_FIST, { loop: true, fadeIn: 0.1, fadeOut: 0.3, ...opts }); break;
+      case 'dash': g = new Gesture('dash', opts.duration ?? 0.5, DASH, { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
+      case 'galeLeap': g = new Gesture('galeLeap', opts.duration ?? 0.8, GALE_LEAP, { fadeIn: 0.04, fadeOut: 0.1, ...opts }); break;
+      case 'roar': g = new Gesture('roar', opts.duration ?? 0.6, ROAR, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive', 'fallF', 'fallB', 'gkThrow'];
+    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive', 'fallF', 'fallB', 'gkThrow', 'dash', 'galeLeap', 'roar'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);

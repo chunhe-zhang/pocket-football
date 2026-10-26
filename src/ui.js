@@ -17,7 +17,7 @@ const HELP = {
     <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：跑过去起跳头球（朝方向键方向）；按 <kbd>K</kbd> 是轻轻往上顶</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
-    <b>闪身步</b><span>带球时按 <kbd>L</kbd>：带着球往旁边一闪（按左右选方向，不按就往远离对手的一边），这一下对手很难抢到</span>
+    <b>过人</b><span>带球时按 <kbd>L</kbd>：放出角色专属过人（雷霆 Z 字闪电冲刺、幻影瞬移、旋风腾空飞越、焰姬怒吼震飞、冰晶冻成冰雕、巨炮冲撞），4 秒一次；冷却中按是普通闪身步</span>
     <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。每一脚爆射（蓄力超过 30%，轻点的传球除外）都是必杀；地上的预览线会变成角色的颜色</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
@@ -125,7 +125,7 @@ export class UI {
     const cur = CHAR[this.settings.chars[who]] || CHARS[0];
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
     const m5 = this.settings.mode === 'match5';
-    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
   _sendMyChar() {

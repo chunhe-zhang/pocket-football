@@ -154,17 +154,17 @@ export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 // Every 爆射 firmer than a side-footed pass (30% charge or more) is the special shot.
 export const CHARS = [
   { id: 'thunder', name: '雷霆', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
-    desc: '贯穿人墙，碰到的人全身麻痹', speed: 1.38 },
+    desc: '贯穿人墙，碰到的人全身麻痹', move: 'Z 字闪电冲刺，从防守人身边折到他身后', speed: 1.38 },
   { id: 'blaze', name: '焰姬', skill: '火焰射门', icon: '🔥', css: '#ff6a2b', color: 0xff6a2b, hair: '#ff4a2a',
-    desc: '火球穿过人群，烧到的人被掀翻', speed: 1.28 },
+    desc: '火球穿过人群，烧到的人被掀翻', move: '怒吼爆炎，把身边的人全部震飞', speed: 1.28 },
   { id: 'frost', name: '冰晶', skill: '冰冻射门', icon: '❄️', css: '#9fe6ff', color: 0x9fe6ff, hair: '#d8f6ff',
-    desc: '穿人的寒冰球，碰到的人被冻住', speed: 1.18 },
+    desc: '穿人的寒冰球，碰到的人被冻住', move: '寒气爆发，把身边的人冻成冰雕', speed: 1.18 },
   { id: 'gale', name: '旋风', skill: '旋风射门', icon: '🌪️', css: '#6dff9a', color: 0x6dff9a, hair: '#5fe08a',
-    desc: '走 S 形弯道，门将很难判断', speed: 1.2 },
+    desc: '走 S 形弯道，门将很难判断', move: '旋转腾空，带着球从人头上飞过去', speed: 1.2 },
   { id: 'phantom', name: '幻影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
-    desc: '球忽隐忽现，门将来不及反应', speed: 1.24 },
+    desc: '球忽隐忽现，门将来不及反应', move: '原地消失，瞬移到防守人身后', speed: 1.24 },
   { id: 'cannon', name: '巨炮', skill: '重炮射门', icon: '💣', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
-    desc: '最快最重，撞谁谁倒，蓄满时连门将也挡不住', speed: 1.5 },
+    desc: '最快最重，撞谁谁倒，蓄满时连门将也挡不住', move: '低头往前猛冲，挡路的人被撞飞', speed: 1.5 },
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
 export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
