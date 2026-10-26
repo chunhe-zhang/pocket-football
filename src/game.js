@@ -337,7 +337,8 @@ export class Game {
 
   /** 5v5: hand each human the team-mate who should have the ball (or the one they asked for) */
   _updateCursors() {
-    if (!this.m5 || !this.cursors.length) return;
+    // like the other modes, each human keeps the same player for the whole match
+    if (!this.m5 || !this.cursors.length || !this.allowSwitch) return;
     const A = this.athletes, b = this.ball.pos, holder = this.possessor;
     let changed = false;
     const dist = (a) => Math.hypot(b.x - a.pos.x, b.z - a.pos.z);

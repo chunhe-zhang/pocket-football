@@ -19,7 +19,6 @@ const HELP = {
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
     <b>闪身步</b><span>带球时按 <kbd>L</kbd>：带着球往旁边一闪（按左右选方向，不按就往远离对手的一边），这一下对手很难抢到</span>
     <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。每一脚爆射（蓄力超过 30%，轻点的传球除外）都是必杀；地上的预览线会变成角色的颜色</span>
-    <b>5v5 换人</b><span><kbd>Q</kbd> 或 <kbd>I</kbd>（双人：P1 <kbd>R</kbd>，P2 <kbd>,</kbd>；手柄 Y）切到离球最近的队友，平时会自动切换</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
@@ -161,7 +160,7 @@ export class UI {
       ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = m5
-      ? `经典长方形五人制球场，两队各 5 人（1 门将 + 2 后卫 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你控制离球最近的队友，会自动切换；按 Q（双人：R / 逗号，手柄 Y）手动换人。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
+      ? `经典长方形五人制球场，两队各 5 人（1 门将 + 2 后卫 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 9 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
       : team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';
@@ -197,11 +196,11 @@ export class UI {
     const solo = this.settings.net === 'online' || this.settings.humans === 1;
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     const team = this.game.teamMode;
-    $('#btn-pass').classList.toggle('hidden', !this.game.m5);
+    $('#btn-pass').classList.add('hidden');
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺${this.game.m5 ? '　·　<b>Q</b> 换人' : ''}　·　每脚爆射都是必杀`
+      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　每脚爆射都是必杀`
       : `P1：WASD + F 爆射 / G 挑射 / H 抢断　·　P2：方向键 + Enter / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
