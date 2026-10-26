@@ -364,7 +364,25 @@ export class Athlete {
     const it = this.intent;
     const dir = it.move.lengthSq() > 0.09 ? new THREE.Vector3(it.move.x, 0, it.move.y).normalize() : this.forward.clone();
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    this.slide = { t: 0, dur: 0.6, total: 0.85, dir, speed0: clamp(Math.max(sp, 4) + 2.6, 6.2, 9), poked: false, hit: new Set() };
+    const kind = this.charId, g = this.game, ball = g.ball;
+    let from = null;
+    if (kind === 'phantom') {
+      // blink in right next to the ball, then slide through it
+      const bd = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
+      if (bd > 1.6 && bd < 5 && !ball.heldBy) {
+        from = this.pos.clone();
+        dir.set(ball.pos.x - this.pos.x, 0, ball.pos.z - this.pos.z).normalize();
+        const q = new THREE.Vector3(ball.pos.x - dir.x * 1.0, 0, ball.pos.z - dir.z * 1.0);
+        clampToArena(q, 0.5); pushOutOfObstacles(q, PLAYER.radius);
+        this.pos.copy(q); this.char.teleported();
+      }
+    }
+    const v0 = clamp(Math.max(sp, 4) + 2.6, 6.2, 9);
+    this.slide = { t: 0, dur: 0.6, total: 0.85, dir, speed0: v0, poked: false, hit: new Set(), kind, decay: 1.25, reach: 0.85 };
+    if (kind === 'thunder') { this.slide.speed0 = Math.min(12.5, v0 * 1.4); this.slide.dur = 0.5; }
+    if (kind === 'frost') { this.slide.dur = 0.75; this.slide.total = 0.95; this.slide.decay = 0.8; }
+    if (kind === 'cannon') { this.slide.reach = 1.25; }
+    g.onSlide?.(this, kind, from);
     this.facing = Math.atan2(dir.x, dir.z);
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null;
     this.stamina = Math.max(0, this.stamina - 0.12);
@@ -378,7 +396,12 @@ export class Athlete {
     const sl = this.slide, g = this.game, ball = g.ball;
     sl.t += dt;
     const u = sl.t / sl.dur;
-    const sp = u < 1 ? sl.speed0 * Math.pow(1 - u, 1.25) : 0;
+    const sp = u < 1 ? sl.speed0 * Math.pow(1 - u, sl.decay || 1.25) : 0;
+    // cyclone: the whirlwind drags a loose ball in towards me
+    if (sl.kind === 'gale' && u < 0.85 && !ball.heldBy && ball.pos.y < 1.2) {
+      const bx = this.pos.x + sl.dir.x * 0.6 - ball.pos.x, bz = this.pos.z + sl.dir.z * 0.6 - ball.pos.z, bd = Math.hypot(bx, bz);
+      if (bd < 2.8 && bd > 0.2) { ball.vel.x += (bx / bd) * 22 * dt; ball.vel.z += (bz / bd) * 22 * dt; }
+    }
     this.vel.copy(sl.dir).multiplyScalar(sp);
     this.pos.addScaledVector(this.vel, dt);
     if (u < 1 && Math.random() < dt * 30) g.fx('grass', this.pos, { x: -sl.dir.x, z: -sl.dir.z }, 2, 1.5);
@@ -409,7 +432,15 @@ export class Athlete {
         if (o === this || sl.hit.has(o) || o.slide || o.power || g.sameSide(this.team, o.team)) continue;
         const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         const ahead = (dx * sl.dir.x + dz * sl.dir.z) / (d || 1);
-        if (d < 0.85 && ahead > 0.2) { sl.hit.add(o); if (sp > 3) o.fall(sl.dir, sp); else o.knock(sl.dir, sp); g.sfx.bump(sp); g.rumble(this, 0.4, 70); }
+        if (d < (sl.reach || 0.85) && ahead > 0.2) {
+          sl.hit.add(o);
+          // the character's element hits them too
+          if (sl.kind === 'thunder') { o.zap('thunder', sl.dir); g.fx('bolt', { x: o.pos.x, y: 1, z: o.pos.z }, { x: 0, z: 0 }, 16, 3); }
+          else if (sl.kind === 'frost') o.freeze(1.4);
+          else if (sl.kind === 'cannon') { o.fall(sl.dir, 14, 9); g.onImpact?.(o, 0xffd23f); g.shake = Math.max(g.shake, 0.2); }
+          else { if (sp > 3) o.fall(sl.dir, sp); else o.knock(sl.dir, sp); if (sl.kind === 'blaze') g.fx('fire', { x: o.pos.x, y: 0.8, z: o.pos.z }, { x: 0, z: 0 }, 20, 3); }
+          g.sfx.bump(sp); g.rumble(this, 0.4, 70);
+        }
       }
     }
     if (sl.t >= sl.total) { this.slide = null; this.vel.set(0, 0, 0); }
@@ -756,6 +787,7 @@ export class Athlete {
         P.dur = 0.42; const end = behind(4.5), r = new THREE.Vector3(-dir.z, 0, dir.x), a = this.pos;
         const side = opp && ((opp.pos.x - a.x) * r.x + (opp.pos.z - a.z) * r.z) > 0 ? -1 : 1;
         P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 1.3 * side), a.clone().lerp(end, 0.66).addScaledVector(r, -1.0 * side), end];
+        for (const q of P.path) { clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); }   // never zig out of the pitch
         this.char.play('dash', { duration: P.dur + 0.1 }); g.sfx.post(9); break;
       }
       case 'phantom': {          // vanish and reappear behind them
@@ -763,7 +795,7 @@ export class Athlete {
         this.char.play('dash', { duration: 0.3 }); g.sfx.slide(); break;
       }
       case 'gale': {             // spin up into the air and fly over them
-        P.dur = 0.8; P.dist = 4.8;
+        P.dur = 0.8; P.dist = this._room(dir, 4.8);
         this.char.play('galeLeap', { duration: P.dur }); g.sfx.slide(); break;
       }
       case 'blaze': {            // a roar that blasts everyone round me away
@@ -775,7 +807,7 @@ export class Athlete {
         this.char.play('roar', { duration: P.dur + 0.1, amp: 0.7 }); break;
       }
       case 'cannon': {           // put the head down and charge, flattening anyone in the way
-        P.dur = 0.55;
+        P.dur = 0.55; P.dist = this._room(dir, 5.2); P.trav = 0;
         this.char.play('dash', { duration: P.dur + 0.1 }); g.sfx.board(10); break;
       }
       default: return this._startSkill();
@@ -806,6 +838,13 @@ export class Athlete {
     if (P.type === 'phantom') this.char.group.visible = !(P.t > 0.06 && P.t < 0.26 && Math.sin(P.t * 90) > -0.3);
     if ((P.type === 'blaze' || P.type === 'frost') && !P.blasted && P.t >= 0.25) { P.blasted = true; this._blast(P.type); }
     if (P.t >= P.dur) this._endPower();
+  }
+
+  /** how far I can travel this way before the boards (keeping a metre's margin) */
+  _room(dir, want) {
+    const q = this.pos.clone().addScaledVector(dir, want);
+    clampToArena(q, 1.0); pushOutOfObstacles(q, 0.6);
+    return Math.max(0, (q.x - this.pos.x) * dir.x + (q.z - this.pos.z) * dir.z);
   }
 
   _galeH(u) { return 1.25 * Math.sin(Math.PI * u); }
@@ -840,7 +879,9 @@ export class Athlete {
       this.vel.copy(dir).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
       this.facing += dt * 16;                                // spinning like a top
     } else if (P.type === 'cannon') {
-      const sp = 4 + 8 * Math.min(1, P.t / 0.12);
+      let sp = 4 + 8 * Math.min(1, P.t / 0.12);
+      if (P.trav + sp * dt > P.dist) sp = Math.max(0, (P.dist - P.trav) / Math.max(dt, 1e-3));   // pull up before the boards
+      P.trav += sp * dt;
       this.vel.copy(dir).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
       this.facing = Math.atan2(dir.x, dir.z);
     } else if (P.type === 'phantom') {
@@ -859,6 +900,7 @@ export class Athlete {
     const reach = P.type === 'cannon' ? 0.75 : 0.45;
     const h = P.type === 'gale' ? this._galeH(Math.min(1, P.t / P.dur)) : 0;
     b.pos.set(this.pos.x + dir.x * reach, BALL.r + h + (P.type === 'gale' ? 0.35 * Math.sin(Math.PI * Math.min(1, P.t / P.dur)) : 0), this.pos.z + dir.z * reach);
+    const by = b.pos.y; clampToArena(b.pos, BALL.r + 0.05); b.pos.y = by;     // the ball stays on the pitch too
     b.vel.set(this.vel.x, 0, this.vel.z);
     if (P.type === 'gale') b.vel.y = 0.001;
     b.spin.set(this.vel.z / BALL.r, 0, -this.vel.x / BALL.r);
@@ -877,6 +919,7 @@ export class Athlete {
         P.hit.add(o);
         const away = new THREE.Vector3(P.dir.x + (dx - P.dir.x * ahead) * 0.8, 0, P.dir.z + (dz - P.dir.z * ahead) * 0.8).normalize();
         o.fall(away, 14, 9);
+        g.onImpact?.(o, 0xffd23f);
         g.sfx.bump(14); g.shake = Math.max(g.shake, 0.2);
         g.fx('dust', { x: o.pos.x, y: 0.2, z: o.pos.z }, { x: away.x, z: away.z }, 16, 4);
       }

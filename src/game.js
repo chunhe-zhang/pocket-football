@@ -530,6 +530,10 @@ export class Game {
 
   /** a character's skill move (过人) starts: its effects, here and on guests' screens */
   onPower(ath, kind) { this.powerFx.start(ath, kind); this.emit({ e: 'power', i: ath.team, k: kind }); }
+  /** a slide tackle with the character's element (from = where a phantom blinked from) */
+  onSlide(ath, kind, from) { this.powerFx.start(ath, 'slide:' + kind, { from }); this.emit({ e: 'power', i: ath.team, k: 'slide:' + kind, f: from ? [from.x, from.z] : null }); }
+  /** an impact flash at a player (cannon hits) */
+  onImpact(ath, color) { this.powerFx.start({ pos: ath.pos.clone() }, 'hit', { color }); this.emit({ e: 'hit', p: [ath.pos.x, ath.pos.z], c: color }); }
 
   /** a character's special shot leaves the boot */
   onSpecial(ath, def) {
@@ -634,7 +638,7 @@ export class Game {
     this.particles.update(dt);
     this.chargeFx.update(rawDt, this.athletes, this.time, this);
     this.specialFx.update(rawDt, this);
-    this.powerFx.update(rawDt);
+    this.powerFx.update(rawDt, this.camera.position);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -994,7 +998,7 @@ export class Game {
     this.particles.update(dt);
     this.chargeFx.update(dt, this.athletes, this.time, this);
     this.specialFx.update(dt, this);
-    this.powerFx.update(dt);
+    this.powerFx.update(dt, this.camera.position);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -1012,7 +1016,8 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
-      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k); break; }
+      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : null); break; }
+      case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;

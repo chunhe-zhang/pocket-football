@@ -62,6 +62,22 @@ function textures() {
       g.restore();
     }
   });
+  TEX.portal = tex(256, (g, s) => {
+    g.translate(s / 2, s / 2);
+    for (let k = 0; k < 5; k++) {
+      g.rotate((Math.PI * 2) / 5);
+      const gr = g.createLinearGradient(0, 0, s / 2, 0); gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(160,100,255,0)');
+      g.strokeStyle = gr; g.lineWidth = 14; g.beginPath(); g.moveTo(0, 0);
+      for (let r = 0; r < s / 2; r += 4) g.lineTo(Math.cos(r / 26) * r, Math.sin(r / 26) * r);
+      g.stroke();
+    }
+    const gr = g.createRadialGradient(0, 0, s * 0.3, 0, 0, s / 2); gr.addColorStop(0, 'rgba(180,120,255,0)'); gr.addColorStop(0.85, 'rgba(200,150,255,0.9)'); gr.addColorStop(1, 'rgba(200,150,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, s / 2, 0, Math.PI * 2); g.fill();
+  });
+  TEX.streak = tex(128, (g, s) => {
+    const gr = g.createLinearGradient(0, 0, s, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, s * 0.42, s, s * 0.16);
+  });
   return TEX;
 }
 
@@ -107,6 +123,71 @@ export class PowerFx {
     this.cloak = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 2.1, 24, 1, true).translate(0, 1.05, 0), new THREE.MeshBasicMaterial({ map: T.swirl, color: 0xff7a2a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
     this.cloak.visible = false; this.cloak.renderOrder = 5; scene.add(this.cloak);
     this._v = new THREE.Vector3();
+    // pools for the shorter effects
+    this.shocks = []; for (let i = 0; i < 8; i++) { const m = flat(T.ring, 0xffffff); this.shocks.push({ m, life: 0 }); }
+    this.portals = []; for (let i = 0; i < 4; i++) {
+      const m = flat(T.portal, 0xc49aff); m.material.blending = THREE.NormalBlending;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.6, 3.2, 20, 1, true).translate(0, 1.6, 0), new THREE.MeshBasicMaterial({ map: T.swirl, color: 0x7a3cff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
+      beam.visible = false; beam.renderOrder = 5; scene.add(beam);
+      this.portals.push({ m, beam, life: 0 });
+    }
+    this.bolts = []; for (let i = 0; i < 8; i++) {
+      const n = 12, g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+      const idx = []; for (let k = 0; k < n - 1; k++) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } g.setIndex(idx);
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xaef4ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
+      m.frustumCulled = false; m.visible = false; m.renderOrder = 7; scene.add(m);
+      this.bolts.push({ m, life: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), w: 0.1, n });
+    }
+  }
+
+  /** a flat shockwave ring on the grass */
+  shock(x, z, color, R1, life = 0.5, normal = false) {
+    const S = this.shocks.find((q) => q.life <= 0) || this.shocks[0];
+    Object.assign(S, { life, max: life, x, z, R1 }); S.m.material.color.set(color);
+    S.m.material.blending = normal ? THREE.NormalBlending : THREE.AdditiveBlending; S.m.material.needsUpdate = true;
+  }
+  /** a purple portal on the ground with a beam of light */
+  portal(x, z, life = 0.6) {
+    const P = this.portals.find((q) => q.life <= 0) || this.portals[0];
+    Object.assign(P, { life, max: life, x, z });
+  }
+  /** a jagged lightning bolt between two points (re-jittered every frame while it lives) */
+  bolt(a, b, life = 0.2, w = 0.12, color = 0xaef4ff) {
+    const B = this.bolts.find((q) => q.life <= 0) || this.bolts[0];
+    B.a.set(a.x, a.y, a.z); B.b.set(b.x, b.y, b.z); B.life = B.max = life; B.w = w; B.m.material.color.set(color);
+  }
+  _updatePools(dt, cam) {
+    for (const S of this.shocks) {
+      if (S.life <= 0) { S.m.visible = false; continue; }
+      S.life -= dt; const u = 1 - S.life / S.max;
+      S.m.visible = S.life > 0; S.m.position.set(S.x, 0.07, S.z); S.m.scale.setScalar(0.5 + S.R1 * Math.sqrt(u)); S.m.material.opacity = (1 - u) * 0.9;
+    }
+    for (const P of this.portals) {
+      if (P.life <= 0) { P.m.visible = P.beam.visible = false; continue; }
+      P.life -= dt; const u = 1 - P.life / P.max, k = Math.min(1, u * 6) * Math.min(1, (1 - u) * 3);
+      P.m.visible = P.beam.visible = P.life > 0;
+      P.m.position.set(P.x, 0.08, P.z); P.m.scale.setScalar(2.2 * k + 0.01); P.m.rotation.z += dt * 9; P.m.material.opacity = 0.95 * k;
+      P.beam.position.set(P.x, 0, P.z); P.beam.scale.set(k, 0.4 + k * 0.8, k); P.beam.rotation.y += dt * 6; P.beam.material.opacity = 0.75 * k; P.beam.material.map.offset.y -= dt * 2;
+    }
+    const side = this._v;
+    for (const B of this.bolts) {
+      if (B.life <= 0) { B.m.visible = false; continue; }
+      B.life -= dt; B.m.visible = B.life > 0;
+      const pa = B.m.geometry.attributes.position.array, n = B.n;
+      // ribbon facing the camera-ish: widen sideways relative to the bolt, a little up
+      const dx = B.b.x - B.a.x, dy = B.b.y - B.a.y, dz = B.b.z - B.a.z, L = Math.hypot(dx, dy, dz) || 1;
+      side.set(-dz / L, 0, dx / L); if (side.lengthSq() < 0.01) side.set(1, 0, 0);
+      if (cam) { const cx = cam.x - B.a.x, cy = cam.y - B.a.y, cz = cam.z - B.a.z; side.set(dy * cz - dz * cy, dz * cx - dx * cz, dx * cy - dy * cx).normalize(); }
+      for (let k = 0; k < n; k++) {
+        const u = k / (n - 1), j = k === 0 || k === n - 1 ? 0 : L * 0.12;
+        const x = B.a.x + dx * u + (Math.random() - 0.5) * j, y = B.a.y + dy * u + (Math.random() - 0.5) * j, z = B.a.z + dz * u + (Math.random() - 0.5) * j;
+        const w = B.w * (1 - Math.abs(u - 0.5) * 0.8) * (0.7 + Math.random() * 0.6);
+        pa.set([x + side.x * w, y + side.y * w, z + side.z * w, x - side.x * w, y - side.y * w, z - side.z * w], k * 6);
+      }
+      B.m.geometry.attributes.position.needsUpdate = true;
+      B.m.material.opacity = Math.min(1, B.life / B.max * 2);
+    }
   }
 
   /** one additive sprite: tex, position, velocity, life, start and end size, colour */
@@ -120,12 +201,13 @@ export class PowerFx {
     P.s.scale.setScalar(s0); P.s.visible = true; P.s.material.opacity = a0; P.s.material.needsUpdate = true;
   }
 
-  start(a, kind) {
-    this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z });
+  start(a, kind, extra = null) {
+    this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
   }
 
-  update(dt) {
+  update(dt, cam) {
     const T = this.T;
+    this._updatePools(dt, cam);
     // sprites
     for (const P of this.sp) {
       if (P.life <= 0) continue;
@@ -209,19 +291,55 @@ export class PowerFx {
         }
         f.done = t > 1;
       } else if (f.kind === 'thunder') {
-        if (t < 0.5) {
-          this.puff(T.glow, { x: p.x, y: 0.9, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.4, 0.4, 0x7fe8ff);
-          if (Math.random() < 0.6) this.puff(T.glow, { x: p.x + (Math.random() - 0.5), y: 0.4 + Math.random() * 1.4, z: p.z + (Math.random() - 0.5) }, { x: 0, y: 0, z: 0 }, 0.12, 0.6, 0.1, 0xffffff);
+        // crackling body, bolts arcing along the zigzag, a strike from the sky where I land
+        if (t < 0.48) {
+          this.puff(T.glow, { x: p.x, y: 0.9, z: p.z }, { x: 0, y: 0, z: 0 }, 0.18, 0.9, 0.3, 0x3fb8ff, 0, false, 0.55);
+          if (f.last) this.bolt({ x: f.last.x, y: 0.9, z: f.last.z }, { x: p.x, y: 0.9, z: p.z }, 0.18, 0.14);
+          f.last = { x: p.x, z: p.z };
+          if (Math.random() < 0.7) { const a1 = Math.random() * 6.28; this.bolt({ x: p.x, y: 1.1, z: p.z }, { x: p.x + Math.cos(a1) * 0.9, y: 0.2 + Math.random(), z: p.z + Math.sin(a1) * 0.9 }, 0.08, 0.05, 0xffffff); }
+          if (Math.random() < 0.4) this.puff(T.streak, { x: p.x, y: 0.6 + Math.random() * 0.8, z: p.z }, { x: 0, y: 0, z: 0 }, 0.2, 0.9, 0.3, 0x6fd8ff, 0, false, 0.6);
         }
-        f.done = t > 0.6;
+        if (!f.struck && t >= 0.42) {
+          f.struck = true;
+          this.bolt({ x: p.x + 0.4, y: 9, z: p.z - 0.6 }, { x: p.x, y: 0.1, z: p.z }, 0.3, 0.35, 0xdff9ff);
+          this.bolt({ x: p.x - 0.5, y: 8, z: p.z + 0.3 }, { x: p.x, y: 0.1, z: p.z }, 0.22, 0.18);
+          this.shock(p.x, p.z, 0x6fe0ff, 4, 0.45);
+          this.puff(T.glow, { x: p.x, y: 0.5, z: p.z }, { x: 0, y: 0, z: 0 }, 0.3, 1.2, 3.2, 0x3fb8ff, 0, false, 0.6);
+        }
+        f.done = t > 0.7;
       } else if (f.kind === 'phantom') {
-        // after-images: purple ghosts left behind
-        if (t < 0.45) this.puff(T.glow, { x: p.x, y: 0.9, z: p.z }, { x: 0, y: 0.3, z: 0 }, 0.5, 1.6, 0.6, 0xa070ff);
-        f.done = t > 0.5;
+        // a portal swallows me, another spits me out; purple wisps trail between them
+        if (!f.opened) { f.opened = true; this.portal(p.x, p.z, 0.55); f.ox = p.x; f.oz = p.z; }
+        if (!f.out && t >= 0.16) { f.out = true; this.portal(p.x, p.z, 0.6); this.shock(p.x, p.z, 0xb07cff, 3, 0.4); }
+        if (t < 0.5 && Math.random() < 0.8) this.puff(T.glow, { x: (f.out ? p.x : f.ox) + (Math.random() - 0.5) * 0.6, y: 0.3 + Math.random() * 1.6, z: (f.out ? p.z : f.oz) + (Math.random() - 0.5) * 0.6 }, { x: 0, y: 1.2, z: 0 }, 0.45, 0.5, 0.1, 0xa070ff);
+        f.done = t > 0.7;
       } else if (f.kind === 'cannon') {
-        if (t < 0.55) this.puff(T.smoke, { x: p.x, y: 0.3, z: p.z }, { x: (Math.random() - 0.5), y: 0.6, z: (Math.random() - 0.5) }, 0.7, 0.6, 1.6, 0xffffff, -0.3, true, 0.8);
-        if (t < 0.55 && Math.random() < 0.5) this.puff(T.flame, { x: p.x, y: 0.5, z: p.z }, { x: 0, y: 0.5, z: 0 }, 0.25, 0.8, 0.3, 0xffd23f);
-        f.done = t > 0.6;
+        // a burst of smoke at the start, rocket flames from the heels, speed lines, a shockwave on every hit
+        if (!f.go) { f.go = true; this.shock(p.x, p.z, 0xffffff, 3, 0.4, true); for (let k = 0; k < 10; k++) { const a1 = Math.random() * 6.28; this.puff(T.smoke, { x: p.x, y: 0.2, z: p.z }, { x: Math.cos(a1) * 3, y: 0.6, z: Math.sin(a1) * 3 }, 0.7, 0.6, 1.6, 0xffffff, -0.2, true, 0.75); } }
+        if (t < 0.55) {
+          const v = a.vel, vl = Math.hypot(v.x, v.z) || 1, bx = -v.x / vl, bz = -v.z / vl;
+          if (Math.random() < 0.5) this.puff(T.flame, { x: p.x + bx * 0.4, y: 0.4, z: p.z + bz * 0.4 }, { x: bx * 3, y: 0.6, z: bz * 3 }, 0.22, 0.4, 0.1, 0xffffff, 0, true, 0.85);
+          this.puff(T.smoke, { x: p.x + bx * 0.6, y: 0.4, z: p.z + bz * 0.6 }, { x: bx, y: 0.5, z: bz }, 0.6, 0.5, 1.4, 0xffffff, -0.2, true, 0.6);
+          for (let k = 0; k < 2; k++) this.puff(T.streak, { x: p.x + (Math.random() - 0.5) * 1.2, y: 0.4 + Math.random() * 1.4, z: p.z + (Math.random() - 0.5) * 1.2 }, { x: -bx * 6, y: 0, z: -bz * 6 }, 0.18, 1.0, 1.4, 0xffe8a0);
+        }
+        f.done = t > 0.8;
+      } else if (f.kind === 'hit') {
+        // a cannon / tackle impact
+        if (!f.go) { f.go = true; this.shock(p.x, p.z, f.color || 0xffd23f, 3.5, 0.4); this.puff(T.glow, { x: p.x, y: 1, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.2, 3, f.color || 0xffd23f); for (let k = 0; k < 8; k++) { const a1 = Math.random() * 6.28; this.puff(T.streak, { x: p.x, y: 1, z: p.z }, { x: Math.cos(a1) * 6, y: (Math.random() - 0.3) * 4, z: Math.sin(a1) * 6 }, 0.25, 0.8, 1.2, 0xffffff); } }
+        f.done = true;
+      } else if (f.kind.startsWith('slide:')) {
+        // every character's slide tackle carries their element
+        const k = f.kind.slice(6), on = !!a.slide && t < 0.6;
+        if (on) {
+          if (k === 'thunder') { if (f.last) this.bolt({ x: f.last.x, y: 0.3, z: f.last.z }, { x: p.x, y: 0.3, z: p.z }, 0.25, 0.12); f.last = { x: p.x, z: p.z }; this.puff(T.glow, { x: p.x, y: 0.4, z: p.z }, { x: 0, y: 0, z: 0 }, 0.2, 1.2, 0.4, 0x6fe0ff); }
+          if (k === 'blaze') for (let q = 0; q < 2; q++) this.puff(T.flame, { x: p.x + (Math.random() - 0.5) * 0.4, y: 0.15, z: p.z + (Math.random() - 0.5) * 0.4 }, { x: 0, y: 1.6, z: 0 }, 0.7, 0.55, 0.15, 0xffffff, -1, true, 0.9);
+          if (k === 'frost') { this.puff(T.snow, { x: p.x + (Math.random() - 0.5) * 0.6, y: 0.2, z: p.z + (Math.random() - 0.5) * 0.6 }, { x: 0, y: 0.8, z: 0 }, 0.6, 0.35, 0.5, 0xe6f8ff, 0, true); if (!f.lastIce || Math.hypot(p.x - f.lastIce.x, p.z - f.lastIce.z) > 0.5) { f.lastIce = { x: p.x, z: p.z }; this.shock(p.x, p.z, 0x9fe6ff, 0.6, 1.2, true); } }
+          if (k === 'gale') { this.twister.visible = true; twistOn = true; this.twister.position.set(p.x, 0, p.z); this.twister.rotation.y -= dt * 16; this.twister.scale.set(1.4, 0.55, 1.4); this.twister.material.opacity = 0.75; if (Math.random() < 0.6) { const a1 = Math.random() * 6.28; this.puff(T.wind, { x: p.x + Math.cos(a1) * 1.4, y: 0.3, z: p.z + Math.sin(a1) * 1.4 }, { x: -Math.cos(a1) * 3, y: 0.4, z: -Math.sin(a1) * 3 }, 0.35, 0.4, 0.6, 0x9fffc0, 0, false, 0.7); } }
+          if (k === 'phantom' && t < 0.3) this.puff(T.glow, { x: p.x, y: 0.5, z: p.z }, { x: 0, y: 0.5, z: 0 }, 0.4, 0.8, 0.2, 0xa070ff);
+          if (k === 'cannon') { this.puff(T.smoke, { x: p.x, y: 0.2, z: p.z }, { x: 0, y: 0.6, z: 0 }, 0.6, 0.5, 1.3, 0xffffff, -0.2, true, 0.6); }
+        }
+        if (k === 'phantom' && !f.opened && f.from) { f.opened = true; this.portal(f.from.x, f.from.z, 0.45); this.portal(p.x, p.z, 0.5); }
+        f.done = t > 0.7;
       }
     }
     this.fx = this.fx.filter((f) => !f.done);
