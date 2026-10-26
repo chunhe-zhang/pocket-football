@@ -280,8 +280,8 @@ const HEADER = (c) => ({
 
 // jumping header: crouch, spring up with the knees tucked, snap the forehead through the ball
 const HEADER_JUMP = (c) => ({
-  drop:    [[0, 0], [c - 0.3, -0.12], [c - 0.15, 0], [1, 0]],
-  hop:     [[0, 0], [c - 0.22, 0.06], [c, 0.42], [c + 0.2, 0.26], [0.86, 0.02], [1, 0]],
+  drop:    [[0, 0], [c - 0.3, -0.16], [c - 0.15, 0], [1, 0]],
+  hop:     [[0, 0], [c - 0.22, 0.14], [c, 0.85], [c + 0.18, 0.6], [0.86, 0.04], [1, 0]],
   lean:    [[0, 0], [c - 0.22, -0.28], [c, 0.36], [c + 0.2, 0.15], [1, 0]],
   headUp:  [[0, 0], [c - 0.2, 0.42], [c, -0.32], [1, 0]],
   knee:    [[0, 0], [c - 0.25, 0.6], [c, 0.95], [c + 0.25, 0.4], [1, 0]],
@@ -290,6 +290,34 @@ const HEADER_JUMP = (c) => ({
   supThigh:[[0, 0], [c, 0.35], [1, 0]],
   armOutL: [[0, 0], [c - 0.15, 1.15], [c, 0.9], [1, 0]],
   armOutR: [[0, 0], [c - 0.15, 1.15], [c, 0.9], [1, 0]],
+});
+
+// diving header: launch forward, body flat out, arms winged, land on the chest and get up
+const DIVE_HEADER = (c) => ({
+  hop:     [[0, 0], [c - 0.15, 0.18], [c, 0.12], [c + 0.25, 0], [1, 0]],
+  body:    [[0, 0], [c - 0.18, -0.7], [c, -1.35], [c + 0.35, -1.4], [0.8, -0.6], [1, 0]],
+  drop:    [[0, 0], [c, -0.35], [c + 0.3, -0.62], [0.8, -0.3], [1, 0]],
+  headUp:  [[0, 0], [c, 0.55], [c + 0.3, 0.4], [1, 0]],
+  thigh:   [[0, 0], [c, -0.45], [c + 0.35, -0.3], [1, 0]],
+  supThigh:[[0, 0], [c, -0.35], [c + 0.35, -0.25], [1, 0]],
+  knee:    [[0, 0], [c, 0.5], [1, 0]],
+  supKnee: [[0, 0], [c - 0.2, 0.6], [c, 0.3], [1, 0]],
+  armOutL: [[0, 0], [c, 1.3], [c + 0.3, 1.1], [1, 0]],
+  armOutR: [[0, 0], [c, 1.3], [c + 0.3, 1.1], [1, 0]],
+});
+
+// bicycle kick (倒钩): spring up, fall back flat in the air, the kicking leg whips over the head
+const BICYCLE = (c) => ({
+  hop:     [[0, 0], [c - 0.2, 0.35], [c, 0.85], [c + 0.18, 0.55], [c + 0.35, 0.05], [1, 0]],
+  body:    [[0, 0], [c - 0.2, 0.9], [c, 1.95], [c + 0.2, 1.75], [c + 0.4, 1.45], [0.85, 0.6], [1, 0]],
+  drop:    [[0, 0], [c - 0.25, -0.15], [c - 0.12, 0], [c + 0.35, -0.6], [0.85, -0.35], [1, 0]],
+  thigh:   [[0, 0], [c - 0.2, 0.6], [c - 0.05, 1.3], [c, 2.1], [c + 0.15, 1.6], [c + 0.4, 0.5], [1, 0]],
+  knee:    [[0, 0], [c - 0.2, 1.4], [c - 0.05, 0.8], [c, 0.15], [c + 0.2, 0.3], [1, 0]],
+  supThigh:[[0, 0], [c - 0.2, 1.1], [c, 0.9], [c + 0.3, 0.4], [1, 0]],
+  supKnee: [[0, 0], [c - 0.25, 0.7], [c - 0.1, 0.2], [c + 0.2, 0.6], [1, 0]],
+  armOutL: [[0, 0], [c - 0.1, 1.5], [c + 0.3, 1.2], [1, 0]],
+  armOutR: [[0, 0], [c - 0.1, 1.5], [c + 0.3, 1.2], [1, 0]],
+  headUp:  [[0, 0], [c, 0.5], [1, 0]],
 });
 
 // 闪身步: a springy hop sideways, body leaning into it, the ball taken along with the sole
@@ -433,6 +461,8 @@ export class Character {
     switch (name) {
       case 'kick': g = new Gesture('kick', opts.duration ?? ANIM.kickDuration, KICK(c), { ...opts, events: [{ name: 'contact', at: c }] }); break;
       case 'jumpHeader': g = new Gesture('jumpHeader', opts.duration ?? 0.7, HEADER_JUMP(opts.contact ?? 0.42), { fadeIn: 0.05, fadeOut: 0.14, ...opts }); break;
+      case 'diveHeader': g = new Gesture('diveHeader', opts.duration ?? 0.95, DIVE_HEADER(opts.contact ?? 0.3), { fadeIn: 0.04, fadeOut: 0.18, ...opts }); break;
+      case 'bicycle': g = new Gesture('bicycle', opts.duration ?? 1.25, BICYCLE(opts.contact ?? 0.3), { fadeIn: 0.04, fadeOut: 0.2, ...opts }); break;
       case 'sidestep': g = new Gesture('sidestep', opts.duration ?? 0.4, SIDESTEP, { fadeIn: 0.04, fadeOut: 0.1, ...opts }); break;
       case 'poke': g = new Gesture('poke', opts.duration ?? 0.5, POKE, { fadeIn: 0.04, fadeOut: 0.12, ...opts }); break;
       case 'stepover': g = new Gesture('stepover', opts.duration ?? 0.5, STEPOVER, { fadeIn: 0.05, fadeOut: 0.1, ...opts }); break;
@@ -452,7 +482,7 @@ export class Character {
       case 'header': g = new Gesture('header', opts.duration ?? 0.55, HEADER(c), { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
-    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
+    const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
     this.gestures.push(g);

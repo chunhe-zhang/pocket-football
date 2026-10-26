@@ -176,7 +176,7 @@ export class Athlete {
     if (this.header) this._headerMotionTick(dt);
     if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0) { this.charging = false; this.charge = 0; }
     else if (!this.kick && !this.header) {
-      if ((pressedKick || pressedLob) && !this.charging && g.state === 'play' && this._headerChance()) {
+      if ((pressedKick || pressedLob) && !this.charging && g.state === 'play' && (this._headerChance() || (pressedLob && this._headerChance(true)))) {
         this._startHeader(pressedLob);
       } else if (wantShot && !this.charging && g.state !== 'menu') {
         this.charging = true; this.charge = 0; this.chargeHold = 0; this.armed = null;
@@ -214,6 +214,7 @@ export class Athlete {
     if (this.dive) this._diveMotion(dt);
     else if (this.slide) this._slideMotion(dt);
     else if (this.poke) this._pokeMotion(dt);
+    else if (this.header && this.header.jumped && (this.header.kind === 'dive' || this.header.kind === 'bicycle')) this._headerBodyMotion(dt);
     else if (this.stunT > 0) { this.vel.multiplyScalar(Math.max(0, 1 - dt * 5)); this.pos.addScaledVector(this.vel, dt); }
     else if (this.kick) this._kickMotion(dt);
     else {
@@ -265,7 +266,7 @@ export class Athlete {
       // facing
       let want = null;
       if (this.trick) want = this._skillFacing();
-      else if (this.header && !this.header.hit) { const d = this.header.aim; want = Math.atan2(d.x, d.z); }
+      else if (this.header && !this.header.hit) { const d = this.header.aim; want = this.header.bike ? Math.atan2(-d.x, -d.z) : Math.atan2(d.x, d.z); }
       else if (this.charging) { const d = this.aimDir(this._w); want = Math.atan2(d.x, d.z); }
       else if (this.armed && this.vel.length() < 2) { const d = this.armedAim(this._w); want = Math.atan2(d.x, d.z); }
       else if (this.receive && this.vel.length() < 3.5) {
@@ -325,7 +326,7 @@ export class Athlete {
       const lower = leg || c.part === 'thigh' || c.part === 'hips';
       c.active = !(leg && (controlling || this.ignoreBall > 0 || (this.kick && !this.kick.resolved) || this.touch || this.holdW > 0.05 || this.poke)) && !(lower && this.dribbling);
       if (this.slide && leg && c.side === 'R') c.active = false;
-      if (this.header && (!this.header.hit || this.header.t < this.header.hitT + 0.3) && (c.part === 'head' || c.part === 'chest')) c.active = false;
+      if (this.header && (!this.header.hit || this.header.t < this.header.hitT + 0.3) && (c.part === 'head' || c.part === 'chest' || (this.header.jumped && (lower || c.part === 'hand')))) c.active = false;
       // hands only count during a dive (no handball otherwise); a diving keeper is all reach
       if (c.part === 'hand') c.active = !!this.dive && this.dive.t < 0.75;
       // a fully stretched keeper covers more than the bare skeleton suggests (gloves, sleeves, body)
@@ -604,64 +605,106 @@ export class Athlete {
     }
   }
 
-  // ---- headers ----------------------------------------------------------------------------
-  /** is there a ball in the air I could get my head to soon? */
-  _headerChance() {
+  // ---- headers / bicycle kicks -------------------------------------------------------------
+  /** is there a ball in the air I could get to with my head (or, bike = true, an overhead kick)? */
+  _headerChance(bike = false) {
     const b = this.game.ball;
-    if (b.pos.y < 0.8 && b.vel.y < 1.5) return false;           // on the ground: that's a kick
-    return !!this._headerSpot(PLAYER.runSpeed * this.speedMul);
+    if (b.pos.y < 0.45 && b.vel.y < 1.5) return false;          // on the ground: that's a kick
+    return !!this._headerSpot(PLAYER.runSpeed * this.speedMul, bike);
   }
-  /** the first moment in the next 0.8 s the ball is at head height within my reach */
-  _headerSpot(speed) {
+  /**
+   * The first moment in the next 0.85 s the ball is somewhere I can meet it:
+   * low and moving → diving header, chest-to-head height → standing, high → jumping header.
+   * For a bicycle kick the ball has to drop in above head height, close by.
+   */
+  _headerSpot(speed, bike = false) {
     const b = this.game.ball, q = this._r;
-    for (let t = 0; t <= 0.8; t += 0.033) {
+    for (let t = 0; t <= 0.85; t += 0.033) {
       b.predict(t, q);
-      if (q.y < 1.05 || q.y > 2.45) continue;
+      const lo = bike ? 1.2 : 0.5, hi = bike ? 2.45 : 2.85;
+      if (q.y < lo || q.y > hi) continue;
+      const low = !bike && q.y < 1.05;
+      if (low && (b.speed < 3.5 || t > 0.6)) continue;            // only dive at a ball that's coming
       const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z);
-      if (d <= 0.45 + speed * t) return { x: q.x, z: q.z, y: q.y, t };
+      const reach = bike ? 0.4 + speed * t * 0.6 : low ? 1.3 + speed * t : 0.45 + speed * t;
+      if (d <= reach) return { x: q.x, z: q.z, y: q.y, t, kind: bike ? 'bicycle' : low ? 'dive' : q.y > 1.7 ? 'jump' : 'stand' };
     }
     return null;
   }
-  _startHeader(soft) {
+  _startHeader(lob) {
     const aim = this.aimDir(new THREE.Vector3());
-    this.header = { t: 0, soft, hit: false, jumped: false, spot: null, aim };
+    const bike = lob && !!this._headerSpot(PLAYER.runSpeed * this.speedMul, true);
+    this.header = { t: 0, soft: lob && !bike, bike, hit: false, jumped: false, spot: null, aim, kind: null };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.armed = null;
   }
   _headerMotionTick(dt) {
     const h = this.header, g = this.game, ball = g.ball;
     h.t += dt;
-    if (h.hit) { if (h.t > h.hitT + 0.35) this.header = null; return; }
+    if (h.hit) { if (h.t > h.hitT + (h.kind === 'bicycle' ? 0.9 : h.kind === 'dive' ? 0.6 : 0.35)) this.header = null; return; }
     // keep the aim live from the stick until contact
     const m = this.intent.move; if (m.lengthSq() > 0.09) h.aim.set(m.x, 0, m.y).normalize();
-    const spot = this._headerSpot((this.intent.sprint ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul);
+    const spot = h.jumped ? null : this._headerSpot((this.intent.sprint ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul, h.bike);
     if (spot) {
-      // stand just behind where the ball will be, relative to where I'm heading it
-      h.spot = { x: spot.x - h.aim.x * 0.12, z: spot.z - h.aim.z * 0.12 };
-      if (!h.jumped && spot.t < (spot.y > 1.7 ? 0.3 : 0.2)) {
+      h.kind = spot.kind;
+      // stand just behind where the ball will be, relative to where it's going
+      const back = spot.kind === 'bicycle' ? -0.25 : 0.12;
+      h.spot = { x: spot.x - h.aim.x * back, z: spot.z - h.aim.z * back };
+      const go = { dive: 0.3, jump: 0.34, stand: 0.2, bicycle: 0.3 }[spot.kind];
+      if (spot.t < go) {
         h.jumped = true;
-        this.char.play(spot.y > 1.7 ? 'jumpHeader' : 'header', { duration: spot.y > 1.7 ? 0.7 : 0.5, contact: 0.42 });
+        if (spot.kind === 'dive') {
+          const dx = spot.x - this.pos.x, dz = spot.z - this.pos.z, dl = Math.hypot(dx, dz) || 1;
+          h.lunge = { x: dx / dl, z: dz / dl, sp: clamp(dl / Math.max(spot.t, 0.12), 4, 8.5) };
+          this.char.play('diveHeader', { duration: 0.95, contact: 0.3 });
+        } else if (spot.kind === 'bicycle') this.char.play('bicycle', { duration: 1.25, contact: 0.3 });
+        else this.char.play(spot.kind === 'jump' ? 'jumpHeader' : 'header', { duration: spot.kind === 'jump' ? 0.8 : 0.5, contact: 0.42 });
       }
     }
-    // the moment the head meets the ball
-    const head = this.colliders?.find((c) => c.part === 'head');
-    if (head && head.pos.distanceTo(ball.pos) < R + 0.21) {
+    // contact: the forehead (or, overhead kick, the boot coming over the top)
+    let touching = false;
+    if (h.kind === 'bicycle' && h.jumped) {
+      touching = Math.hypot(ball.pos.x - (this.pos.x + this.forward.x * 0.1), ball.pos.y - 2.0, ball.pos.z - (this.pos.z + this.forward.z * 0.1)) < 0.78;
+    } else {
+      const head = this.colliders?.find((c) => c.part === 'head');
+      touching = !!head && head.pos.distanceTo(ball.pos) < R + (h.kind === 'dive' ? 0.3 : h.kind === 'jump' ? 0.32 : 0.26);
+    }
+    if (touching) {
       h.hit = true; h.hitT = h.t;
-      const rel = Math.hypot(ball.vel.x - this.vel.x, ball.vel.y, ball.vel.z - this.vel.z);
-      const sp = h.soft ? 5.5 + rel * 0.1 : clamp(8.5 + rel * 0.4 + Math.hypot(this.vel.x, this.vel.z) * 0.5, 9, 22);
-      const el = h.soft ? 0.85 : (ball.pos.y > 1.8 ? -0.12 : 0.04);
+      const rel = Math.hypot(ball.vel.x - this.vel.x, ball.vel.y, ball.vel.z - this.vel.z), run = Math.hypot(this.vel.x, this.vel.z);
+      let sp, el;
+      if (h.soft) { sp = 5.5 + rel * 0.1; el = 0.85; }
+      else if (h.kind === 'bicycle') { sp = clamp(18 + rel * 0.35, 19, 29); el = 0.02; }
+      else if (h.kind === 'dive') { sp = clamp(12 + rel * 0.4 + run * 0.5, 13, 25); el = 0.04; }
+      else if (h.kind === 'jump') { sp = clamp(12 + rel * 0.5 + run * 0.5, 13, 26); el = ball.pos.y > 1.9 ? -0.15 : -0.05; }
+      else { sp = clamp(10.5 + rel * 0.45 + run * 0.55, 11, 24); el = 0.03; }
       ball.vel.set(h.aim.x * sp * Math.cos(el), Math.sin(el) * sp, h.aim.z * sp * Math.cos(el));
       ball.spin.multiplyScalar(0.2);
-      ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.25; this.ignoreBall = 0.2; this.stats.touches++;
-      g.sfx.head(rel + 6);
-      g.squashBall(h.aim, 0.1 + rel / 80);
-      g.fx('spark', ball.pos, { x: h.aim.x, z: h.aim.z }, 8, 2.5);
-      g.rumble(this, 0.5, 70);
+      ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.3; this.ignoreBall = 0.25; this.stats.touches++;
+      const big = h.kind !== 'stand' && !h.soft;
+      g.sfx.head(rel + 10); if (h.kind === 'bicycle') g.sfx.kick(0.8);
+      g.squashBall(h.aim, big ? 0.2 : 0.12);
+      g.fx('spark', ball.pos, { x: h.aim.x, z: h.aim.z }, big ? 16 : 9, big ? 4 : 2.5);
+      if (big) { g.hitstop = Math.max(g.hitstop, 0.06); g.shake = Math.max(g.shake, 0.12); }
+      g.rumble(this, big ? 0.8 : 0.5, 90);
       if (!h.jumped) this.char.play('header', { duration: 0.45, contact: 0.3 });
-      // a header at a goal counts as a shot
+      if (h.kind === 'bicycle') g.banner('倒钩！', this.label);
       g.onKick(this, { type: 'header', power: sp / 22 }, ball.vel);
       return;
     }
-    if (h.t > 1.0 || (!spot && h.t > 0.25)) this.header = null;   // missed it
+    if (!h.jumped && (h.t > 1.2 || (!spot && h.t > 0.7))) this.header = null;   // never got there
+    if (h.jumped && h.t > (h.kind === 'bicycle' ? 1.25 : h.kind === 'dive' ? 0.95 : 0.8)) this.header = null;
+  }
+
+  /** the body itself flies during a diving header or a bicycle kick */
+  _headerBodyMotion(dt) {
+    const h = this.header;
+    if (h.lunge && h.t < (h.hitT ?? 9) + 0.15) {
+      const k = Math.max(0, 1 - (h.t - (h.lungeT0 ?? (h.lungeT0 = h.t))) / 0.45);
+      this.vel.set(h.lunge.x * h.lunge.sp * k, 0, h.lunge.z * h.lunge.sp * k);
+    } else this.vel.multiplyScalar(Math.max(0, 1 - dt * 7));
+    this.pos.addScaledVector(this.vel, dt);
+    const want = h.kind === 'bicycle' ? Math.atan2(-h.aim.x, -h.aim.z) : Math.atan2(h.lunge ? h.lunge.x : h.aim.x, h.lunge ? h.lunge.z : h.aim.z);
+    this._turnTo(want, dt, 12);
   }
 
   // ---- receiving -------------------------------------------------------------------
