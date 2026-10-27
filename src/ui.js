@@ -82,14 +82,14 @@ export class UI {
 
     // character picker (menu: per local player; lobby: my own)
     for (const box of document.querySelectorAll('.char-pick')) {
-      box.innerHTML = CHARS.map((c) => `<button class="char-card" data-c="${c.id}" style="--cc:${c.css}"><span class="ic">${c.icon}</span><b>${c.name}</b><small>${c.skill}</small></button>`).join('');
+      box.innerHTML = CHARS.map((c) => `<button class="char-card" data-c="${c.id}" style="--cc:${c.css}"><canvas class="cv" data-c="${c.id}" aria-hidden="true"></canvas><span class="ic">${c.icon}</span><b>${c.name}</b><small>${c.skill}</small></button>`).join('');
       box.addEventListener('click', (e) => {
         const b = e.target.closest('.char-card'); if (!b) return;
         const who = this.net || this.guestLobby ? 0 : +this.settings.who;
         this.settings.chars[who] = b.dataset.c;
         store.set('pf-chars', this.settings.chars.join(','));
         this.sfx.init(); this.sfx.touch?.();
-        this._refreshChars();
+        this._cheer = true; this._refreshChars(); this._cheer = false;
         this._sendMyChar();
       });
     }
@@ -124,8 +124,9 @@ export class UI {
     const who = online ? 0 : +this.settings.who;
     const cur = CHAR[this.settings.chars[who]] || CHARS[0];
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
+    this.showroom?.select(cur.id, !!this._cheer);
     const m5 = this.settings.mode === 'match5';
-    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '5v5 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
   _sendMyChar() {
@@ -160,7 +161,7 @@ export class UI {
       ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = m5
-      ? `经典长方形五人制球场，两队各 5 人（1 门将 + 2 后卫 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 9 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
+      ? `长方形六人制球场，两队各 6 人（1 门将 + 2 后卫 + 1 中场 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 11 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
       : team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';

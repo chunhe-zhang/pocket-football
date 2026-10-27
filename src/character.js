@@ -535,7 +535,7 @@ export class Character {
     this.group.updateMatrixWorld(true);
     const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
     this._restQ = new Map();
-    for (const bn of [this.bones.head, this.bones.neck].filter(Boolean)) this._restQ.set(bn, gq.clone().multiply(bn.getWorldQuaternion(new THREE.Quaternion())));
+    for (const bn of ['head', 'neck', 'spine2', 'spine1', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR', 'footL', 'footR'].map((k) => this.bones[k]).filter(Boolean)) this._restQ.set(bn, gq.clone().multiply(bn.getWorldQuaternion(new THREE.Quaternion())));
 
     // measure the clips on *this* skeleton (legs differ between models)
     const cache = template._measure || (template._measure = {});
@@ -695,6 +695,7 @@ export class Character {
         break;
       }
     }
+    this._outfit(id, put, glow, solid);
     // everyone: two little element orbs circling at waist height
     const col = { thunder: 0x5fe1ff, blaze: 0xff6a2b, frost: 0x9fe6ff, gale: 0x6dff9a, phantom: 0xb58cff, cannon: 0xffd23f }[id] || 0xffffff;
     if (id !== 'phantom') for (let k = 0; k < 2; k++) {
@@ -704,12 +705,108 @@ export class Character {
     }
   }
 
+  /**
+   * Below-the-head outfit pieces: element wristbands for everyone, plus one signature piece each
+   * (bolt anklets, flame cuffs, ice pauldrons, heel wings, a cape, armoured shoulders).
+   */
+  _outfit(id, put, glow, solid) {
+    const b = this.bones;
+    const col = { thunder: 0xffd23f, blaze: 0xff5a1a, frost: 0x8fe0ff, gale: 0x5fe89a, phantom: 0xa77bff, cannon: 0xffb21f }[id] || 0xffffff;
+    // wristbands: a fat ring round each wrist, a thin glowing stripe on top
+    for (const [hand, s] of [[b.handL, -1], [b.handR, 1]]) {
+      if (!hand) continue;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.055, 16, 1, true), new THREE.MeshToonMaterial({ color: id === 'cannon' ? 0x2a2a36 : 0xffffff, side: THREE.DoubleSide }));
+      band.rotation.z = Math.PI / 2; put(band, hand, s * 0.035, 0, 0);
+      const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.043, 0.008, 6, 20), glow(col, 0.9)); stripe.rotation.y = Math.PI / 2; put(stripe, hand, s * 0.035, 0, 0);
+    }
+    const ankles = [[b.footL, -1], [b.footR, 1]].filter(([f]) => f);
+    switch (id) {
+      case 'thunder': {
+        // glowing anklets with a little bolt on the outside of each
+        const bolt = new THREE.Shape([[-0.02, 0.07], [0.03, 0.07], [0.0, 0.015], [0.035, 0.015], [-0.03, -0.075], [-0.005, -0.005], [-0.04, -0.005]].map(([x, y]) => new THREE.Vector2(x, y)));
+        const bg = new THREE.ExtrudeGeometry(bolt, { depth: 0.01, bevelEnabled: false }); bg.scale(0.75, 0.75, 1);
+        for (const [f, s] of ankles) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 22), glow(0x5fe1ff, 1.0)); ring.rotation.x = Math.PI / 2; put(ring, f, 0, 0.03, 0);
+          const m = new THREE.Mesh(bg, glow(0xffe14a, 1.1)); m.rotation.y = s * Math.PI / 2; put(m, f, s * 0.06, 0.05, 0); this._flick.push(m);
+        }
+        break;
+      }
+      case 'blaze': {
+        // little flames licking up from each wristband
+        for (const [hand, s] of [[b.handL, -1], [b.handR, 1]]) {
+          if (!hand) continue;
+          for (let k = 0; k < 3; k++) {
+            const fl = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.075, 6), glow(k === 1 ? 0xffc21a : 0xff5a1a, 1.2));
+            put(fl, hand, s * (0.02 + k * 0.022), 0.055, (k - 1) * 0.012); fl.id2 = k; this._flick.push(fl);
+          }
+        }
+        break;
+      }
+      case 'frost': {
+        // clusters of ice crystals on both shoulders
+        const iceMat = new THREE.MeshStandardMaterial({ color: 0xd8f6ff, emissive: 0x6fd0ff, emissiveIntensity: 0.55, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.92 });
+        for (const [arm, s] of [[b.armL, -1], [b.armR, 1]]) {
+          if (!arm) continue;
+          for (const [h, ox, oz, tilt] of [[0.13, 0.02, 0, 0.35], [0.09, 0.06, 0.035, 0.75], [0.09, 0.06, -0.035, 0.75], [0.07, -0.02, 0.03, 0.15]]) {
+            const c = new THREE.Mesh(new THREE.ConeGeometry(0.022, h, 5), iceMat); c.rotation.z = -s * tilt;
+            put(c, arm, s * ox, 0.06 + h * 0.4, oz);
+          }
+        }
+        break;
+      }
+      case 'gale': {
+        // small wings on the heels
+        for (const [f, s] of ankles) {
+          const g = new THREE.Group();
+          for (let k = 0; k < 3; k++) {
+            const fe = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), new THREE.MeshStandardMaterial({ color: k === 0 ? 0xffffff : 0xd8fff0, emissive: 0x8fffc0, emissiveIntensity: 0.4 }));
+            fe.scale.set(0.01, 0.075 - k * 0.014, 0.03); fe.position.set(0, 0.03, -k * 0.022); fe.rotation.x = -0.9 - k * 0.3; g.add(fe);
+          }
+          g.rotation.z = -s * 0.5; put(g, f, s * 0.055, 0.04, -0.04); this._sway.push({ m: g, ph: s * 2, base: g.quaternion.clone(), amp: 0.25 });
+        }
+        break;
+      }
+      case 'phantom': {
+        // a short night-purple cape with a lighter lining, hanging from the shoulders
+        const spine = b.spine2 || b.spine1;
+        if (spine) {
+          const cape = new THREE.Group();
+          const shape = new THREE.PlaneGeometry(0.36, 0.6, 8, 6).translate(0, -0.3, 0);
+          const pos = shape.attributes.position;
+          for (let i = 0; i < pos.count; i++) { const y = pos.getY(i), x = pos.getX(i); const xs = x * (1 + (-y) * 0.35); pos.setX(i, xs); pos.setZ(i, -xs * xs * 3.2); }
+          shape.computeVertexNormals();
+          const outer = new THREE.Mesh(shape, new THREE.MeshToonMaterial({ color: 0x3a2470, side: THREE.FrontSide }));
+          const inner = new THREE.Mesh(shape, new THREE.MeshToonMaterial({ color: 0x8a5ae0, side: THREE.BackSide }));
+          cape.add(outer, inner);
+          const clasp = new THREE.Mesh(new THREE.OctahedronGeometry(0.028), glow(0xffe14a, 1)); clasp.position.set(0, 0.0, 0.02); cape.add(clasp);
+          cape.rotation.y = Math.PI;
+          put(cape, spine, 0, 0.17, -0.1); this._sway.push({ m: cape, ph: 0.5, base: cape.quaternion.clone(), amp: 0.5, sign: -1 });
+        }
+        break;
+      }
+      case 'cannon': {
+        // armoured shoulder pads with a yellow rim and a rivet
+        for (const [arm, s] of [[b.armL, -1], [b.armR, 1]]) {
+          if (!arm) continue;
+          const pad = new THREE.Group();
+          const shell = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshToonMaterial({ color: 0x56566c }));
+          shell.scale.set(0.1, 0.07, 0.105); pad.add(shell);
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 6, 24), glow(0xffd23f, 0.45)); rim.scale.set(0.1, 0.105, 0.1); rim.rotation.x = Math.PI / 2; pad.add(rim);
+          const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), glow(0xffd23f, 0.6)); rivet.position.y = 0.07; pad.add(rivet);
+          pad.rotation.z = -s * 0.35;
+          put(pad, arm, s * 0.06, 0.05, 0);
+        }
+        break;
+      }
+    }
+  }
+
   _styleTick(dt) {
     this._st = (this._st || 0) + dt;
     const t = this._st;
     for (const o of this._orbit || []) { const a = t * o.sp + o.ph; o.m.position.set(Math.cos(a) * o.r, o.h + Math.sin(t * 2.3 + o.ph) * 0.08 + this.root.position.y, Math.sin(a) * o.r); }
     for (const f of this._flick || []) { const k = 1 + Math.sin(t * 17 + f.id) * 0.12; f.scale.set(k, 1 + Math.sin(t * 13 + f.id * 2) * 0.18, k); }
-    for (const s of this._sway || []) { s.m.quaternion.copy(s.base); s.m.rotateX(0.15 + Math.sin(t * 6 + s.ph) * 0.12 + Math.min(0.6, this.speed * 0.1)); }
+    for (const s of this._sway || []) { s.m.quaternion.copy(s.base); s.m.rotateX((s.sign || 1) * ((s.amp ? 0.05 : 0.15) + Math.sin(t * 6 + s.ph) * (s.amp ? s.amp * 0.25 : 0.12) + Math.min(0.6, this.speed * (s.amp ? s.amp * 0.18 : 0.1)))); }
   }
 
   /** characters each have their own hair colour */

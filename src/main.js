@@ -6,6 +6,7 @@ import { UI } from './ui.js';
 import { Game } from './game.js';
 import { AvatarTemplate } from './avatar.js';
 import { FIELD } from './config.js';
+import { Showroom } from './showroom.js';
 
 const params = new URLSearchParams(location.search);
 
@@ -86,6 +87,7 @@ game.onMapChange = () => {
   sc.far = 60 + FIELD.hx; sc.updateProjectionMatrix();
   scene.fog.near = 55 + (FIELD.hx - 12) * 1.5; scene.fog.far = 170 + (FIELD.hx - 12) * 2;
 };
+ui.showroom = new Showroom(template);
 ui.bind(game);
 window.__game = game; // handy for debugging in the console
 // test hook: advance the simulation deterministically and render one frame
@@ -112,6 +114,8 @@ function frame(now = performance.now()) {
   last = now;
   if (!window.__hold) for (let i = 0; i < substeps; i++) game.update(dt);
   renderer.render(scene, camera);
+  // live character models in the picker (menu / lobby)
+  if (ui.showroom) ui.showroom.update(dt || 1 / 60, [...document.querySelectorAll('.char-card canvas')].filter((c) => c.offsetParent));
   input.endFrame();
 }
 frame();

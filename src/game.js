@@ -100,11 +100,11 @@ export class Game {
 
   // ------------------------------------------------------------- 5v5 roster --
   _makeRoster10() {
-    const NAMES = [['阿蓝', '海盐', '蓝鲸', '天空', '蓝莓'], ['柿子', '南瓜', '芒果', '橙橙', '橘子']];
-    const ROLES = ['gk', 'defL', 'defR', 'attL', 'attR'];
-    const NO = [['1', '4', '5', '7', '10'], ['1', '3', '6', '9', '11']];
+    const NAMES = [['阿蓝', '海盐', '蓝鲸', '冰川', '天空', '蓝莓'], ['柿子', '南瓜', '芒果', '胡萝卜', '橙橙', '橘子']];
+    const ROLES = ['gk', 'defL', 'defR', 'mid', 'attL', 'attR'];
+    const NO = [['1', '4', '5', '8', '7', '10'], ['1', '3', '6', '8', '9', '11']];
     const list = [];
-    for (let s = 0; s < 2; s++) for (let k = 0; k < 5; k++) {
+    for (let s = 0; s < 2; s++) for (let k = 0; k < ROLES.length; k++) {
       const t = TEAMS[s], gk = k === 0;
       const kit = { ...t.kit, no: NO[s][k], hair: null };
       if (gk) Object.assign(kit, s === 0 ? { shirt: '#2bd17e', number: '#ffffff' } : { shirt: '#ffd23f', number: '#2c2a33' });
@@ -118,7 +118,7 @@ export class Game {
     return list;
   }
 
-  /** swap the set of players on the pitch (4 for the free-for-all, 10 for 5v5) */
+  /** swap the set of players on the pitch (4 for the free-for-all, 12 for 6v6) */
   setRoster(m5) {
     const want = m5 ? (this.roster10 || (this.roster10 = this._makeRoster10())) : this.roster4;
     if (this.athletes === want) return;
@@ -226,6 +226,7 @@ export class Game {
         case 'gk': x = -HX + 1.0; z = 0; break;
         case 'defL': x = -HX * 0.6; z = -HZ * 0.42; break;
         case 'defR': x = -HX * 0.6; z = HZ * 0.42; break;
+        case 'mid': x = s === kick ? -HX * 0.3 : -HX * 0.4; z = 0; break;
         case 'attL': x = s === kick ? -2.6 : -HX * 0.28; z = -HZ * 0.3; break;
         default: x = s === kick ? -0.45 : -HX * 0.22; z = s === kick ? 0.12 : HZ * 0.22;
       }
@@ -303,7 +304,7 @@ export class Game {
     this.clock = this.settings.duration || MATCH.defaultDuration; this.golden = false;
     for (const a of A) { a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0, specials: 0, goals: 0 }; a.stamina = 1; a.char.stopEmotes(); a.skill = 1; a.speedMul = 1; a.energy = 0.3; a.iceT = 0; a.out = false; }
     const humans = (this.settings.slots || this._localSlots(this.settings.humans)).filter((s) => s.kind === 'local' || s.kind === 'remote' || s.kind === 'host');
-    const order = ['attR', 'attL', 'defR', 'defL'];
+    const order = ['attR', 'attL', 'mid', 'defR', 'defL'];
     const used = [0, 0];
     this.cursors = humans.map((h, k) => {
       const side = this.settings.pairing === 'vs' ? k % 2 : 0;
@@ -318,15 +319,15 @@ export class Game {
     this.ais = A.map((a) => new AIController(a, this, level, level === 'gf' && humanSide.has(a.gi)));
     // the humans' players aren't CPUs: full skill and speed (the AI made them its level)
     for (const c of this.cursors) { const a = A[c.idx]; a.speedMul = 1; a.skill = 1; }
-    // ten players on one pitch: everyone a bit slower, so it's football rather than a scrum
-    for (const a of A) a.speedMul *= 0.8;
+    // twelve players on one pitch: everyone a bit slower, so it's football rather than a scrum
+    for (const a of A) a.speedMul *= 0.78;
     this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
     this._applyCursors();
     this.endShown = false;
     this.kickSide = Math.random() < 0.5 ? 0 : 1;
     this.ui.onScore(this);
     this.kickoff();
-    this.banner('5v5 比赛', `${TEAMS[0].cn}队 vs ${TEAMS[1].cn}队 · ${Math.round(this.clock / 60)} 分钟`);
+    this.banner('6v6 比赛', `${TEAMS[0].cn}队 vs ${TEAMS[1].cn}队 · ${Math.round(this.clock / 60)} 分钟`);
     if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration: this.settings.duration, mode: 'match5', map: 'pitch5' }, side: this.side,
       slots: this.slots, chars: A.map((a) => a.charId), cur: this._curSnap() });
   }

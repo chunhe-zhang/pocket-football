@@ -16,7 +16,7 @@ export class Athlete {
   constructor(game, team, character, label) {
     this.game = game; this.team = team; this.char = character; this.label = label;
     this.gi = team;          // the goal I defend (5v5: my side's goal)
-    this.role = null;        // 5v5: 'gk' | 'defL' | 'defR' | 'attL' | 'attR'
+    this.role = null;        // 6v6: 'gk' | 'defL' | 'defR' | 'mid' | 'attL' | 'attR'
     this.charId = 'thunder'; // character: decides the special shot
     this.energy = 0;         // special-shot meter, 0..1
     this.iceT = 0;           // frozen solid by an ice shot

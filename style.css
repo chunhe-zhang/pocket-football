@@ -188,7 +188,9 @@ button { font-family: var(--font); cursor: pointer; }
 /* ---- characters ---- */
 .char-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 4px 0 4px; }
 .char-card { border: 2px solid transparent; background: rgba(255, 255, 255, 0.06); color: var(--text); border-radius: 10px; padding: 7px 4px 6px; text-align: center; cursor: pointer; line-height: 1.15; }
-.char-card .ic { font-size: 22px; display: block; }
+.char-card { position: relative; overflow: hidden; padding-top: 2px; }
+.char-card .cv { display: block; width: 100%; aspect-ratio: 150 / 190; margin: 0 auto -2px; background: radial-gradient(ellipse at 50% 85%, color-mix(in srgb, var(--cc) 30%, transparent), transparent 70%); border-radius: 8px; }
+.char-card .ic { font-size: 15px; position: absolute; top: 6px; left: 7px; }
 .char-card b { display: block; font-size: 16px; margin-top: 2px; }
 .char-card small { display: block; font-size: 12px; color: var(--cc); font-weight: 700; }
 .char-card.on { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 22%, transparent); }

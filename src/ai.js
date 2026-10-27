@@ -458,10 +458,11 @@ export class AIController {
     const me = this.me, g = this.game, bp = g.ball.pos, HX = FIELD.hx, HZ = FIELD.hz;
     const d = me.gi === 0 ? 1 : -1;                 // blue attacks +x
     const bx = bp.x * d, bz = bp.z * d;             // the ball in my side's frame
-    const base = { defL: [-0.62, -0.4], defR: [-0.62, 0.4], attL: [-0.2, -0.34], attR: [-0.05, 0.26] }[me.role] || [-0.4, 0];
-    let X = base[0] * HX + bx * 0.5 + (attacking ? (me.role.startsWith('att') ? 4 : 2.5) : 0);
+    const base = { defL: [-0.62, -0.42], defR: [-0.62, 0.42], mid: [-0.36, 0], attL: [-0.12, -0.36], attR: [0.0, 0.3] }[me.role] || [-0.4, 0];
+    let X = base[0] * HX + bx * 0.5 + (attacking ? (me.role.startsWith('att') ? 4 : me.role === 'mid' ? 3.2 : 2.5) : 0);
     let Z = base[1] * HZ + bz * 0.35;
     if (!attacking && me.role.startsWith('def')) X = Math.min(X, bx - 1.5);   // stay goal-side of the ball
+    if (!attacking && me.role === 'mid') X = Math.min(X, bx + 1);             // the midfielder screens in front of the back two
     if (attacking && me.role.startsWith('att')) X = Math.min(X, HX - 3);
     X = clamp(X, -HX + 3, HX - 1.5); Z = clamp(Z, -HZ + 1, HZ - 1);
     return legal(X * d, Z * d, 0.8).clone();
@@ -605,7 +606,7 @@ export class AIController {
         if (this._isHuman(m)) sc += this.assist ? 6 : 1.5;
         if (sc > bestS) { bestS = sc; best = m; }
       }
-      const want = me.role === 'gk' ? -99 : pressure ? 0.2 : me.role.startsWith('def') ? 1.2 : 2.2;
+      const want = me.role === 'gk' ? -99 : pressure ? 0.2 : me.role.startsWith('def') ? 1.2 : me.role === 'mid' ? 1.6 : 2.2;
       if (best && (bestS > want || (this.assist && this._isHuman(best)))) {
         const dm = Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z);
         const bgd = Math.hypot(best.goalTarget().x - best.pos.x, best.goalTarget().z - best.pos.z);
