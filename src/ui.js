@@ -37,7 +37,7 @@ export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
     const saved = (store.get('pf-chars') || '').split(',');
-    this.settings = { net: 'local', humans: 1, level: 'gf', mode: 'ffa', pairing: 'humans', map: 'classic', duration: 180, who: '0',
+    this.settings = { net: 'local', humans: 1, level: 'hard', mode: 'match5', pairing: 'humans', map: 'classic', duration: 180, who: '0',
       chars: [0, 1, 2, 3].map((i) => (CHAR[saved[i]] ? saved[i] : CHARS[i].id)) };
     this.muted = false;
     this.tags = [];
@@ -163,8 +163,10 @@ export class UI {
     for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
       ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
+    const LV = { easy: '简单：电脑跑得慢、射门偏，很少抢断。', normal: '普通：电脑会配合、会抢断，门将不错。', hard: '困难：电脑反应快、爱一脚出球和打连携，门将很难打穿。', gf: '女友模式：电脑很菜，拿到球就传给真人玩家，让你射门。' };
+    for (const m of document.querySelectorAll('.level-note')) m.textContent = LV[this.settings.level] || '';
     for (const m of document.querySelectorAll('.mode-note')) m.textContent = m5
-      ? `长方形六人制球场，两队各 6 人（1 门将 + 2 后卫 + 1 中场 + 2 前锋），${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 11 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
+      ? `大号六人制球场（波浪围板），两队各 6 人（1 门将 + 1 后卫 + 左中右三人组 + 1 前锋，每队六种元素各一个），分上下半场，${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 11 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
       : team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
       : '每人守一个球门，谁都可以打，最后留下的人获胜。';

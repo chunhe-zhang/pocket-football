@@ -409,3 +409,17 @@ export function inOwnBox(team, x, z) {
   const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x;
   return depth > g.line - FIELD.boxDepth && Math.abs(along) < FIELD.boxHalfW;
 }
+/** the 6v6 小禁区 (goal area) in front of goal `team`: 3 m deep, 2 m either side of the posts */
+export const SMALL_BOX = { depth: 3, side: 2 };
+export function inSmallBox(team, x, z) {
+  const g = GOALS[team]; if (!g) return false;
+  const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x;
+  return depth > g.line - SMALL_BOX.depth && Math.abs(along) < FIELD.goalHalfW + SMALL_BOX.side;
+}
+/** where a shot is struck from, relative to the goal it's aimed at: 'small' | 'box' | 'out' */
+export function shotZone(x, z, tx, tz) {
+  let gi = -1, best = Infinity;
+  GOALS.forEach((g, i) => { const d = Math.hypot(g.centre.x - tx, g.centre.z - tz); if (d < best) { best = d; gi = i; } });
+  if (gi < 0) return 'out';
+  return inSmallBox(gi, x, z) ? 'small' : inOwnBox(gi, x, z) ? 'box' : 'out';
+}

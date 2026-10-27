@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES, waveOff } from './config.js';
+import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES, waveOff, SMALL_BOX } from './config.js';
 import { Scenery } from './scenery.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
@@ -96,6 +96,11 @@ function grassTexture() {
       g.fillStyle = t.css + '33'; g.fillRect(0, -BW, BD, 2 * BW);
       g.strokeStyle = t.css; g.lineWidth = 0.09 * ppm;
       g.strokeRect(0, -BW, BD, 2 * BW);
+      if (GOALS.length === 2) {   // 6v6: the 小禁区 (goal area) inside the box
+        const SD = SMALL_BOX.depth * ppm, SW = (FIELD.goalHalfW + SMALL_BOX.side) * ppm;
+        g.fillStyle = t.css + '2a'; g.fillRect(0, -SW, SD, 2 * SW);
+        g.strokeRect(0, -SW, SD, 2 * SW);
+      }
       g.fillStyle = t.css; g.fillRect(-0.06 * ppm, -FIELD.goalHalfW * ppm, 0.14 * ppm, 2 * FIELD.goalHalfW * ppm);
       g.beginPath(); g.arc(BD + 1.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
       g.restore();

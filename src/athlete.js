@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const smoothstep = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
@@ -664,7 +664,8 @@ export class Athlete {
     let chance = 1.08 - Math.max(0, sp - 18) * 0.011 - (lat / reach) ** 2 * 0.3;
     // from range the keeper sees it all the way; close in there's no time
     const dist = b.shotDist ?? 14;
-    chance += clamp((dist - 12) * 0.025, -0.1, 0.24);
+    const zone = b.shotZone || (dist < 4 ? 'small' : dist < 9 ? 'box' : 'out');
+    chance += zone === 'small' ? -0.3 : zone === 'box' ? clamp((dist - 8) * 0.015, -0.06, 0.04) : 0.12 + clamp((dist - 12) * 0.02, 0, 0.16);
     if (spc) chance -= spc.has('phantom') ? 0.1 : 0.04;
     if (cb && cb.level > 1) chance -= (cb.level >= 3 ? 0.35 : 0.22) * Math.max(0.1, 1 - (cb.range ?? 0.3));   // a combo is hot close in, readable from range
     chance -= (1 - this._gkLevel()) * 0.6;
@@ -1352,7 +1353,7 @@ export class Athlete {
       ball.spin.multiplyScalar(0.2);
       ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.3; this.ignoreBall = 0.25; this.stats.touches++;
       ball.guardT = 0; ball.loftKind = null; ball.dribbleGuard = 0; ball.endSpecial();
-      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos);
+      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos); { const t2 = this.goalTarget(); ball.shotZone = shotZone(this.pos.x, this.pos.z, t2.x, t2.z); }
       if (special) { ball.startSpecial(chain, this, h.aim, 0.8, this.goalTarget()); g.onSpecial?.(this, special); }
       else if (mate) { this._elemPass(chain); ball.passTo = mate; ball.passToT = 1.3; }
       if (!mate) this.passT = -1;
@@ -1781,7 +1782,12 @@ export class Athlete {
     // shot error: rushed / mishit / power shots are less accurate
     const gd = this.goalTarget().distanceTo(this.pos);
     // close in, a shot is struck with everything; from range it carries less (a combo loses less of it)
-    if (k.type === 'kick' && special) speed *= special.level > 1 ? clamp(1.08 - (gd - 8) * 0.013, 0.84, 1.08) : clamp(1.12 - (gd - 8) * 0.018, 0.8, 1.12);
+    // where it's struck from: 小禁区 (goal area) full power, the box about normal, outside it a long shot loses a lot
+    const gt = this.goalTarget(), zone = shotZone(this.pos.x, this.pos.z, gt.x, gt.z);
+    if (k.type === 'kick' && special) {
+      const zf = zone === 'small' ? 1.12 : zone === 'box' ? clamp(1.06 - (gd - 4) * 0.01, 0.98, 1.06) : clamp(0.88 - (gd - 12) * 0.012, 0.72, 0.88);
+      speed *= special.level > 1 ? 1 - (1 - zf) * 0.6 : zf;               // combos lose less of it
+    }
     if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);
     if (k.type === 'kick' && special && special.level > 1) speed = Math.min(speed, 46 - clamp((gd - 10) * 1.0, 0, 12));   // from range even a combo is something a keeper can track   // a solo shot never gets past what a keeper can react to
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
@@ -1814,7 +1820,7 @@ export class Athlete {
     if ((k.type === 'pass' || k.loft) && this.passTarget) { ball.guardT = 0.32; ball.guardBy = this; }
     ball.loftKind = k.loft ? k.loft.kind : null;
     ball.chain = { els: chain, last: this };
-    ball.shotDist = gd;
+    ball.shotDist = gd; ball.shotZone = zone;
     if (this.passTarget && !special) { ball.passTo = this.passTarget; ball.passToT = 1.3; }
     if (special) { ball.startSpecial(chain, this, dir, p, this.goalTarget()); if (lobShot) ball.special.lob = true; g.onSpecial?.(this, special); }
     else this._elemPass(chain);                                    // every pass carries them too, however soft

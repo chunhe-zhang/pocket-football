@@ -167,7 +167,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.passToT = 0; this.shotDist = null;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.passToT = 0; this.shotDist = null; this.shotZone = null;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -191,7 +191,8 @@ export class Ball {
     const dist = this.shotDist ?? 12;
     // two-man combos are never a sure thing: deadly close in (their trick usually comes off), a plain
     // hard shot from range. Only a three-man 合击 can't be stopped — and even that fades from very far
-    c.range = Math.max(0, Math.min(1, (dist - 8) / 12));                 // 0 close … 1 from 20 m+
+    const zone = this.shotZone || 'box';
+    c.range = zone === 'small' ? 0 : zone === 'box' ? Math.max(0, Math.min(0.5, (dist - 5) / 10)) : Math.max(0.6, Math.min(1, (dist - 8) / 12));   // 0 in the 小禁区 … 1 from 20 m+
     if (c.level === 2 && c.gk !== 'parry' && Math.random() < 0.3 + 0.62 * c.range) { c.gk = 'parry'; c.faded = true; }
     if (c.level === 2 && c.pierceGk) c.pierceGk *= 1 - 0.85 * c.range;
     if (c.level === 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far
