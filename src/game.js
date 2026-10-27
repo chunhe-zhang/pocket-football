@@ -13,7 +13,7 @@ import { PowerFx } from './powerfx.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const CAM_MODES = ['broadcast', 'high'];
-const SFX_EVENTS = new Set(['kick', 'touch', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd']);
+const SFX_EVENTS = new Set(['kick', 'pass', 'touch', 'head', 'body', 'slide', 'bump', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd', 'element', 'combo', 'device', 'shatter']);
 const SNAP_INTERVAL = 0.05; // host sends 20 snapshots a second
 const INTERP_DELAY = 0.12;  // guests render this far behind the newest snapshot
 
@@ -505,7 +505,7 @@ export class Game {
 
   // ------------------------------------------------------------ callbacks --
   onKick(ath, k, vel) {
-    if (k.type === 'pass') { this.sfx.kick(0.2 + 0.35 * k.power); return; }
+    if (k.type === 'pass') { this.sfx.pass(k.power); return; }
     const p = k.power;
     if (k.type !== 'header') this.sfx.kick(p);
     if (p > 0.55 && k.type === 'kick') {
@@ -532,9 +532,9 @@ export class Game {
   onWhiff() {}
 
   /** a character's skill move (过人) starts: its effects, here and on guests' screens */
-  onPower(ath, kind) { this.powerFx.start(ath, kind); this.emit({ e: 'power', i: ath.team, k: kind }); }
+  onPower(ath, kind) { this.powerFx.start(ath, kind); this.sfx.element(kind, 'move'); this.emit({ e: 'power', i: ath.team, k: kind }); }
   /** a slide tackle with the character's element (from = where a phantom blinked from) */
-  onSlide(ath, kind, from) { this.powerFx.start(ath, 'slide:' + kind, { from }); this.emit({ e: 'power', i: ath.team, k: 'slide:' + kind, f: from ? [from.x, from.z] : null }); }
+  onSlide(ath, kind, from) { this.powerFx.start(ath, 'slide:' + kind, { from }); this.sfx.element(kind, 'slide', 0.6); this.emit({ e: 'power', i: ath.team, k: 'slide:' + kind, f: from ? [from.x, from.z] : null }); }
   /** an impact flash at a player (cannon hits) */
   onImpact(ath, color) { this.powerFx.start({ pos: ath.pos.clone() }, 'hit', { color }); this.emit({ e: 'hit', p: [ath.pos.x, ath.pos.z], c: color }); }
 
@@ -542,8 +542,7 @@ export class Game {
   onSpecial(ath, def) {
     ath.stats.specials = (ath.stats.specials || 0) + 1;
     this.hitstop = 0.05; this.shake = Math.max(this.shake, 0.15); this.emit({ e: 'shake', v: 0.15 });
-    this.sfx.kick(1); this.sfx.post(14); this.sfx.crowd(0.2, 0.6); this.sfx.ooh();
-    if (def.id === 'cannon') this.sfx.board(18);
+    this.sfx.kick(1); this.sfx.element(def.id, 'shot'); this.sfx.crowd(0.2, 0.6); this.sfx.ooh();
     this.fx(def.id === 'blaze' ? 'fire' : def.id === 'frost' ? 'ice' : def.id === 'thunder' ? 'bolt' : def.id === 'gale' ? 'wind' : def.id === 'phantom' ? 'ghost' : 'smoke', this.ball.pos, { x: 0, z: 0 }, 30, 5);
     this.rumble(ath, 1, 220);
   }
@@ -706,7 +705,7 @@ export class Game {
         a.zap(e.kind, dir);
         const kind = e.kind === 'blaze' ? 'fire' : e.kind === 'frost' ? 'ice' : e.kind === 'thunder' ? 'bolt' : 'smoke';
         this.fx(kind, { x: a.pos.x, y: 1.0, z: a.pos.z }, { x: dir.x, z: dir.z }, 22, 4);
-        this.sfx.body(14); if (e.kind === 'thunder') this.sfx.post(10);
+        this.sfx.body(14); this.sfx.element(e.kind, 'hit', 0.8);
         this.shake = Math.max(this.shake, 0.15);
         this.emit({ e: 'zap', i: a.team, k: e.kind, d: [dir.x, dir.z] });
         break;
@@ -714,7 +713,7 @@ export class Game {
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
       case 'shield':
         (this.shieldBroken || (this.shieldBroken = {}))[e.team] = this.time;
-        this.sfx.post(14); this.sfx.board(16); this.sfx.ooh();
+        this.sfx.shatter(); this.sfx.board(16); this.sfx.ooh();
         this.shake = Math.max(this.shake, 0.12);
         this.pitch.breakShield(e.team);
         this.emit({ e: 'shield', t: e.team });
@@ -725,17 +724,17 @@ export class Game {
         }
         this.banner('护盾碎了！', `${this.athletes[e.team].label} 的球门现在没有保护`);
         break;
-      case 'bumper': this.sfx.post(Math.min(14, e.v + 4)); this.pitch.pulse('bumper', e.x, e.z); this.emit({ e: 'pulse', k: 'bumper', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.05); break;
-      case 'spring': this.sfx.bounce(6); this.sfx.kick(0.15); this.pitch.pulse('spring', e.x, e.z); this.emit({ e: 'pulse', k: 'spring', x: e.x, z: e.z }); break;
+      case 'bumper': this.sfx.device('bumper', e.v); this.pitch.pulse('bumper', e.x, e.z); this.emit({ e: 'pulse', k: 'bumper', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.05); break;
+      case 'spring': this.sfx.device('spring', e.v); this.pitch.pulse('spring', e.x, e.z); this.emit({ e: 'pulse', k: 'spring', x: e.x, z: e.z }); break;
       case 'portal':
-        this.sfx.slide(); this.sfx.post(3);
+        this.sfx.device('portal', e.v);
         this.pitch.pulse('portal', e.from[0], e.from[1]); this.pitch.pulse('portal', e.to[0], e.to[1]);
         this.emit({ e: 'pulse', k: 'portal', x: e.from[0], z: e.from[1] }); this.emit({ e: 'pulse', k: 'portal', x: e.to[0], z: e.to[1] });
         this.fx('grass', this.ball.pos, { x: 0, z: 0 }, 8, 2);
         break;
-      case 'boost': this.sfx.kick(0.6); this.pitch.pulse('boost', e.x, e.z); this.emit({ e: 'pulse', k: 'boost', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.04); break;
-      case 'vortex': this.sfx.slide(); this.pitch.pulse('vortex', e.x, e.z); this.emit({ e: 'pulse', k: 'vortex', x: e.x, z: e.z }); break;
-      case 'wheel': this.sfx.post(6); this.pitch.pulse('wheel', e.x, e.z); this.emit({ e: 'pulse', k: 'wheel', x: e.x, z: e.z }); break;
+      case 'boost': this.sfx.device('boost', e.v); this.pitch.pulse('boost', e.x, e.z); this.emit({ e: 'pulse', k: 'boost', x: e.x, z: e.z }); this.shake = Math.max(this.shake, 0.04); break;
+      case 'vortex': this.sfx.device('vortex'); this.pitch.pulse('vortex', e.x, e.z); this.emit({ e: 'pulse', k: 'vortex', x: e.x, z: e.z }); break;
+      case 'wheel': this.sfx.device('wheel'); this.pitch.pulse('wheel', e.x, e.z); this.emit({ e: 'pulse', k: 'wheel', x: e.x, z: e.z }); break;
       case 'body': {
         const a = e.who;
         if (this.m5 && a.tryCatch(e.part, e.v)) break;

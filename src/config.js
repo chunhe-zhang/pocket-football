@@ -109,20 +109,22 @@ export const MAPS = {
   // Kick it hard and see where it ends up.
   // classic five-a-side: a long rectangle, one goal at each end, boards round the sides (no throw-ins)
   pitch5: {
-    name: '六人制球场', hx: 20, hz: 12.5, cornerR: 2.4, goalHalfW: 2.5, goalH: 2.05, boxHalfW: 6, boxDepth: 5,
+    name: '六人制球场', hx: 20, hz: 12.5, cornerR: 2.4, goalHalfW: 2.5, goalH: 2.05, boxHalfW: 7, boxDepth: 6,
     lives: 99, kickoff: 6, follow: false, goals: 2, lines: true,   // fixed camera: the whole pitch, no panning
     islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
   track: {
     name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
     lives: 3, kickoff: 3, follow: false, square: true, shields: true,   // goals start behind a barrier that has to be broken first
+    // sixteen flat tiles in a 4 × 4 grid: nothing stands up, the players run straight over all of them,
+    // only the ball reacts. Each ring of four is the same tile turned 90°, so every goal faces the same park.
     islands: [],
-    bumpers: [...rot4({ x: 2.8, z: 6.8, r: 0.6, sq: true }), ...rot4({ x: 0, z: 4.7, r: 0.55, sq: true })],   // jelly blocks
+    bumpers: [],
     pads: [],
-    springs: rot4({ x: 0, z: 2.6, r: 0.8, sq: true }),
-    portals: rot4({ x: 6.2, z: 6.2, r: 0.95, sq: true }),        // diagonal partners
-    boosts: rot4({ x: 6.8, z: 2.8, r: 0.85, sq: true }),
-    vortices: rot4({ x: 3.1, z: 3.1, r: 1.05, sq: true }),
-    wheels: rot4({ x: 8, z: 0, r: 0.85, sq: true }),
+    vortices: rot4({ x: 2.25, z: 2.25, r: 1.25, sq: true }),      // the middle four: whirlpools
+    portals: rot4({ x: 6.25, z: 6.25, r: 1.15, sq: true }),       // the corners: diagonal partners
+    springs: rot4({ x: 2.25, z: 6.25, r: 1.15, sq: true }),       // in front of each goal (left of centre): bounce pads
+    boosts: rot4({ x: -2.25, z: 6.25, r: 1.15, sq: true }),       // and right of centre: speed tiles
+    wheels: [],
   },
 };
 
@@ -153,17 +155,17 @@ export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 // ---- characters: everyone has their own special shot -----------------------------------
 // Every 爆射 firmer than a side-footed pass (30% charge or more) is the special shot.
 export const CHARS = [
-  { id: 'thunder', name: '雷霆', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
+  { id: 'thunder', name: '雷', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
     desc: '贯穿人墙，碰到的人全身麻痹', move: 'Z 字闪电冲刺，从防守人身边折到他身后', speed: 1.38 },
-  { id: 'blaze', name: '焰姬', skill: '火焰射门', icon: '🔥', css: '#ff6a2b', color: 0xff6a2b, hair: '#ff4a2a',
+  { id: 'blaze', name: '火', skill: '火焰射门', icon: '🔥', css: '#ff6a2b', color: 0xff6a2b, hair: '#ff4a2a',
     desc: '火球穿过人群，烧到的人被掀翻', move: '怒吼爆炎，把身边的人全部震飞', speed: 1.28 },
-  { id: 'frost', name: '冰晶', skill: '冰冻射门', icon: '❄️', css: '#9fe6ff', color: 0x9fe6ff, hair: '#d8f6ff',
+  { id: 'frost', name: '冰', skill: '冰冻射门', icon: '❄️', css: '#9fe6ff', color: 0x9fe6ff, hair: '#d8f6ff',
     desc: '穿人的寒冰球，碰到的人被冻住', move: '寒气爆发，把身边的人冻成冰雕', speed: 1.18 },
-  { id: 'gale', name: '旋风', skill: '旋风射门', icon: '🌪️', css: '#6dff9a', color: 0x6dff9a, hair: '#5fe08a',
+  { id: 'gale', name: '风', skill: '旋风射门', icon: '🌪️', css: '#6dff9a', color: 0x6dff9a, hair: '#5fe08a',
     desc: '走 S 形弯道，门将很难判断', move: '旋转腾空，带着球从人头上飞过去', speed: 1.2 },
-  { id: 'phantom', name: '幻影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
+  { id: 'phantom', name: '影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
     desc: '球忽隐忽现，门将来不及反应', move: '原地消失，瞬移到防守人身后', speed: 1.24 },
-  { id: 'cannon', name: '巨炮', skill: '重炮射门', icon: '💣', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
+  { id: 'cannon', name: '土', skill: '重炮射门', icon: '🪨', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
     desc: '最快最重，撞谁谁倒，蓄满时连门将也挡不住', move: '低头往前猛冲，挡路的人被撞飞', speed: 1.5 },
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));

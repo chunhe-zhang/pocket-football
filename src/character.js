@@ -489,7 +489,7 @@ const DIVE = {
   lean:    [[0, 0], [0.07, 0.15], [0.2, 0.05], [1, 0]],
 };
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3(), _f = new THREE.Vector3();
 
 export class Character {
   /**
@@ -543,6 +543,16 @@ export class Character {
     const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
     this._restQ = new Map();
     for (const bn of ['head', 'neck', 'spine2', 'spine1', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR', 'footL', 'footR'].map((k) => this.bones[k]).filter(Boolean)) this._restQ.set(bn, gq.clone().multiply(bn.getWorldQuaternion(new THREE.Quaternion())));
+    // eyes and fingers aren't animated by the clips: keep their rest pose and pose them by hand each frame
+    this._eyes = ['eyeL', 'eyeR'].map((k) => this.bones[k]).filter(Boolean).map((bn) => ({ bn, rest: bn.quaternion.clone() }));
+    this._fingers = [];
+    const fwdW = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.getWorldQuaternion(new THREE.Quaternion()));
+    for (const s of ['L', 'R']) for (const chain of this.bones.fingers?.[s] || []) chain.forEach((bn, j) => {
+      // curl axis = the body's forward axis at rest (T-pose), expressed in this joint's own frame
+      const axis = fwdW.clone().applyQuaternion(bn.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+      this._fingers.push({ bn, rest: bn.quaternion.clone(), axis, sign: s === 'L' ? -1 : 1, k: [1, 1.15, 0.8][j] });
+    });
+    this.curl = 0.25; this.breath = 0; this.fatigue = 0; this.tired = 0;
 
     // measure the clips on *this* skeleton (legs differ between models)
     const cache = template._measure || (template._measure = {});
@@ -911,7 +921,7 @@ export class Character {
     return g;
   }
 
-  face(name, w) { this.expr?.set(name, w); }
+  face(name, w) { this.expr?.set(name, w); if (name === 'aa') this._faceBusyT = w > 0 ? 0.6 : 0; }
 
   stopEmotes() {
     for (const g of this.gestures) if (g.loop) g.stop();
@@ -971,6 +981,62 @@ export class Character {
     bone.quaternion.premultiply(this._qa);
   }
 
+  /**
+   * Small things that make a body feel alive:
+   *  - breathing in the chest, quick and deep when tired; hands on knees, mouth open, when spent and standing
+   *  - eyes that lead the head towards the ball (the head only follows part of the way)
+   *  - relaxed hands at rest that close into fists when running hard or celebrating
+   *  - feet that never sink into the grass: a crouch bends the knees instead
+   */
+  _details(dt, speed, fatigue, ch, yaw, pitch) {
+    const b = this.bones, r = this.right, f = this.forward;
+    // -- breathing and fatigue
+    this.fatigue += (fatigue - this.fatigue) * Math.min(1, dt * 2);
+    const fat = this.fatigue;
+    this.breath += dt * (1.6 + fat * 4.2 + Math.min(speed, 7) * 0.25);
+    const still = clamp(1 - speed / 1.4, 0, 1), busy = this.gestures.length > 0 || this._wu > 0.05;
+    const tiredW = clamp((fat - 0.55) / 0.35, 0, 1) * still * (busy ? 0 : 1);
+    this.tired += (tiredW - this.tired) * Math.min(1, dt * 3);
+    const amp = 0.012 + fat * 0.035 + this.tired * 0.03;
+    const inhale = Math.sin(this.breath);
+    this._rot(b.spine2 || b.spine1, r, -amp * inhale);
+    this._rot(b.armL, f, amp * 0.6 * inhale); this._rot(b.armR, f, -amp * 0.6 * inhale);   // shoulders rise with it
+    const tw = this.tired;
+    if (tw > 0.01) {
+      this._rot(b.spine1, r, -0.5 * tw); this._rot(b.spine, r, -0.3 * tw);                  // bent over…
+      this._rot(b.armL, r, 0.3 * tw); this._rot(b.armR, r, 0.3 * tw);                       // …hands down on the knees
+      this._rot(b.foreL, f, 0.2 * tw); this._rot(b.foreR, f, -0.2 * tw);
+      this._rot(b.head, r, 0.45 * tw);                                                      // head up, looking at the play
+      this.root.position.y -= 0.12 * tw;                                                    // knees give (the feet stay planted)
+    }
+    this._faceBusyT = Math.max(0, (this._faceBusyT || 0) - dt);
+    if (!(this._faceBusyT > 0) && this.expr) this.expr.set('aa', Math.max(0, fat - 0.4) * (0.35 + 0.35 * (inhale * 0.5 + 0.5)));
+    // -- eyes: they get there first and go further than the head
+    if (this._eyes.length) {
+      const ey = clamp(yaw - this.look.yaw * 0.9, -0.35, 0.35) * 0.7 + Math.sin(this.breath * 0.37) * 0.02;
+      const ep = clamp(pitch - this.look.pitch * 0.8, -0.25, 0.25) * 0.6;
+      this._eyeY = (this._eyeY || 0) + (ey - (this._eyeY || 0)) * Math.min(1, dt * 18);
+      this._eyeP = (this._eyeP || 0) + (ep - (this._eyeP || 0)) * Math.min(1, dt * 18);
+      for (const e of this._eyes) { e.bn.quaternion.copy(e.rest); this._rot(e.bn, UP, this._eyeY); this._rot(e.bn, r, -this._eyeP); }
+    }
+    // -- hands: loose at rest, fists when sprinting or celebrating
+    const celebrating = this.gestures.some((g) => (g.name === 'celebrate' || g.name === 'fistPump' || g.name === 'roar') && !g.stopping);
+    const want = celebrating ? 1.05 : 0.22 + clamp((speed - 2.5) / 3.5, 0, 1) * 0.7;
+    this.curl += (want - this.curl) * Math.min(1, dt * 8);
+    for (const fg of this._fingers) { fg.bn.quaternion.copy(fg.rest); this._qa.setFromAxisAngle(fg.axis, fg.sign * this.curl * fg.k * 1.1); fg.bn.quaternion.multiply(this._qa); }
+    // -- feet stay on the grass
+    const kc = this.kickCalib, airborne = (ch.hop || 0) > 0.02 || this.airY > 0.02 || this.tumble;
+    if (kc && !airborne) {
+      this.group.updateMatrixWorld(true);
+      for (const [up, leg, foot, s] of [[b.upLegR, b.legR, b.footR, 'R'], [b.upLegL, b.legL, b.footL, 'L']]) {
+        if (!foot || this.ik[s].w > 0.3) continue;
+        foot.getWorldPosition(_f);
+        const floor = kc.ankleHeight * 0.9;
+        if (_f.y < floor - 0.005) { _f.y = floor; this._legIK(up, leg, foot, _f, 1); }
+      }
+    }
+  }
+
   /** analytic two-bone IK: move the ankle towards `target` with weight w */
   _legIK(up, low, foot, target, w) {
     if (w <= 0.001) return;
@@ -999,7 +1065,7 @@ export class Character {
     if (s > 1e-6) { this._rot(up, axis.divideScalar(s), Math.atan2(s, from.dot(to))); up.updateMatrixWorld(true); }
   }
 
-  update(dt, { speed = 0, turnRate = 0 } = {}) {
+  update(dt, { speed = 0, turnRate = 0, fatigue = 0 } = {}) {
     this._styleTick?.(dt);
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
@@ -1121,6 +1187,7 @@ export class Character {
     this.look.pitch += clamp((pitch - this.look.pitch) * k, -maxStep, maxStep);
     this._rot(b.neck, UP, this.look.yaw * 0.45); this._rot(b.head, UP, this.look.yaw * 0.45);
     this._rot(b.neck, r, -this.look.pitch * 0.4); this._rot(b.head, r, -this.look.pitch * 0.4 + (ch.headUp || 0));
+    this._details(dt, speed, fatigue, ch, yaw, pitch);
 
     this.group.updateMatrixWorld(true);
     this.constraints?.update();

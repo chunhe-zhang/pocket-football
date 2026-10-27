@@ -631,15 +631,12 @@ export class Pitch {
       const base = new THREE.Mesh(s.sq ? new THREE.BoxGeometry(s.r * 2, 0.08, s.r * 2) : new THREE.CylinderGeometry(s.r, s.r * 1.05, 0.08, 32), new THREE.MeshStandardMaterial({ color: 0x3b3a52, roughness: 0.6 }));
       base.position.y = 0.04; g.add(base);
       const top = new THREE.Group(); g.add(top);
-      for (let k = 0; k < 3; k++) {
-        const coil = new THREE.Mesh(new THREE.TorusGeometry(s.r * 0.55, 0.035, 6, 24), new THREE.MeshStandardMaterial({ color: 0xc8c8d8, metalness: 0.6, roughness: 0.3 }));
-        coil.rotation.x = Math.PI / 2; coil.position.y = 0.1 + k * 0.05; top.add(coil);
-      }
+      // flush with the grass: a flat trampoline tile (players run straight over it)
       const discTex = canvasTex(128, 128, (c, w) => {
         for (let r = 6; r >= 1; r--) { c.fillStyle = r % 2 ? '#ffd23f' : '#ff5f9e'; c.beginPath(); c.arc(w / 2, w / 2, (r / 6) * (w / 2 - 2), 0, Math.PI * 2); c.fill(); }
       });
       const disc = new THREE.Mesh(s.sq ? new THREE.BoxGeometry(s.r * 1.8, 0.06, s.r * 1.8) : new THREE.CylinderGeometry(s.r * 0.9, s.r * 0.9, 0.06, 32), s.sq ? new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }) : [new THREE.MeshStandardMaterial({ color: 0xff5f9e }), new THREE.MeshStandardMaterial({ map: discTex, emissive: 0xffffff, emissiveMap: discTex, emissiveIntensity: 0.2 }), new THREE.MeshStandardMaterial({ color: 0xff5f9e })]);
-      disc.position.y = 0.27; top.add(disc);
+      disc.position.y = 0.075; top.add(disc);
       this.root.add(g);
       this.springMeshes.push({ x: s.x, z: s.z, top, k: 0 });
     }
@@ -688,7 +685,7 @@ export class Pitch {
       tile(g, p.r, c2); const d = disc(p.r, tex); g.add(d); g.add(rim(p.r, new THREE.Color(c1).getHex()));
       // a soft glowing column so you can spot them from across the park
       const col = new THREE.Mesh(sq ? new THREE.BoxGeometry(p.r * 1.95, 1.6, p.r * 1.95) : new THREE.CylinderGeometry(p.r * 0.95, p.r, 1.6, 32, 1, true), new THREE.MeshBasicMaterial({ color: c1, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
-      col.position.y = 0.8; g.add(col);
+      col.scale.y = 0.35; col.position.y = 0.28; g.add(col);
       this.root.add(g);
       this.devices.push({ kind: 'portal', x: p.x, z: p.z, spinner: d, rate: -2.2, k: 0, g, col });
     }

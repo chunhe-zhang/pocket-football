@@ -33,6 +33,7 @@ const KEYS = {
   upLegL: 'leftUpperLeg', legL: 'leftLowerLeg', footL: 'leftFoot', toeL: 'leftToes',
   armL: 'leftUpperArm', foreL: 'leftLowerArm', armR: 'rightUpperArm', foreR: 'rightLowerArm',
   handL: 'leftHand', handR: 'rightHand',
+  eyeL: 'leftEye', eyeR: 'rightEye',
 };
 
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3();
@@ -125,6 +126,12 @@ export class AvatarTemplate {
     const node = (i) => map(this.nodeObjects[i]);
     const bones = {};
     for (const [k, v] of Object.entries(KEYS)) bones[k] = map(this.human[v]);
+    // finger joints (thumb left alone): [proximal, intermediate, distal] for each finger, per hand
+    bones.fingers = { L: [], R: [] };
+    for (const [s, side] of [['L', 'left'], ['R', 'right']]) for (const f of ['Index', 'Middle', 'Ring', 'Little']) {
+      const chain = ['Proximal', 'Intermediate', 'Distal'].map((p) => map(this.human[`${side}${f}${p}`]));
+      if (chain.every(Boolean)) bones.fingers[s].push(chain);
+    }
     const avatar = {
       root, bones, node,
       constraints: new NodeConstraints(this.gltf.parser.json, node),

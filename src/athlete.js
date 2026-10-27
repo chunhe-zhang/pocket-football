@@ -512,15 +512,22 @@ export class Athlete {
   }
 
   /** sent flying: up into the air, tumbling, then a heavy landing (cannon / fire blasts) */
+  /**
+   * Sent flying by earth / fire. (h, v) give the distance it would cover on a high arc; the flight is
+   * flattened to a low, fast one over the same distance, so you land quickly and get straight back up
+   * (only ice holds anyone for long).
+   */
   launch(dir, h, v) {
     if (this.frozen) return;
     this.knock(dir, 0);
-    const tAir = (2 * v) / 9.81;
-    this.air = { y: 0, vy: v, rot: 0, spin: (Math.PI * 2 * (1 + (v > 8 ? 1 : 0))) / tAir * (Math.random() < 0.5 ? -1 : 1) };
-    this.vel.copy(dir).setY(0).normalize().multiplyScalar(h);
-    this.stunT = tAir + 1.2; this.iceT = 0;
-    this.char.play('fallB', { duration: tAir + 1.3 });
-    this.char.face('surprised', 1); this.faceT = tAir + 0.5;
+    const dist = h * (2 * v) / 9.81;
+    const vy = Math.min(v, 4.2), tAir = (2 * vy) / 9.81;
+    const hs = Math.min(16, dist / tAir);
+    this.air = { y: 0, vy, rot: 0, spin: (Math.PI * 2) / tAir * (Math.random() < 0.5 ? -1 : 1) };
+    this.vel.copy(dir).setY(0).normalize().multiplyScalar(hs);
+    this.stunT = tAir + 0.3; this.iceT = 0;
+    this.char.play('fallB', { duration: tAir + 0.45 });
+    this.char.face('surprised', 1); this.faceT = tAir + 0.3;
     this.game.rumble(this, 1, 300);
   }
   _airMotion(dt) {
@@ -643,8 +650,8 @@ export class Athlete {
       this.char.face('surprised', 1); this.faceT = 1.8;
     } else if (kind === 'thunder') {
       this.knock(dir, 1); this.vel.multiplyScalar(0.3);
-      this.stunT = 1.3;
-      this.char.play('stagger', { duration: 1.4 }); this.char.face('surprised', 1); this.faceT = 1.3;
+      this.stunT = 0.6;                                     // a jolt, not a hold: lightning is about speed
+      this.char.play('stagger', { duration: 0.7 }); this.char.face('surprised', 1); this.faceT = 0.6;
     } else if (kind === 'cannon') {
       this.launch(dir, 6.5, 8.5);
     } else {
@@ -854,15 +861,15 @@ export class Athlete {
         const side = opp && ((opp.pos.x - a.x) * r.x + (opp.pos.z - a.z) * r.z) > 0 ? -1 : 1;
         P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 1.3 * side), a.clone().lerp(end, 0.66).addScaledVector(r, -1.0 * side), end];
         for (const q of P.path) { clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); }   // never zig out of the pitch
-        this.char.play('dash', { duration: P.dur + 0.1 }); g.sfx.post(9); break;
+        this.char.play('dash', { duration: P.dur + 0.1 }); break;
       }
       case 'phantom': {          // vanish and reappear behind them
         P.dur = 0.4; P.to = behind(3.8); P.jumped = false;
-        this.char.play('dash', { duration: 0.3 }); g.sfx.slide(); break;
+        this.char.play('dash', { duration: 0.3 }); break;
       }
       case 'gale': {             // spin up into the air and fly over them
         P.dur = 1.15; P.dist = this._room(dir, 4.4);
-        this.char.play('galeLeap', { duration: P.dur }); g.sfx.slide(); break;
+        this.char.play('galeLeap', { duration: P.dur }); break;
       }
       case 'blaze': {            // a roar that blasts everyone round me away
         P.dur = 0.5;
@@ -874,7 +881,7 @@ export class Athlete {
       }
       case 'cannon': {           // put the head down and charge, flattening anyone in the way
         P.dur = 0.55; P.dist = this._room(dir, 5.2); P.trav = 0;
-        this.char.play('dash', { duration: P.dur + 0.1 }); g.sfx.board(10); break;
+        this.char.play('dash', { duration: P.dur + 0.1 }); break;
       }
       default: return this._startSkill();
     }
@@ -1010,7 +1017,7 @@ export class Athlete {
         const away = new THREE.Vector3(P.dir.x + (dx - P.dir.x * ahead) * 0.8, 0, P.dir.z + (dz - P.dir.z * ahead) * 0.8).normalize();
         o.launch(away, 6.5, 9.5);                       // sent sky-high
         g.onImpact?.(o, 0xffd23f);
-        g.sfx.bump(14); g.shake = Math.max(g.shake, 0.2);
+        g.sfx.bump(14); g.sfx.element('cannon', 'hit', 0.7); g.shake = Math.max(g.shake, 0.2);
         g.fx('dust', { x: o.pos.x, y: 0.2, z: o.pos.z }, { x: away.x, z: away.z }, 16, 4);
       }
     }
@@ -1021,7 +1028,7 @@ export class Athlete {
     const g = this.game, R0 = 3.4;
     g.fx(kind === 'blaze' ? 'fire' : 'ice', { x: this.pos.x, y: 0.5, z: this.pos.z }, { x: 0, z: 0 }, 40, 7);
     g.fx(kind === 'blaze' ? 'fire' : 'ice', { x: this.pos.x, y: 1.2, z: this.pos.z }, { x: 0, z: 0 }, 24, 5);
-    if (kind === 'blaze') { g.sfx.board(16); g.sfx.post(12); } else { g.sfx.post(10); g.sfx.slide(); }
+    g.sfx.element(kind, 'hit', 1);
     g.shake = Math.max(g.shake, 0.18);
     for (const o of g.live) {
       if (!this._isOpp(o)) continue;
@@ -1295,7 +1302,7 @@ export class Athlete {
     this.char.group.position.copy(this.pos);
     this.char.setFacing(this.facing);
     const hs = Math.hypot(this.vel.x, this.vel.z);
-    this.char.update(dt, { speed: hs, turnRate: this.turnRate });
+    this.char.update(dt, { speed: hs, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1) });
   }
 
   // ---------------------------------------------------------------------------
@@ -1587,7 +1594,7 @@ export class Athlete {
   }
 
   /** a word over my head for a moment (also sent to guests) */
-  flair(text) { this.flairText = text; this.flairT = this.game.time; this.game.emit?.({ e: 'flair', i: this.team, s: text }); }
+  flair(text) { this.flairText = text; this.flairT = this.game.time; this.game.sfx.combo?.(/凌空|倒钩|鱼跃/.test(text) ? 2 : 1); this.game.emit?.({ e: 'flair', i: this.team, s: text }); }
 
   /** is the ball on its way to me (a pass meant for me, or rolling right at me)? */
   _incoming() {
