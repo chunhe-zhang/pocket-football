@@ -109,7 +109,7 @@ export const MAPS = {
   // Kick it hard and see where it ends up.
   // classic five-a-side: a long rectangle, one goal at each end, boards round the sides (no throw-ins)
   pitch5: {
-    name: '六人制球场', hx: 25, hz: 15.5, cornerR: 2.8, goalHalfW: 2.7, goalH: 2.1, boxHalfW: 8.5, boxDepth: 7,
+    name: '六人制球场', hx: 25, hz: 15.5, cornerR: 2.8, goalHalfW: 2.35, goalH: 2.0, boxHalfW: 8.5, boxDepth: 7,
     lives: 99, kickoff: 7, follow: false, goals: 2, lines: true, noStands: true, wave: 0.95,   // wavy boards: nobody knows where it'll bounce   // fixed camera: the whole pitch, no panning
     islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
   track: {

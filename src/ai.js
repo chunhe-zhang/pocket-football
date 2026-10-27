@@ -135,7 +135,7 @@ export class AIController {
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
     // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
     const st = ball.specialType || '', ghost = st.includes('phantom'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
-    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.55 + 0.4 * this.cfg.guard : this.cfg.guard) * (invis ? 0.45 : ghost ? 0.72 : 1); this._fooled = decoy && Math.random() < 0.75; }
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.75 + 0.25 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
     if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
     // time until the ball reaches my position along the goal's inward axis
@@ -536,9 +536,12 @@ export class AIController {
     const ours = holder && holder.gi === me.gi;
     // 一对一: an attacker running at goal through my box — come out, narrow the angle, go down at his feet
     if (me.role === 'gk' && holder && holder.gi !== me.gi && inOwnBox(me.end, holder.pos.x, holder.pos.z)
-      && Math.hypot(holder.pos.x - home.centre.x, holder.pos.z - home.centre.z) < FIELD.boxDepth + 2.5 && !this.cfg.noTackle) {
+      && Math.hypot(holder.pos.x - home.centre.x, holder.pos.z - home.centre.z) < 7.5 && !this.cfg.noTackle) {
+      // on the line from the ball to the middle of the goal: close the angle, but never so far out
+      // that a shot past me is an open goal (right at the ball only when it's really close)
       const gx = home.centre.x - bp.x, gz = home.centre.z - bp.z, gl = Math.hypot(gx, gz) || 1;
-      const q = legal(bp.x + (gx / gl) * 0.7, bp.z + (gz / gl) * 0.7, 0.4);
+      const out = gl < 4 ? gl - 0.7 : Math.min(gl * 0.45, 3);
+      const q = legal(home.centre.x - (gx / gl) * out, home.centre.z - (gz / gl) * out, 0.4);
       this._goTo(q.x, q.z, 0.3, 1.5); plan.sprint = true;
       if (myDist < 1.8 && me.slideCD <= 0 && Math.random() < 0.18 + 0.3 * this.cfg.skill) { plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize(); plan.tackle = true; }
       return;

@@ -522,7 +522,7 @@ export class Athlete {
     }
     const side = s >= 0 ? 'Right' : 'Left';
     const dir = right.clone().multiplyScalar(s >= 0 ? 1 : -1);
-    this.dive = { t: 0, dur: 1.15, dir, speed0: this.role === 'gk' ? 8.4 : 5.6, side };
+    this.dive = { t: 0, dur: 1.15, dir, speed0: this.role === 'gk' ? 9.5 : 5.6, side };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
     this.slideCD = 1.4;
     this.char.play('dive', { side, duration: 1.15 });
@@ -650,17 +650,17 @@ export class Athlete {
     const x = p0.x + (b.pos.x - p0.x) * u, y = p0.y + (b.pos.y - p0.y) * u, z = p0.z + (b.pos.z - p0.z) * u;
     const lat = Math.hypot(x - this.pos.x, z - this.pos.z);
     const diving = this.dive && this.dive.t < 0.85;
-    const reach = diving ? 2.15 : 1.1;
+    const reach = diving ? 2.5 : 1.35;
     if (lat > reach || y > (diving ? 1.7 : 2.35)) return;
     const spc = b.special, cb = spc && spc.combo;
     if (cb && cb.level > 1 && (cb.gk === 'through' || cb.gk === 'blast' || cb.gk === 'teleport')) return;
-    let chance = 1.02 - Math.max(0, sp - 18) * 0.011 - (lat / reach) * 0.22;
+    let chance = 1.08 - Math.max(0, sp - 18) * 0.011 - (lat / reach) ** 2 * 0.3;
     // from range the keeper sees it all the way; close in there's no time
     const dist = b.shotDist ?? 14;
     chance += clamp((dist - 12) * 0.025, -0.1, 0.24);
     if (spc) chance -= spc.has('phantom') ? 0.1 : 0.04;
     if (cb && cb.level > 1) chance -= 0.3;
-    chance *= this._gkLevel();
+    chance -= (1 - this._gkLevel()) * 0.6;
     const roll = Math.random();
     if (roll > chance) return;                                 // beaten all the same
     b.pos.set(x, Math.max(BALL.r, y), z);
@@ -678,7 +678,7 @@ export class Athlete {
   }
 
   /** how good a keeper I am: a CPU keeper follows the difficulty (女友模式's keeper lets plenty in) */
-  _gkLevel() { const ai = this.game.controllers[this.team]?.ai; return ai ? 0.45 + 0.55 * ai.cfg.skill : 0.9; }
+  _gkLevel() { const ai = this.game.controllers[this.team]?.ai; return ai ? 0.62 + 0.38 * ai.cfg.skill : 0.95; }
 
   /** the ball into my hands */
   smother(b) {
@@ -1734,6 +1734,7 @@ export class Athlete {
     const gd = this.goalTarget().distanceTo(this.pos);
     // close in, a shot is struck with everything; from range it carries less (a combo loses less of it)
     if (k.type === 'kick' && special) speed *= special.level > 1 ? clamp(1.08 - (gd - 8) * 0.009, 0.9, 1.08) : clamp(1.12 - (gd - 8) * 0.018, 0.8, 1.12);
+    if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);   // a solo shot never gets past what a keeper can react to
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
     let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
     if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so
