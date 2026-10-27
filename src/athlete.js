@@ -659,7 +659,7 @@ export class Athlete {
     const dist = b.shotDist ?? 14;
     chance += clamp((dist - 12) * 0.025, -0.1, 0.24);
     if (spc) chance -= spc.has('phantom') ? 0.1 : 0.04;
-    if (cb && cb.level > 1) chance -= 0.32 * Math.max(0.15, Math.min(1, 1 - ((b.shotDist ?? 12) - 9) / 13));   // a combo is hot close in, readable from range
+    if (cb && cb.level > 1) chance -= (cb.level >= 3 ? 0.35 : 0.22) * Math.max(0.1, 1 - (cb.range ?? 0.3));   // a combo is hot close in, readable from range
     chance -= (1 - this._gkLevel()) * 0.6;
     const roll = Math.random();
     if (roll > chance) return;                                 // beaten all the same

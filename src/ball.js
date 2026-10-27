@@ -189,9 +189,13 @@ export class Ball {
     // from range the keeper has time: a two-man combo's unstoppable trick (through him, teleport,
     // blast) often fades into a plain thunderbolt he can get to; even a 合击 from very far sometimes
     const dist = this.shotDist ?? 12;
-    if (c.level === 2 && c.gk !== 'parry' && Math.random() < Math.min(0.9, Math.max(0, (dist - 9) / 8))) { c.gk = 'parry'; c.faded = true; }
-    if (c.level === 2 && c.pierceGk) c.pierceGk *= Math.max(0.15, 1 - Math.max(0, dist - 11) / 10);
-    if (c.level >= 3 && dist > 17 && Math.random() < Math.min(0.5, (dist - 17) / 10)) { c.gk = 'parry'; c.faded = true; }
+    // two-man combos are never a sure thing: deadly close in (their trick usually comes off), a plain
+    // hard shot from range. Only a three-man 合击 can't be stopped — and even that fades from very far
+    c.range = Math.max(0, Math.min(1, (dist - 8) / 12));                 // 0 close … 1 from 20 m+
+    if (c.level === 2 && c.gk !== 'parry' && Math.random() < 0.3 + 0.62 * c.range) { c.gk = 'parry'; c.faded = true; }
+    if (c.level === 2 && c.pierceGk) c.pierceGk *= 1 - 0.85 * c.range;
+    if (c.level === 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far
+    if (c.level >= 3 && dist > 15 && Math.random() < Math.min(0.6, (dist - 15) / 10)) { c.gk = 'parry'; c.faded = true; }
     this.special = { els, ids: c.ids, combo: c, type: c.ids.length === 1 ? c.ids[0] : c.key, has: (id) => c.ids.includes(id), owner, power, t: 0, hit: new Set(), aura: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1, goal };
     this.specialType = c.key + (c.n > c.ids.length ? '!' : '');      // '!' = more players than elements (stronger look)
     this.spin.set(0, 0, 0); this.hidden = false;
@@ -387,7 +391,7 @@ export class Ball {
         if (!keeper) {
           // out-field players: a combo goes through anyone; a solo shot through people with lightning, fire, ice or earth
           const pierce = cb.level > 1 || spc.has('thunder') || spc.has('blaze') || spc.has('frost') || spc.has('cannon');
-          if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, els: spc.ids, n, level: cb.level }); }
+          if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, els: spc.ids, n, level: cb.level, mild: cb.level === 2 && cb.range > 0.6 }); }
           if (pierce) continue;
           this.endSpecial();
         } else if (cb.level === 1) {
