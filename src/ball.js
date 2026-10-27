@@ -166,7 +166,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by;
+    this.lastTouch = by; this.guardT = 0;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -202,6 +202,7 @@ export class Ball {
     this.events.length = 0;
     this._hit.clear();
     this.noCatchT = Math.max(0, (this.noCatchT || 0) - dt);
+    this.guardT = Math.max(0, (this.guardT || 0) - dt);   // a pass just played: clear of the marker's legs for a moment
     if (this.heldBy) {
       const k = this.heldBy;
       if (k.out || !k.holding) this.heldBy = null;
@@ -295,6 +296,7 @@ export class Ball {
     const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
       if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
+      if (this.guardT > 0 && this.guardBy && c.owner.gi !== this.guardBy.gi && !c.owner.slide && !c.owner.poke) continue;
       A.copy(c.prev).lerp(c.pos, u);
       let s = 0;
       if (c.b) {

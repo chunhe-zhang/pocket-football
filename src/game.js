@@ -366,7 +366,7 @@ export class Game {
       if (to) {
         c.idx = to.team; c.lastSwitch = this.time; changed = true;
         this.ais[to.team].shooting = null;
-        to.intent.kick = to.intent.lob = false; to._prevKick = to._prevLob = true;
+        to.intent.kick = to.intent.lob = to.intent.pass = false; to._prevKick = to._prevLob = to._prevPass = true;
         if (swapPressed) this.sfx.touch();
       }
     }
@@ -869,7 +869,7 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     const it = this.athletes[i].intent;
-    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = false; it.analog = !!d.an; it.swap = !!d.sw;
+    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = !!d.pa; it.analog = !!d.an; it.swap = false;
   }
 
   /** host: a remote player left mid-game — a CPU takes over their goal */
@@ -952,10 +952,10 @@ export class Game {
     if (me) {
       this.input.intent('solo', me.intent);
       this.inputT -= dt;
-      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog},${it.swap}`;
+      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog},${it.pass}`;
       if (this.inputT <= 0 || sig !== this._lastSig) {
         this.inputT = 0.05; this._lastSig = sig;
-        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0, sw: it.swap ? 1 : 0 });
+        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0, pa: it.pass ? 1 : 0 });
       }
     }
     const S = this.snaps;
@@ -1061,6 +1061,7 @@ export class Game {
       case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
+      case 'flair': { const a = this.athletes[e.i]; if (a) { a.flairText = e.s; a.flairT = this.time; } break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }
   }

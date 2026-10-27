@@ -446,7 +446,7 @@ const DASH = {
   headUp:  [[0, 0], [0.15, 0.35], [0.8, 0.35], [1, 0]],
 };
 const GALE_LEAP = {
-  hop:     [[0, 0], [0.1, -0.06], [0.5, 1.15], [0.9, 0.05], [1, 0]],
+  hop:     [[0, 0], [0.08, -0.06], [0.5, 2.3], [0.92, 0.05], [1, 0]],
   drop:    [[0, 0], [0.1, -0.14], [0.22, 0], [0.88, -0.12], [1, 0]],
   thigh:   [[0, 0], [0.2, 0.9], [0.5, 1.1], [0.85, 0.3], [1, 0]],
   knee:    [[0, 0], [0.2, 1.6], [0.5, 1.8], [0.85, 0.5], [1, 0]],
@@ -455,6 +455,13 @@ const GALE_LEAP = {
   armOutL: [[0, 0], [0.2, 1.5], [0.5, 1.6], [0.85, 0.8], [1, 0]],
   armOutR: [[0, 0], [0.2, 1.5], [0.5, 1.6], [0.85, 0.8], [1, 0]],
   lean:    [[0, 0], [0.5, 0.3], [1, 0]],
+};
+// a mid-air strike (the gale's flying volley): one leg whips through, the body leans back over it
+const AIR_KICK = {
+  thigh:   [[0, 0], [0.3, -0.7], [0.55, 1.7], [1, 0]],
+  knee:    [[0, 0], [0.3, 1.3], [0.55, 0.1], [1, 0]],
+  lean:    [[0, 0], [0.5, -0.35], [1, 0]],
+  armOutL: [[0, 0], [0.45, 1.2], [1, 0]],
 };
 const ROAR = {
   lean:    [[0, 0], [0.3, 0.25], [0.5, -0.35], [0.85, -0.25], [1, 0]],
@@ -891,6 +898,7 @@ export class Character {
       case 'fistPump': g = new Gesture('fistPump', 1.0, CELEB_FIST, { loop: true, fadeIn: 0.1, fadeOut: 0.3, ...opts }); break;
       case 'dash': g = new Gesture('dash', opts.duration ?? 0.5, DASH, { fadeIn: 0.05, fadeOut: 0.12, ...opts }); break;
       case 'galeLeap': g = new Gesture('galeLeap', opts.duration ?? 0.8, GALE_LEAP, { fadeIn: 0.04, fadeOut: 0.1, ...opts }); break;
+      case 'airKick': g = new Gesture('airKick', opts.duration ?? 0.42, AIR_KICK, { fadeIn: 0.03, fadeOut: 0.12, ...opts }); break;
       case 'roar': g = new Gesture('roar', opts.duration ?? 0.6, ROAR, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }

@@ -10,11 +10,13 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const HELP = {
   1: `<div class="grid">
     <b>移动</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键</span>
-    <b>爆射</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚。轻点就是传球（往队友那边踢），蓄满是重炮。没有自动瞄准：踢向哪里由你定</span>
+    <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚，蓄满是重炮。瞄到球门附近会自动修正到门框以内</span>
+    <b>平传</b><span>按住 <kbd>I</kbd> 或 <kbd>Q</kbd>：贴地传给你指着的那个队友（大致方向就行），轻点传到脚下，蓄力越多越往前送、打身后</span>
     <b>瞄准</b><span>蓄力时第一下的方向定大方向，之后按住方向键准星会慢慢转过去，点一下转一点，想打多细的角度都行（手柄、手机摇杆直接指哪打哪）。地上的小点和门上的圈是球会飞的路线</span>
     <b>完美射门</b><span>在蓄力条的金色框里松手：没有偏差；蓄满再松手力量最大但会偏、会往上飘</span>
-    <b>挑射 / 传中</b><span>按住 <kbd>K</kbd> 蓄力，挑高球，可以吊门，也可以把球传到队友头上让他顶</span>
-    <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：跑过去起跳头球（朝方向键方向）；按 <kbd>K</kbd> 是轻轻往上顶</span>
+    <b>挑传 / 挑射</b><span>按住 <kbd>K</kbd>：朝队友是高空传中，球会落到他头顶或胸腿高度，方便头球、凌空；朝着球门就是挑射吊门</span>
+    <b>一脚出球</b><span>队友的球还在路上就按键：跑过去不停球直接打——地滚球一脚射门/一脚传，空中球就是凌空抽射或头球。配合打出来的射门更准更狠，回传给刚传你的人就是撞墙配合</span>
+    <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：起跳头球攻门（会自动修正到门框里）；按 <kbd>I</kbd> 是头球摆渡给队友；按 <kbd>K</kbd> 是轻轻往上顶或倒钩</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲；在自己的禁区里是扑救</span>
     <b>过人</b><span>带球时按 <kbd>L</kbd>：放出角色专属过人（雷霆 Z 字闪电冲刺、幻影瞬移、旋风腾空飞越、焰姬怒吼震飞、冰晶冻成冰雕、巨炮冲撞），4 秒一次；冷却中按是普通闪身步</span>
@@ -22,12 +24,12 @@ const HELP = {
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 爆射/头球 · <kbd>G</kbd> 挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
-    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 爆射/头球 · <kbd>/</kbd> 挑射 · <kbd>.</kbd> 抢断/闪身步 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门/头球 · <kbd>R</kbd> 平传 · <kbd>G</kbd> 挑传/挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
+    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门/头球 · <kbd>,</kbd> 平传 · <kbd>/</kbd> 挑传/挑射 · <kbd>.</kbd> 抢断/闪身步 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 爆射/头球 · B 挑射 · X 抢断/闪身步 · RB 冲刺</span>
+    <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 射门/头球 · Y 平传 · B 挑传/挑射 · X 抢断/闪身步 · RB 冲刺</span>
     <b>P4</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>挑射 / 抢断 / 冲刺</b><span>右侧按钮；带球时“抢断”键是闪身步</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>传球</b><span>贴地传给指着的队友</span><b>挑传</b><span>朝队友是高空传中，朝球门是挑射</span><b>抢断 / 冲刺</b><span>带球时“抢断”键是闪身步</span></div>',
 };
 
 export class UI {
@@ -108,7 +110,7 @@ export class UI {
       const el = document.createElement('div'); el.className = 'tag-el';
       el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
       tagsRoot.appendChild(el);
-      return { el, lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
+      return { el, perf: el.querySelector('.perf'), lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
     });
   }
 
@@ -197,12 +199,12 @@ export class UI {
     const solo = this.settings.net === 'online' || this.settings.humans === 1;
     $('#touch').classList.toggle('hidden', !(isTouch && solo));
     const team = this.game.teamMode;
-    $('#btn-pass').classList.add('hidden');
+    $('#btn-pass').classList.remove('hidden'); $('#btn-pass').textContent = '传球'; $('#btn-lob').textContent = '挑传';
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 爆射（轻点＝传球，空中＝头球）　·　<b>K</b> 挑射/传中　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　每脚爆射都是必杀`
-      : `P1：WASD + F 爆射 / G 挑射 / H 抢断　·　P2：方向键 + Enter / / / .　·　P3/P4：手柄`;
+      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传/挑射　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
+      : `P1：WASD + F 射门 / R 平传 / G 挑传 / H 抢断　·　P2：方向键 + Enter / , / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
   }
@@ -305,7 +307,9 @@ export class UI {
       t.pct.textContent = showing ? `${isPass ? '传球 ' : ''}${Math.round(cv * 100)}%` : '';
       t.meter.classList.toggle('full', showing && cv >= 1);
       t.meter.classList.toggle('pass', isPass);
-      t.el.classList.toggle('perfect', g.time - (a.lastPerfectT ?? -9) < 0.7);
+      const fl = g.time - (a.flairT ?? -9) < 1.1, pf = g.time - (a.lastPerfectT ?? -9) < 0.7;
+      if ((fl || pf) && !t.el.classList.contains('perfect')) t.perf.textContent = fl ? a.flairText : '完美!';
+      t.el.classList.toggle('perfect', fl || pf); t.el.classList.toggle('flair', fl);
       const type = g.controllers[i]?.type;
       const human = type === 'human' || type === 'remote' || type === 'self';
       t.stam.style.display = human ? '' : 'none';

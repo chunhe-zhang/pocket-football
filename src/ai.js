@@ -52,14 +52,20 @@ export class AIController {
       const s = this.shooting;
       s.hold -= dt;
       const bd = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z);
-      if (!s.header && me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.intendTo = null; this.shooting = null; it.kick = it.lob = false; return; }
+      if (!s.header && !s.oneTouch && me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.intendTo = null; this.shooting = null; it.kick = it.lob = it.pass = false; return; }
       it.move.copy(s.aim);
-      it.kick = !s.lob && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = false; it.sprint = false;
+      it.kick = !s.lob && !s.pass && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = !!s.pass && s.hold > 0; it.sprint = false;
       if (s.hold <= 0 && !me.charging) this.shooting = null;
       return;
     }
     it.kick = false; it.lob = false; it.pass = false;
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
+    // the gale leap near goal: volley it from the air at the top of the jump
+    if (me.power && me.power.type === 'gale') {
+      const P = me.power, tgt = me.goalTarget(), gd = Math.hypot(tgt.x - me.pos.x, tgt.z - me.pos.z);
+      if (gd < 18 && P.t > P.dur * 0.4 && Math.random() < 0.5 + 0.4 * this.cfg.skill) { it.move.set(tgt.x - me.pos.x, tgt.z - me.pos.z).normalize(); it.kick = true; }
+      return;
+    }
     this.headCD = Math.max(0, (this.headCD || 0) - dt);
     // a ball in the air near me: go up for it (at goal if it's on, else away from my own goal)
     if (!me.header && this.headCD <= 0 && ball.pos.y > 0.9 && Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) < 4 && me._headerChance()) {
@@ -359,8 +365,9 @@ export class AIController {
     const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
     return g.live.some((o) => {
       if (o === me || g.sameSide(o.team, me.team)) return false;
-      const t = clamp(((o.pos.x - ax) * dx + (o.pos.z - az) * dz) / L2, 0.1, 0.9);
-      return Math.hypot(ax + dx * t - o.pos.x, az + dz * t - o.pos.z) < 1.0;
+      const t = clamp(((o.pos.x - ax) * dx + (o.pos.z - az) * dz) / L2, 0.06, 1);
+      // the further down the lane, the more time they have to step across
+      return Math.hypot(ax + dx * t - o.pos.x, az + dz * t - o.pos.z) < 1.0 + 0.07 * Math.sqrt(L2) * t;
     });
   }
 
@@ -411,16 +418,17 @@ export class AIController {
    * A pass is just a 爆射 aimed at someone: pick where to put it (feet, or ahead of them for
    * `lead` 0..1) and the charge that gives the right pace, then strike it.
    */
-  _kickTo(rcv, lead) {
+  _kickTo(rcv, lead, oneTouch = false) {
+    // a 平传: the release works out the exact weight and lead for the receiver
     const me = this.me;
     const t = me.passLead(rcv, lead);
-    const [s0, s1] = PLAYER.shotSpeed;
-    const p = clamp(Math.pow(Math.max(0, t.speed - s0) / s1, 1 / 1.15), 0.04, 1);
     const aim = new THREE.Vector2(t.x - me.pos.x, t.z - me.pos.z).normalize();
-    aim.rotateAround(new THREE.Vector2(), (Math.random() - 0.5) * this.cfg.aimNoise * 0.12);
-    me.intendTo = rcv;
-    this.shooting = { hold: 0.02 + p * PLAYER.chargeTime, aim };
+    me.intendTo = rcv; me.giveGoT = this._attackingHalf() && me.role && me.role !== 'gk' && !me.role.startsWith('def') ? this.game.time + 1.8 : 0;
+    this.shooting = { hold: 0.02 + clamp(lead, 0, 1) * PLAYER.passChargeTime, aim, pass: true, oneTouch };
   }
+
+  /** am I in the opponents' half? */
+  _attackingHalf() { const me = this.me, t = me.goalTarget(); return Math.hypot(t.x - me.pos.x, t.z - me.pos.z) < Math.hypot(me.home.centre.x - me.pos.x, me.home.centre.z - me.pos.z); }
 
   /** 挑射 cross: a chip weighted to drop around a team-mate's head */
   _crossTo(rcv) {
@@ -431,11 +439,11 @@ export class AIController {
     let best = 0.3, err = Infinity;
     for (let p = 0.05; p <= 1; p += 0.05) { const v = PLAYER.chipSpeed[0] + PLAYER.chipSpeed[1] * p, e = 0.6 + 0.14 * p; const r = (v * v * Math.sin(2 * e) / BALL.gravity) * 0.82; if (Math.abs(r - d) < err) { err = Math.abs(r - d); best = p; } }
     const aim = new THREE.Vector2(tx - me.pos.x, tz - me.pos.z).normalize();
-    me.intendTo = rcv;
-    this.shooting = { hold: 0.02 + best * PLAYER.chargeTime, aim, lob: true };
+    me.intendTo = rcv; void best;
+    this.shooting = { hold: 0.08 + Math.random() * 0.25, aim, lob: true };
   }
 
-  _shoot(tgt, gd, lob) {
+  _shoot(tgt, gd, lob, oneTouch = false) {
     const me = this.me, g = this.game;
     // aim at the post furthest from that goal's owner
     const goal = g.goals.find((x) => Math.abs(x.centre.x - tgt.x) < 0.1 && Math.abs(x.centre.z - tgt.z) < 0.1);
@@ -449,7 +457,8 @@ export class AIController {
     const [a, b] = this.cfg.charge;
     let power = a + Math.random() * (b - a);
     if (gd < 5) power *= 0.75;
-    this.shooting = { hold: 0.05 + power * 0.8, aim, lob };
+    if (oneTouch) power = Math.max(power, 0.55);
+    this.shooting = { hold: 0.05 + power * 0.8, aim, lob, oneTouch };
   }
 
   // ===================================================================== 5v5 ==
@@ -480,6 +489,7 @@ export class AIController {
     const home = me.home;
     // a pass on its way to me: go and meet it
     if (fresh && lt !== me && lt.passedTo === me && lt.gi === me.gi) {
+      if (this._firstTime(lt, mates, opps)) return;
       const run = 5.2 * this.cfg.speed;
       let px = bp.x, pz = bp.z;
       const lofted = bp.y > 0.8 || ball.vel.y > 1.5;
@@ -509,6 +519,13 @@ export class AIController {
     const chaser = side[0], second = side[1];
     const ours = holder && holder.gi === me.gi;
     if (me.role === 'gk' && chaser !== me) { this._gk5(); return; }
+    // the other side has played a pass: only go for it if it's actually coming past me
+    const theirPass = fresh && lt && lt.gi !== me.gi && lt.passedTo && !holder;
+    if (theirPass && me.role !== 'gk') {
+      const v = Math.hypot(ball.vel.x, ball.vel.z) || 1, rx = me.pos.x - bp.x, rz = me.pos.z - bp.z;
+      const ahead = (rx * ball.vel.x + rz * ball.vel.z) / v, off = Math.abs(rx * ball.vel.z - rz * ball.vel.x) / v;
+      if (!(ahead > 0 && off < 1.6) && myDist > 1.5) { const s = this._slot5(false); this._goTo(s.x, s.z, 1.2, 8); return; }
+    }
     if (chaser === me && !ours) { this._chase5(holder, myDist); return; }
     // the opponents have it: the next player in steps up goal-side of it
     if (holder && !ours && second === me && me.role !== 'gk') {
@@ -517,8 +534,47 @@ export class AIController {
       this._goTo(q.x, q.z, 0.8, 6);
       return;
     }
+    // just played a pass going forward: burst into space for the return (give and go)
+    if (ours && holder !== me && (me.giveGoT || 0) > g.time) {
+      const tgt = me.goalTarget(), gx = tgt.x - me.pos.x, gz = tgt.z - me.pos.z, gl = Math.hypot(gx, gz) || 1;
+      const side = ((me.pos.x - holder.pos.x) * -gz + (me.pos.z - holder.pos.z) * gx) >= 0 ? 1 : -1;
+      const q = legal(me.pos.x + (gx / gl) * 6 + (-gz / gl) * side * 1.5, me.pos.z + (gz / gl) * 6 + (gx / gl) * side * 1.5, 1.2);
+      this._goTo(q.x, q.z, 0.6, 9); this.plan.sprint = true;
+      return;
+    }
     const s = this._slot5(ours || (lt && lt.gi === me.gi && fresh));
     this._goTo(s.x, s.z, 1.2, 8);
+  }
+
+  /**
+   * A team-mate's pass is coming to me: decide (once) whether to play it first time —
+   * shoot (a volley if it's in the air), lay it straight back to a runner (撞墙), or move it on.
+   */
+  _firstTime(passer, mates, opps) {
+    const me = this.me, g = this.game, ball = g.ball;
+    const key = passer.lastTouchTime;
+    if (this._ftKey === key) return false;
+    const eta = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) / Math.max(4, Math.hypot(ball.vel.x, ball.vel.z));
+    if (eta > 0.9) return false;
+    this._ftKey = key;
+    if (me.role === 'gk' || this.cfg.skill < 0.3) return false;
+    const sk = this.cfg.skill;
+    const tgt = me.goalTarget(), gd = Math.hypot(tgt.x - me.pos.x, tgt.z - me.pos.z);
+    const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
+    const pressed = opps.some((o) => Math.hypot(o.pos.x - me.pos.x, o.pos.z - me.pos.z) < 2.6);
+    const humanMate = mates.find((m) => this._isHuman(m));
+    // in range: hit it first time (the human's team-mates set the human up instead, in assist mode)
+    if (gd < this.cfg.shootRange * 1.15 && angleOK && !(this.assist && humanMate) && Math.random() < 0.5 + 0.4 * sk) { this._shoot(tgt, gd, false, true); return true; }
+    // the passer has gone on a run: give it straight back into their path
+    if ((passer.giveGoT || 0) > g.time && !passer.stunT && Math.random() < 0.3 + 0.5 * sk && !this._laneBlocked(me.pos.x, me.pos.z, passer.pos.x, passer.pos.z)) { this._kickTo(passer, 0.55, true); this.passCD = 1.0; return true; }
+    // under pressure: move it on to a free team-mate further forward
+    if (pressed && Math.random() < 0.25 + 0.45 * sk) {
+      const d = me.gi === 0 ? 1 : -1;
+      const fwd = mates.filter((m) => m !== passer && m.role !== 'gk' && (m.pos.x - me.pos.x) * d > 2 && !this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)
+        && !opps.some((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < 2));
+      if (fwd.length) { this._kickTo(fwd[0], 0.35, true); this.passCD = 1.0; return true; }
+    }
+    return false;
   }
 
   /** ball in my hands: have a look, then throw it to a free team-mate (or launch it) */
@@ -592,6 +648,11 @@ export class AIController {
     const range = this.cfg.shootRange * 1.15;
     const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
     if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
+    // out wide near the byline: whip a cross in for someone to attack in the air
+    if (this.passCD <= 0 && me.role !== 'gk' && Math.abs(me.pos.z) > FIELD.hz * 0.38 && gd < 15) {
+      const box = mates.filter((m) => m.role !== 'gk' && m.stunT <= 0 && (() => { const t = m.goalTarget(); return Math.hypot(t.x - m.pos.x, t.z - m.pos.z) < 11; })() && Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z) > 5);
+      if (box.length && Math.random() < 0.35 + 0.4 * this.cfg.skill) { this._crossTo(box[0]); this.passCD = 1.4; return; }
+    }
     // look for a team-mate
     if (this.passCD <= 0) {
       const d = me.gi === 0 ? 1 : -1;
@@ -604,14 +665,16 @@ export class AIController {
         const free = Math.min(4, Math.min(...opps.map((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z))));
         let sc = (m.pos.x - me.pos.x) * d * 0.45 + free * 0.8 - dm * 0.05;
         if (this._isHuman(m)) sc += this.assist ? 6 : 1.5;
+        if ((m.giveGoT || 0) > g.time || Math.hypot(m.vel.x, m.vel.z) > 4 && m.vel.x * d > 2) sc += 1.2;   // a runner: play them in
         if (sc > bestS) { bestS = sc; best = m; }
       }
-      const want = me.role === 'gk' ? -99 : pressure ? 0.2 : me.role.startsWith('def') ? 1.2 : me.role === 'mid' ? 1.6 : 2.2;
+      const want = me.role === 'gk' ? -99 : pressure ? 0.1 : me.role.startsWith('def') ? 1.0 : me.role === 'mid' ? 1.3 : 1.8;
       if (best && (bestS > want || (this.assist && this._isHuman(best)))) {
         const dm = Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z);
         const bgd = Math.hypot(best.goalTarget().x - best.pos.x, best.goalTarget().z - best.pos.z);
-        if (bgd < 9 && dm > 9 && Math.random() < 0.25 + 0.3 * this.cfg.skill) this._crossTo(best);
+        if (bgd < 12 && dm > 7 && Math.random() < 0.4 + 0.35 * this.cfg.skill) this._crossTo(best);
         else this._kickTo(best, 0.1 + Math.random() * 0.3 + (dm > 12 ? 0.15 : 0));
+        if (this._attackingHalf()) me.giveGoT = g.time + 1.8;
         this.passCD = 1.3;
         return;
       }

@@ -39,7 +39,7 @@ export class Input {
     // d-pad as a fallback
     const b = (i) => !!p.buttons[i]?.pressed;
     if (b(14)) x = -1; if (b(15)) x = 1; if (b(12)) z = -1; if (b(13)) z = 1;
-    out.move.set(x, z); out.kick = b(0); out.lob = b(1); out.tackle = b(2); out.swap = b(3); out.pass = false; out.sprint = b(5) || b(7) || b(4) || b(6);
+    out.move.set(x, z); out.kick = b(0); out.lob = b(1); out.tackle = b(2); out.pass = b(3); out.swap = false; out.sprint = b(5) || b(7) || b(4) || b(6);
     out.analog = true;
     return out;
   }
@@ -61,7 +61,7 @@ export class Input {
     }
     const m = Math.hypot(x, z);
     if (m > 1) { x /= m; z /= m; }
-    out.move.set(x, z); out.kick = kick; out.lob = lob; out.sprint = sprint; out.tackle = tackle; out.pass = false; out.swap = pass;
+    out.move.set(x, z); out.kick = kick; out.lob = lob; out.sprint = sprint; out.tackle = tackle; out.pass = pass; out.swap = false;
     out.analog = analog;
     return out;
   }
