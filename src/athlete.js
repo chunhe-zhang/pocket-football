@@ -63,8 +63,8 @@ export class Athlete {
   get forward() { return this._f.set(Math.sin(this.facing), 0, Math.cos(this.facing)); }
   get rightDir() { return this._r.crossVectors(this.forward, UP); }
   // where the ball centre sits relative to the body when the boot meets it (measured from the rig)
-  get reachF() { return this.char.kickCalib.forward + R * 0.85; }
-  get reachS() { return this.char.kickCalib.side; }
+  get reachF() { return this.char.kickCalib.forward * this.char.group.scale.x + R * 0.85; }
+  get reachS() { return this.char.kickCalib.side * this.char.group.scale.x; }
 
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
@@ -1230,15 +1230,16 @@ export class Athlete {
    */
   _headerSpot(speed, bike = false) {
     const b = this.game.ball, q = this._r;
+    const k = this.char.group.scale.y || 1;                         // a bigger player meets it higher
     for (let t = 0; t <= 0.85; t += 0.033) {
       b.predict(t, q);
-      const lo = bike ? 1.2 : 0.5, hi = bike ? 2.45 : 2.3;   // a jumping header meets it at up to ~2.3 m
+      const lo = (bike ? 1.2 : 0.5) * k, hi = (bike ? 2.45 : 2.3) * k;   // a jumping header meets it at up to ~2.3 m
       if (q.y < lo || q.y > hi) continue;
-      const low = !bike && q.y < 1.05;
+      const low = !bike && q.y < 1.05 * k;
       if (low && (b.speed < 3.5 || t > 0.6)) continue;            // only dive at a ball that's coming
       const d = Math.hypot(q.x - this.pos.x, q.z - this.pos.z);
       const reach = bike ? 0.4 + speed * t * 0.6 : low ? 1.3 + speed * t : 0.45 + speed * t;
-      if (d <= reach) return { x: q.x, z: q.z, y: q.y, t, kind: bike ? 'bicycle' : low ? 'dive' : q.y > 1.7 ? 'jump' : 'stand' };
+      if (d <= reach) return { x: q.x, z: q.z, y: q.y, t, kind: bike ? 'bicycle' : low ? 'dive' : q.y > 1.7 * k ? 'jump' : 'stand' };
     }
     return null;
   }

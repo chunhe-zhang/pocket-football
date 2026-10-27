@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES } from './config.js';
+import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES, waveOff } from './config.js';
 import { Scenery } from './scenery.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
@@ -251,6 +251,7 @@ export class Pitch {
       // with a goal: from the post to where the corner curve starts; without: the whole side
       const gap = goal ? FIELD.goalHalfW : 0, seg = run - gap;
       if (seg < 0.05) continue;
+      if (FIELD.wave) { this._waveBoard(axis, sign, line, goal ? [[-run, -gap], [gap, run]] : [[-run, run]], BH, tex, top); continue; }
       for (const z of goal ? [-1, 1] : [0]) {
         const len = goal ? seg : 2 * run;
         const m = new THREE.Mesh(new THREE.BoxGeometry(len, BH, T), [top, top, top, top, withRepeat(len), withRepeat(len)]);
@@ -275,6 +276,29 @@ export class Pitch {
       // torus arc runs from +x towards +y in its own plane; after the x-rotation +y maps to -z
       rim.rotation.set(Math.PI / 2, 0, Math.atan2(sz, sx) - Math.PI / 4);
       this.root.add(rim);
+    }
+  }
+
+  /** a wavy board: a ribbon of flower panels following the bulges, with a white rail along the top */
+  _waveBoard(axis, sign, line, ranges, BH, tex, rail) {
+    const T = 0.12;
+    for (const [a, b] of ranges) {
+      const n = Math.max(2, Math.ceil((b - a) / 0.2)), pos = [], uv = [], idx = [], top = [];
+      for (let i = 0; i <= n; i++) {
+        const s = a + ((b - a) * i) / n, A = sign * (line - waveOff(axis, s, sign) + T / 2);
+        const x = axis === 'x' ? A : s, z = axis === 'x' ? s : A;
+        pos.push(x, 0, z, x, BH, z); uv.push(s / 5, 0, s / 5, 1);
+        top.push(new THREE.Vector3(x, BH, z));
+        if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      const t = tex.clone(); t.needsUpdate = true; t.wrapS = THREE.RepeatWrapping;
+      const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.25, side: THREE.DoubleSide }));
+      m.castShadow = true; m.receiveShadow = true; this.root.add(m);
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(top), n, 0.06, 6, false), rail);
+      this.root.add(tube);
     }
   }
 

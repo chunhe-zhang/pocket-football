@@ -331,6 +331,8 @@ export class Game {
     for (const c of this.cursors) { const a = A[c.idx]; a.speedMul = 1; a.skill = 1; }
     // twelve players on one pitch: everyone a bit slower, so it's football rather than a scrum
     for (const a of A) a.speedMul *= 0.84;
+    // the big pitch is seen from further away: everyone a touch bigger so they still read
+    for (const a of A) a.char.group.scale.setScalar(1.14);
     this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
     this._applyCursors();
     this.endShown = false;
@@ -937,9 +939,16 @@ export class Game {
     } else {
       // distance chosen so the pitch plus its goals fit the screen at this aspect
       // fit the whole pitch (it may be a long rectangle) plus its goals at this aspect
-      const fit = FIELD.hx > FIELD.hz ? Math.max(FIELD.hz / 9, (FIELD.hx / 9) * (1.42 / aspect)) : Math.max(1, 1.62 / aspect) * (FIELD.half / 9);
-      if (CAM_MODES[this.camMode] === 'high') { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
-      else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
+      const high = CAM_MODES[this.camMode] === 'high';
+      if (this.m5) {
+        // the big pitch fills the whole screen, edge to edge (still a fixed camera)
+        const f = this._fillCam(high, aspect);
+        pos.copy(f.pos); look.copy(f.look);
+      } else {
+        const fit = FIELD.hx > FIELD.hz ? Math.max(FIELD.hz / 9, (FIELD.hx / 9) * (1.42 / aspect)) : Math.max(1, 1.62 / aspect) * (FIELD.half / 9);
+        if (high) { pos.set(0, 27 * fit, 3.5 * fit); look.set(0, 0, 0.4); }
+        else { pos.set(0, 17 * fit, 17.5 * fit); look.set(0, 0, 1.3); }
+      }
       // ease into the fixed spot when leaving the menu, then hold perfectly still
       const k = 1 - Math.exp(-dt * 4);
       this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
@@ -949,6 +958,49 @@ export class Game {
     this.shake = 0;
     cam.lookAt(this.camLook);
     cam.updateMatrixWorld();
+  }
+
+  /**
+   * A fixed camera as close as it can be while the whole pitch (boards and goals) stays on screen:
+   * slide the look point until the pitch sits centred, pull in until its edges touch the frame.
+   */
+  _fillCam(high, aspect) {
+    const key = `${high}|${aspect.toFixed(3)}|${FIELD.hx}|${FIELD.hz}`;
+    if (this._fillKey === key) return this._fill;
+    const cam = this.camera.clone(); cam.aspect = aspect; cam.updateProjectionMatrix();
+    const X = FIELD.hx + 0.9, Z = FIELD.hz + 0.25, pts = [];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [0, 0.7]) pts.push(new THREE.Vector3(sx * X, y, sz * Z));
+    for (const sx of [-1, 1]) pts.push(new THREE.Vector3(sx * (FIELD.hx + 1.1), FIELD.goalH, 0));
+    const q = new THREE.Vector3(), up = new THREE.Vector3();
+    const span = (dir, d, lz) => {
+      cam.position.copy(dir).multiplyScalar(d); cam.position.z += lz; cam.lookAt(0, 0, lz); cam.updateMatrixWorld(); cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+      let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+      for (const p of pts) { q.copy(p).project(cam); x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
+      return { x0, x1, y0, y1 };
+    };
+    const fit = (dir) => {
+      let lo = 5, hi = 250, lz = 0;
+      for (let it = 0; it < 32; it++) {
+        const d = (lo + hi) / 2;
+        for (let k = 0; k < 5; k++) { const s = span(dir, d, lz); lz -= ((s.y0 + s.y1) / 2) * d * 0.25; }
+        const s = span(dir, d, lz);
+        if (Math.max(-s.x0, s.x1, -s.y0, s.y1) > 0.99) lo = d; else hi = d;
+      }
+      for (let k = 0; k < 5; k++) { const s = span(dir, hi, lz); lz -= ((s.y0 + s.y1) / 2) * hi * 0.25; }
+      const s = span(dir, hi, lz);
+      return { d: hi, lz, area: ((s.x1 - s.x0) * (s.y1 - s.y0)) / 4 };
+    };
+    // the camera tilt: as low (side-on) as possible while the pitch still fills the screen both
+    // ways; the overhead view is simply steeper
+    let best = null;
+    for (let deg = high ? 70 : 44; deg <= (high ? 84 : 62); deg += 2) {
+      const r = (deg * Math.PI) / 180, dir = up.set(0, Math.sin(r), Math.cos(r)).clone();
+      const f = fit(dir); f.dir = dir;
+      if (!best || f.area > best.area + 0.015) best = f;
+    }
+    this._fill = { pos: best.dir.clone().multiplyScalar(best.d).add(new THREE.Vector3(0, 0, best.lz)), look: new THREE.Vector3(0, 0, best.lz) };
+    this._fillKey = key;
+    return this._fill;
   }
 
   // ================================================================ network ==
@@ -1019,7 +1071,7 @@ export class Game {
     this.mySlot = this.m5 ? (msg.cur || []).find((c) => c[0] === myId)?.[1] ?? -1 : msg.slots.findIndex((s) => s.id === myId);
     this._guestControllers();
     if (msg.chars) msg.chars.forEach((c, i) => this.athletes[i] && this._setChar(this.athletes[i], c));
-    if (this.m5) { this.conceded = [0, 0]; this.golden = false; this._curNames = msg.cur || []; }
+    if (this.m5) { this.conceded = [0, 0]; this.golden = false; this._curNames = msg.cur || []; for (const a of this.athletes) a.char.group.scale.setScalar(1.14); }
     this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
     this._resetElimination();

@@ -1031,7 +1031,7 @@ export class Character {
       for (const [up, leg, foot, s] of [[b.upLegR, b.legR, b.footR, 'R'], [b.upLegL, b.legL, b.footL, 'L']]) {
         if (!foot || this.ik[s].w > 0.3) continue;
         foot.getWorldPosition(_f);
-        const floor = kc.ankleHeight * 0.9;
+        const floor = kc.ankleHeight * 0.9 * this.group.scale.y;
         if (_f.y < floor - 0.005) { _f.y = floor; this._legIK(up, leg, foot, _f, 1); }
       }
     }

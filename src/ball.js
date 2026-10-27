@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf, waveOff, waveSlope } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
@@ -422,8 +422,25 @@ export class Ball {
   // the four sides are identical: a board everywhere except a goal mouth in the middle
   _walls(A, B) {
     const p = this.pos, v = this.vel, H = halfOf(A);
-    if (Math.abs(p[A]) <= H - R) return;
     const side = Math.sign(p[A]) || 1;
+    // wavy boards: the board bulges in and out along its length, and the bounce follows its slope
+    const w = FIELD.wave && Math.abs(p[A]) < H ? waveOff(A, p[B], side) : 0;
+    if (w > 0) {
+      const Hw = H - w;
+      if (Math.abs(p[A]) <= Hw - R || Math.abs(p[B]) > halfOf(B)) return;
+      const sl = waveSlope(A, p[B], side), L = Math.hypot(1, sl), nA = side / L, nB = sl / L;
+      p[A] = side * (Hw - R);
+      const vn = v[A] * nA + v[B] * nB;
+      if (vn > 0) {
+        const pop = vn > 6 ? BALL.wallKick : 0;
+        v[A] -= ((1 + BALL.wallBounce) * vn + pop) * nA; v[B] -= ((1 + BALL.wallBounce) * vn + pop) * nB;
+        v[B] *= 0.97;
+        if (vn > 1.5) this.events.push({ type: 'board', v: vn });
+        if (vn > 4) this.events.push({ type: 'squash', n: A === 'x' ? [nA, 0, nB] : [nB, 0, nA], a: vn / 50 });
+      }
+      return;
+    }
+    if (Math.abs(p[A]) <= H - R) return;
     if (this.goalTeam >= 0) {
       const g = goalIndexFor(A, side);
       if (g !== this.goalTeam && Math.abs(p[A]) > H) return;

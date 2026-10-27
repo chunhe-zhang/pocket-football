@@ -110,7 +110,7 @@ export const MAPS = {
   // classic five-a-side: a long rectangle, one goal at each end, boards round the sides (no throw-ins)
   pitch5: {
     name: '六人制球场', hx: 25, hz: 15.5, cornerR: 2.8, goalHalfW: 2.7, goalH: 2.1, boxHalfW: 8.5, boxDepth: 7,
-    lives: 99, kickoff: 7, follow: false, goals: 2, lines: true, noStands: true,   // fixed camera: the whole pitch, no panning
+    lives: 99, kickoff: 7, follow: false, goals: 2, lines: true, noStands: true, wave: 0.95,   // wavy boards: nobody knows where it'll bounce   // fixed camera: the whole pitch, no panning
     islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
   track: {
     name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
@@ -210,6 +210,26 @@ export function goalIndexFor(axis, sign) { return GOALS.findIndex((g) => g.axis 
 /** half extent along an axis */
 export const halfOf = (A) => (A === 'x' ? FIELD.hx : FIELD.hz);
 
+// ---- wavy boards ---------------------------------------------------------------------------
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+/**
+ * How far the board on the `side` end of axis A bulges into the pitch at s (the coordinate along
+ * the board). Two waves of different length laid over each other, so no two bounces are alike;
+ * flat at the goal mouths and where the corner curves begin.
+ */
+export function waveOff(A, s, side) {
+  const amp = FIELD.wave; if (!amp) return 0;
+  const B = A === 'x' ? 'z' : 'x', run = halfOf(B) - FIELD.cornerR, as = Math.abs(s);
+  const hasGoal = GOALS.some((g) => g.axis === A && g.sign === side);
+  let taper = 1 - smooth(run - 1.8, run - 0.2, as);
+  if (hasGoal) taper *= smooth(FIELD.goalHalfW + 0.4, FIELD.goalHalfW + 2.2, as);
+  if (taper <= 0) return 0;
+  const ph = (A === 'x' ? 0.7 : 2.1) + (side > 0 ? 1.3 : 0);
+  const h1 = 0.5 - 0.5 * Math.cos((2 * Math.PI * s) / 4.6 + ph), h2 = 0.5 - 0.5 * Math.cos((2 * Math.PI * s) / 2.7 + ph * 2.3);
+  return amp * taper * (0.62 * h1 + 0.38 * h2);
+}
+export function waveSlope(A, s, side) { return (waveOff(A, s + 0.02, side) - waveOff(A, s - 0.02, side)) / 0.04; }
+
 // bumpers are the round obstacles (kept under the old name the physics already uses)
 export const OBSTACLES = [];
 
@@ -228,7 +248,7 @@ export function setMap(name) {
   FIELD.vortices = m.vortices.map((c) => ({ ...c }));
   FIELD.wheels = m.wheels.map((c) => ({ ...c }));
   FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
-  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields; FIELD.lines = !!m.lines; FIELD.noStands = !!m.noStands;
+  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields; FIELD.lines = !!m.lines; FIELD.noStands = !!m.noStands; FIELD.wave = m.wave || 0;
   GOALS.length = 0; TEAMS.slice(0, m.goals || 4).forEach((_, i) => GOALS.push(goalInfo(i)));
   OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true, sq: !!b.sq });
   _nav = null;
@@ -237,7 +257,9 @@ export function setMap(name) {
 // ---- rounded arena -------------------------------------------------------------------
 /** keep a point inside the rounded-rectangle pitch, `margin` metres from the walls. Returns true if moved. */
 export function clampToArena(p, margin = 0) {
-  const HX = FIELD.hx - margin, HZ = FIELD.hz - margin, Cx = FIELD.hx - FIELD.cornerR, Cz = FIELD.hz - FIELD.cornerR, Rr = FIELD.cornerR - margin;
+  let HX = FIELD.hx - margin, HZ = FIELD.hz - margin;
+  const Cx = FIELD.hx - FIELD.cornerR, Cz = FIELD.hz - FIELD.cornerR, Rr = FIELD.cornerR - margin;
+  if (FIELD.wave) { HX -= waveOff('x', p.z, Math.sign(p.x) || 1); HZ -= waveOff('z', p.x, Math.sign(p.z) || 1); }
   let moved = false;
   if (Math.abs(p.x) > HX) { p.x = Math.sign(p.x) * HX; moved = true; }
   if (Math.abs(p.z) > HZ) { p.z = Math.sign(p.z) * HZ; moved = true; }
@@ -249,7 +271,8 @@ export function clampToArena(p, margin = 0) {
 }
 export function insideArena(x, z, margin = 0) {
   const Cx = FIELD.hx - FIELD.cornerR, Cz = FIELD.hz - FIELD.cornerR;
-  if (Math.abs(x) > FIELD.hx + margin || Math.abs(z) > FIELD.hz + margin) return false;
+  const wx = FIELD.wave ? waveOff('x', z, Math.sign(x) || 1) : 0, wz = FIELD.wave ? waveOff('z', x, Math.sign(z) || 1) : 0;
+  if (Math.abs(x) > FIELD.hx - wx + margin || Math.abs(z) > FIELD.hz - wz + margin) return false;
   if (Math.abs(x) > Cx && Math.abs(z) > Cz) return Math.hypot(Math.abs(x) - Cx, Math.abs(z) - Cz) <= FIELD.cornerR + margin;
   return true;
 }
