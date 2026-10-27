@@ -198,20 +198,27 @@ export class Athlete {
     if (this.header) this._headerMotionTick(dt);
     // the gale leap: a strike in mid-air is a flying volley
     const pressedAny = pressedKick || pressedLob || pressedPass;
+    if (this._queued && !this.power && !this.trick && g.time - (this.powerEndT ?? -9) > 0.9) this._queued = null;
     if (this.power) {
       const P = this.power;
       // mid-move: strike it there and then, at the sweet power (the move sets the shot up)
-      if (P.type === 'gale') { if ((pressedKick || pressedLob) && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) this._galeVolley(); }
-      else if (pressedAny && (P.type === 'phantom' ? P.jumped : P.type === 'blaze' || P.type === 'frost' ? P.blasted : P.t > P.dur * 0.2)) this._skillStrike(pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick');
+      const want = pressedAny ? (pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick') : this._queued;
+      if (P.type === 'gale' && want && want !== 'pass' && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) { this._queued = null; this._galeVolley(); }
+      else if (want && P.type !== 'gale' && (P.type === 'phantom' ? P.jumped : P.type === 'blaze' || P.type === 'frost' ? P.blasted : P.t > P.dur * 0.2)) { this._queued = null; this._skillStrike(want); }
+      else if (pressedAny) this._queued = want;            // pressed a touch early: it goes the moment it can
       if (this.power) { this.charging = false; this.charge = 0; }
     }
     else if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0 || this.holding) { this.charging = false; this.charge = 0; }
     else if (!this.kick && !this.header) {
       if ((pressedKick || pressedLob || pressedPass) && !this.charging && g.state === 'play' && (this._headerChance() || (pressedLob && this._headerChance(true)))) {
         this._startHeader(pressedLob ? 'lob' : pressedPass ? 'pass' : 'shot');
-      } else if (pressedAny && !this.charging && g.state === 'play' && g.time - (this.powerEndT ?? -9) < 0.6 && !this.stunT) {
-        // just out of a skill move: the strike comes instantly, at the sweet power
-        this._skillStrike(pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick');
+      } else if ((pressedAny || this._queued) && !this.charging && g.state === 'play' && !this.stunT
+        && (g.time - (this.powerEndT ?? -9) < 0.9 || this.trick || g.time - (this.trickEndT ?? -9) < 0.9)) {
+        // in or just out of a skill move (the character's move or the 闪身步): no wind-up, the
+        // strike / pass comes instantly at the sweet power
+        const t = pressedAny ? (pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick') : this._queued;
+        this._queued = null; this.trick = null; this.trickEndT = -9;
+        this._skillStrike(t);
       } else if (wantShot && !this.charging && g.state !== 'menu' && !(this.noChargeT > 0) && !this._needRelease) {
         this.charging = true; this.charge = 0; this.chargeHold = 0; this.armed = null;
         this.chargeType = it.pass ? 'pass' : it.lob ? 'chip' : 'kick';
@@ -949,7 +956,7 @@ export class Athlete {
     s.t += dt;
     if (s.t >= s.dur) {
       if (s.type === 'feint' || s.type === 'drag') this.burstT = Math.max(this.burstT, 0.5);
-      this.trick = null;
+      this.trick = null; this.trickEndT = this.game.time;
     }
   }
 
@@ -1050,7 +1057,15 @@ export class Athlete {
 
   /** a shot / pass out of (or straight after) a skill move: no wind-up, the comfortable power, struck clean */
   _skillStrike(type) {
+    const wasPower = !!this.power;
     this._endPower();
+    // the move carried the ball at dash speed: gather it at the boot so the strike meets it now
+    const b = this.game.ball;
+    if (wasPower && !b.heldBy && b.lastTouch === this && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 1.6) {
+      const f = this.forward, sp = Math.hypot(this.vel.x, this.vel.z), k = Math.min(1, 5 / Math.max(sp, 1e-3));
+      this.vel.multiplyScalar(k);
+      b.pos.set(this.pos.x + f.x * this.reachF, BALL.r, this.pos.z + f.z * this.reachF); b.vel.set(this.vel.x, 0, this.vel.z);
+    }
     this.powerEndT = -9;
     // the pass weighted for the next move: firm enough to arrive quickly, soft enough to hit first time
     this.chargeType = type; this.charge = type === 'pass' ? 0.36 : type === 'chip' ? 0.5 : 0.74;
