@@ -16,7 +16,7 @@ export class Athlete {
   constructor(game, team, character, label) {
     this.game = game; this.team = team; this.char = character; this.label = label;
     this.gi = team;          // the goal I defend (5v5: my side's goal)
-    this.role = null;        // 6v6: 'gk' | 'defL' | 'defR' | 'mid' | 'attL' | 'attR'
+    this.role = null;        // 6v6: 'gk' | 'back' (always home) | 'wingL' 'mid' 'wingR' (the trio: up and back together) | 'fwd' (always up front)
     this.charId = 'thunder'; // character: decides the special shot
     this.energy = 0;         // special-shot meter, 0..1
     this.iceT = 0;           // frozen solid by an ice shot
@@ -50,7 +50,9 @@ export class Athlete {
     this._v = new THREE.Vector3(); this._w = new THREE.Vector3(); this._f = new THREE.Vector3(); this._r = new THREE.Vector3();
   }
 
-  get home() { return GOALS[this.gi] || GOALS[0]; }             // the goal I defend
+  /** which goal I defend (6v6 sides change ends at half time) */
+  get end() { return this.game.m5 ? this.gi ^ (this.game.ends | 0) : this.gi; }
+  get home() { return GOALS[this.end] || GOALS[0]; }             // the goal I defend
   get charDef() { return CHAR[this.charId] || CHAR.thunder; }
   /** the goal mouth centres I can score in */
   get targets() { return GOALS.filter((g) => !this.game.friendlyGoal(this, g.team) && this.game.activeGoal(g.team)); }
@@ -86,7 +88,7 @@ export class Athlete {
       const cost = d - Math.min(guard, 8) * 0.6;
       if (cost < bestCost) { bestCost = cost; best = g; }
     }
-    best = best || GOALS[(this.gi + 1) % GOALS.length];
+    best = best || GOALS[(this.end + 1) % GOALS.length];
     return new THREE.Vector3(best.centre.x, 0, best.centre.z);
   }
 
@@ -178,7 +180,7 @@ export class Athlete {
         const sp = Math.hypot(this.vel.x, this.vel.z);
         const mateHas = holder && g.sameSide(holder.team, this.team);
         // in my own penalty box the tackle button is a goalkeeper dive
-        if (inOwnBox(this.gi, this.pos.x, this.pos.z) && (!this.role || this.role === 'gk')) this._startDive();
+        if (inOwnBox(this.end, this.pos.x, this.pos.z) && (!this.role || this.role === 'gk')) this._startDive();
         else if (mateHas && bd < 2.5) { /* never tackle my own team-mate */ }
         else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
         else this._startSlide();
@@ -618,7 +620,7 @@ export class Athlete {
   tryCatch(part, v) {
     const g = this.game, b = g.ball;
     if (!this.isKeeper || g.state !== 'play' || this.holding || b.heldBy || b.noCatchT > 0 || this.stunT > 0) return false;
-    if (!inOwnBox(this.gi, this.pos.x, this.pos.z) || part === 'foot' || part === 'shin') return false;
+    if (!inOwnBox(this.end, this.pos.x, this.pos.z) || part === 'foot' || part === 'shin') return false;
     const limit = this.dive ? 27 : 33;
     if (v > limit || Math.random() < 0.06 + 0.45 * Math.max(0, (v - 17) / 16) ** 2) return false;   // too hot to hold: it's parried
     this.smother(b);
@@ -634,7 +636,7 @@ export class Athlete {
     const g = this.game, b = g.ball;
     const justIced = this.iceT > 1.3;         // frozen by this very shot: the block still counts
     if (!this.isKeeper || b.heldBy || this.holding || ((this.stunT > 0 || this.frozen) && !justIced) || g.state !== 'play' || b.hidden) return;
-    if (!inOwnBox(this.gi, this.pos.x, this.pos.z)) return;
+    if (!inOwnBox(this.end, this.pos.x, this.pos.z)) return;
     const lt = b.lastTouch; if (!lt || !this._isOpp(lt)) return;
     const inw = this.home.inward, c = this.home.centre;
     const dep = (q) => (q.x - c.x) * inw.x + (q.z - c.z) * inw.z;
@@ -733,7 +735,7 @@ export class Athlete {
   }
 
   /** a goalkeeper in his own box: hard to knock over (only ice, or a combo meant for him, gets him) */
-  _tough() { return this.isKeeper && inOwnBox(this.gi, this.pos.x, this.pos.z); }
+  _tough() { return this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z); }
   /** rocked, but still on my feet */
   _stagger(dir) {
     const dv = this.dive;
@@ -1048,7 +1050,7 @@ export class Athlete {
   _keeperClaim() {
     const P = this.power, g = this.game, b = g.ball;
     for (const k of g.live) {
-      if (!k.isKeeper || !this._isOpp(k) || k.stunT > 0 || k.frozen || k.holding || b.heldBy || !inOwnBox(k.gi, k.pos.x, k.pos.z)) continue;
+      if (!k.isKeeper || !this._isOpp(k) || k.stunT > 0 || k.frozen || k.holding || b.heldBy || !inOwnBox(k.end, k.pos.x, k.pos.z)) continue;
       if (P.gkTried && P.gkTried.has(k)) continue;
       const d = Math.hypot(b.pos.x - k.pos.x, b.pos.z - k.pos.z);
       const reach = (k.dive ? 1.6 : 1.2) + (P.type === 'phantom' && P.jumped ? 0.9 : 0);
@@ -1293,7 +1295,7 @@ export class Athlete {
       ball.guardT = 0; ball.loftKind = null; ball.dribbleGuard = 0; ball.endSpecial();
       ball.chain = { els: chain, last: this };
       if (special) { ball.startSpecial(chain, this, h.aim, 0.8, this.goalTarget()); g.onSpecial?.(this, special); }
-      else if (mate) this._elemPass(chain);
+      else if (mate) { this._elemPass(chain); ball.passTo = mate; ball.passToT = 1.3; }
       if (!mate) this.passT = -1;
       if (special && special.level > 1) this._comboFlair(special);
       else if (oneTouch && !mate && !h.soft) this.flair(h.kind === 'bicycle' ? '倒钩!' : h.kind === 'dive' ? '鱼跃冲顶!' : '头球攻门!');
@@ -1699,8 +1701,9 @@ export class Athlete {
     }
     // every proper 爆射 (anything firmer than a side-footed pass) is an element shot: the striker's own
     // element, or (first time at the end of a passing move) every element in the move
-    const special = k.type === 'kick' && p >= 0.3 && g.state === 'play' ? comboOf(chain) : null;
-    if (special) speed = this._elemSpeed(speed, special, 20);
+    // (even a light one: every shot carries the elements; a soft one just isn't any faster for it)
+    const special = k.type === 'kick' && g.state === 'play' ? comboOf(chain) : null;
+    if (special) speed = this._elemSpeed(speed, special, Math.min(20, speed * 1.08));
     if (special) {
       if (!special.ids.includes('gale') && !special.ids.includes('phantom')) elev = Math.min(elev, 0.07);   // driven at body height: it goes through people
       k.perfect = true; k.over = false;
@@ -1743,8 +1746,9 @@ export class Athlete {
     if ((k.type === 'pass' || k.loft) && this.passTarget) { ball.guardT = 0.32; ball.guardBy = this; }
     ball.loftKind = k.loft ? k.loft.kind : null;
     ball.chain = { els: chain, last: this };
+    if (this.passTarget && !special) { ball.passTo = this.passTarget; ball.passToT = 1.3; }
     if (special) { ball.startSpecial(chain, this, dir, p, this.goalTarget()); g.onSpecial?.(this, special); }
-    else if (this.passTarget && (k.type === 'pass' || k.type === 'chip' || p < 0.3)) this._elemPass(chain);
+    else this._elemPass(chain);                                    // every pass carries them too, however soft
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
     if (p > 0.4 && footTouched) g.fx('spark', ball.pos, { x: dir.x, z: dir.z }, Math.round(4 + 10 * p), 2 + 4 * p);
@@ -1882,9 +1886,11 @@ export class Athlete {
     const g = this.game, ball = g.ball;
     if (ball.heldBy) { this.dribbling = false; return false; }      // in the keeper's hands
     if (ball.guardT > 0 && ball.guardBy && ball.guardBy.gi !== this.gi && !this.slide && !this.poke) { this.dribbling = false; return false; }
+    // a team-mate's pass meant for someone else: let it run through to them
+    if (ball.passToT > 0 && ball.passTo && ball.passTo !== this && ball.lastTouch && ball.lastTouch !== this && !this._isOpp(ball.lastTouch) && !ball.passTo.out) { this.dribbling = false; this.receive = null; return false; }
     // someone else has it under close control: only a tackle (or the keeper in his box) wins it
     const db = ball.dribbleGuard > 0 ? ball.dribbleBy : null;
-    if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.isKeeper && inOwnBox(this.gi, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
+    if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
     if (this.power) { this._powerBall(); return true; }             // mid character move: the ball goes where I go
     if (this.frozen) { this.dribbling = false; return false; }
     if (this.kick && this.kick.t < this.kick.contactT + 0.1) { this.dribbling = false; return false; }

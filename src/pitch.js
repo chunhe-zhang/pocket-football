@@ -15,6 +15,9 @@ function canvasTex(w, h, draw, { repeat = null } = {}) {
 }
 
 const rnd = (a, b) => a + Math.random() * (b - a);
+// 6v6 second half: the sides have changed ends, so each goal wears the other side's colour
+let SWAP = false;
+const teamOf = (gt) => TEAMS[SWAP && GOALS.length === 2 ? gt ^ 1 : gt];
 
 function drawBlossom(g, x, y, r, petal, centre, petals = 5, rot = Math.random() * 6) {
   g.save(); g.translate(x, y); g.rotate(rot);
@@ -84,7 +87,7 @@ function grassTexture() {
     }
     // team-coloured goal areas
     for (const goal of GOALS) {
-      const t = TEAMS[goal.team];
+      const t = teamOf(goal.team);
       g.save();
       g.translate(X(goal.centre.x), Y(goal.centre.z));
       g.rotate(Math.atan2(goal.inward.z, goal.inward.x));
@@ -182,7 +185,8 @@ export class Pitch {
   }
 
   /** (re)build everything that depends on the arena shape */
-  setMap() {
+  setMap(swap = false) {
+    SWAP = swap; this.swapped = swap;
     if (this.root) {
       this.scene.remove(this.root);
       this.root.traverse((o) => { o.geometry?.dispose?.(); for (const m of [].concat(o.material || [])) { m.map?.dispose?.(); m.dispose?.(); } });
@@ -334,7 +338,7 @@ export class Pitch {
     const g = new THREE.Group(), H = goal.line;
     // built as if the goal were on the +x side, then rotated into place
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
-    const tint = new THREE.MeshStandardMaterial({ color: TEAMS[goal.team].color, roughness: 0.5 });
+    const tint = new THREE.MeshStandardMaterial({ color: teamOf(goal.team).color, roughness: 0.5 });
     const postGeo = new THREE.CylinderGeometry(postR, postR, FIELD.goalH + postR, 16);
     for (const z of [-FIELD.goalHalfW, FIELD.goalHalfW]) {
       const p = new THREE.Mesh(postGeo, white); p.position.set(H, (FIELD.goalH + postR) / 2, z); p.castShadow = true; g.add(p);
@@ -347,7 +351,7 @@ export class Pitch {
     backBar.rotation.x = Math.PI / 2; backBar.position.set(H + GD, FIELD.goalH, 0); g.add(backBar);
 
     const tex = netTexture(8); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    const netCol = new THREE.Color(TEAMS[goal.team].color).lerp(new THREE.Color(0xffffff), 0.55);
+    const netCol = new THREE.Color(teamOf(goal.team).color).lerp(new THREE.Color(0xffffff), 0.55);
     const netMat = (rx, ry) => { const t = tex.clone(); t.needsUpdate = true; t.repeat.set(rx, ry); return new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity: 0.95, color: netCol }); };
     const cell = 0.14;
     const backNet = new THREE.Mesh(new THREE.PlaneGeometry(2 * FIELD.goalHalfW, FIELD.goalH, 12, 8), netMat(2 * FIELD.goalHalfW / cell / 8, FIELD.goalH / cell / 8));
@@ -371,7 +375,7 @@ export class Pitch {
     const W = 2 * FIELD.goalHalfW + 0.3, Hh = FIELD.goalH + 0.12, T = 0.14;
     const tex = flowerBoardTexture(); tex.repeat.set(W / 2.2, 1);
     const face = new THREE.MeshLambertMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.22 });
-    const trim = new THREE.MeshStandardMaterial({ color: TEAMS[goal.team].color, roughness: 0.5 });
+    const trim = new THREE.MeshStandardMaterial({ color: teamOf(goal.team).color, roughness: 0.5 });
     const g = new THREE.Group();
     const panel = new THREE.Mesh(new THREE.BoxGeometry(T, Hh, W), [trim, trim, trim, trim, face, face]);
     // BoxGeometry faces: +x,-x,+y,-y,+z,-z; the flower print goes on the faces seen from the pitch
@@ -741,7 +745,7 @@ export class Pitch {
       const W = 2 * FIELD.goalHalfW, Hh = FIELD.goalH;
       const mat = new THREE.ShaderMaterial({
         transparent: true, depthWrite: false, side: THREE.DoubleSide,
-        uniforms: { uColor: { value: new THREE.Color(TEAMS[g.team].color) }, uTime: { value: 0 }, uK: { value: 0 }, uFlash: { value: 0 }, uSize: { value: new THREE.Vector2(W, Hh) } },
+        uniforms: { uColor: { value: new THREE.Color(teamOf(g.team).color) }, uTime: { value: 0 }, uK: { value: 0 }, uFlash: { value: 0 }, uSize: { value: new THREE.Vector2(W, Hh) } },
         vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uK; uniform float uFlash; uniform vec2 uSize; varying vec2 vUv;
           float hexLine(vec2 p) {

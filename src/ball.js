@@ -167,7 +167,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.passToT = 0;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -210,7 +210,8 @@ export class Ball {
     this._hit.clear();
     this.noCatchT = Math.max(0, (this.noCatchT || 0) - dt);
     this.guardT = Math.max(0, (this.guardT || 0) - dt);   // a pass just played: clear of the marker's legs for a moment
-    this.dribbleGuard = Math.max(0, (this.dribbleGuard || 0) - dt);   // under close control: opponents must tackle for it
+    this.dribbleGuard = Math.max(0, (this.dribbleGuard || 0) - dt);
+    this.passToT = Math.max(0, (this.passToT || 0) - dt);       // a pass on its way: team-mates it isn't for let it run   // under close control: opponents must tackle for it
     if (this.heldBy) {
       const k = this.heldBy;
       if (k.out || !k.holding) this.heldBy = null;
@@ -355,6 +356,7 @@ export class Ball {
     for (const c of this.colliders) {
       if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
       if (this.hidden) continue;                                         // vanished (mid-teleport)
+      if (this.passToT > 0 && this.passTo && c.owner !== this.passTo && this.lastTouch && c.owner !== this.lastTouch && !this.lastTouch._isOpp(c.owner)) continue;   // a pass runs past team-mates it isn't meant for
       if (this.special && c.owner !== this.special.owner && !this.special.owner._isOpp(c.owner)) continue;   // a shot flies past the shooter's own team
       if (this.guardT > 0 && this.guardBy && c.owner.gi !== this.guardBy.gi && !c.owner.slide && !c.owner.poke) continue;
       if (this.dribbleGuard > 0 && this.dribbleBy && c.owner !== this.dribbleBy && this.dribbleBy._isOpp(c.owner) && !c.owner.slide && !c.owner.poke && !c.owner.isKeeper) continue;
@@ -374,7 +376,7 @@ export class Ball {
       const spc = this.special;
       if (spc && c.owner !== spc.owner) {
         const who = c.owner, cb = spc.combo, n = [spc.dx, 0, spc.dz];
-        const keeper = inOwnBox(who.gi, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
+        const keeper = inOwnBox(who.end, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
         if (!keeper) {
           // out-field players: a combo goes through anyone; a solo shot through people with lightning, fire, ice or earth
           const pierce = cb.level > 1 || spc.has('thunder') || spc.has('blaze') || spc.has('frost') || spc.has('cannon');

@@ -227,7 +227,7 @@ export class UI {
     const g = this.game;
     if (g.role !== 'local') return;
     if (g.state === 'paused') { g.state = this._prevState; $('#pause').classList.remove('show'); }
-    else if (['play', 'kickoff', 'goal'].includes(g.state)) { this._prevState = g.state; g.state = 'paused'; $('#pause').classList.add('show'); }
+    else if (['play', 'kickoff', 'goal', 'halftime'].includes(g.state)) { this._prevState = g.state; g.state = 'paused'; $('#pause').classList.add('show'); }
   }
 
   toggleMute() { this.muted = !this.muted; this.sfx.setMuted(this.muted); $('#btn-mute').classList.toggle('off', this.muted); }
@@ -240,7 +240,7 @@ export class UI {
   onScore(g) {
     if (g.m5) {
       const gold = g.golden ? ' <span class="gold">金球</span>' : '';
-      $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">${TEAMS[0].cn}</span><span class="n">${g.conceded[1]} : ${g.conceded[0]}</span><span class="t" style="background:${TEAMS[1].css}">${TEAMS[1].cn}</span><span class="tm">${this._mmss(g.clock)}</span>${gold}</span>`;
+      $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">${TEAMS[0].cn}</span><span class="n">${g.conceded[1]} : ${g.conceded[0]}</span><span class="t" style="background:${TEAMS[1].css}">${TEAMS[1].cn}</span><span class="hf">${g.golden ? '' : g.half === 2 ? '下半场' : '上半场'}</span><span class="tm">${this._mmss(g.clock)}</span>${gold}</span>`;
       this._clockKey = null;
       return;
     }
@@ -282,7 +282,7 @@ export class UI {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
     $('#clock').classList.toggle('low', g.m5 ? g.clock < 15 && !g.golden : !g.side && left === 2);
-    if (g.m5) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : ''); if (tm && key !== this._clockKey) { this._clockKey = key; if (g.golden && !$('#clock .gold')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
+    if (g.m5) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : '') + (g.half || 1); if (tm && key !== this._clockKey) { this._clockKey = key; if ((g.golden && !$('#clock .gold')) || $('#clock .hf')?.textContent !== (g.golden ? '' : g.half === 2 ? '下半场' : '上半场')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];

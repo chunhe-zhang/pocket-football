@@ -211,4 +211,5 @@ button { font-family: var(--font); cursor: pointer; }
 .score5 .t { padding: 2px 9px; border-radius: 6px; color: #fff; }
 .score5 .n { font-size: 1.25em; }
 .score5 .gold { color: #ffd23f; }
+.score5 .hf { font-size: 0.78em; opacity: 0.8; font-weight: 700; }
 #scoreboard.m5 .chips { display: none; }
