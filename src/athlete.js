@@ -1740,7 +1740,8 @@ export class Athlete {
     const gd = this.goalTarget().distanceTo(this.pos);
     // close in, a shot is struck with everything; from range it carries less (a combo loses less of it)
     if (k.type === 'kick' && special) speed *= special.level > 1 ? clamp(1.08 - (gd - 8) * 0.013, 0.84, 1.08) : clamp(1.12 - (gd - 8) * 0.018, 0.8, 1.12);
-    if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);   // a solo shot never gets past what a keeper can react to
+    if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);
+    if (k.type === 'kick' && special && special.level > 1) speed = Math.min(speed, 46 - clamp((gd - 10) * 1.0, 0, 12));   // from range even a combo is something a keeper can track   // a solo shot never gets past what a keeper can react to
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
     let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
     if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so

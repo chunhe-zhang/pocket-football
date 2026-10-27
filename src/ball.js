@@ -326,6 +326,7 @@ export class Ball {
       for (const col of this.colliders) {
         const who = col.owner;
         if (who === sp.owner || sp.aura.has(who) || sp.hit.has(who) || !sp.owner._isOpp(who)) continue;
+        if (who.isKeeper && inOwnBox(who.end, who.pos.x, who.pos.z)) continue;   // the aura sweeps out-field players, not the keeper
         if (Math.hypot(who.pos.x - p.x, who.pos.z - p.z) > r) continue;
         sp.aura.add(who);
         const kind = c.aura === 'freeze' ? 'frost' : c.aura === 'jolt' ? 'thunder' : c.aura === 'quake' ? 'cannon' : 'blaze';
