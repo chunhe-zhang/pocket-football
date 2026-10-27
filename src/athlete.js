@@ -1744,6 +1744,7 @@ export class Athlete {
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
     let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
     if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so
+    if (this.passTarget && (k.type === 'pass' || k.loft)) { err *= 0.2; slice = 0; }   // a pass to a team-mate goes where it was meant
     if (k.perfect && footTouched) { err *= 0.15; slice *= 0.3; }       // pin-point: released in the sweet window
     if (k.skill) { err *= 0.2; slice *= 0.3; }
     if (oneTouch) { err *= 0.3; slice *= 0.4; if (k.type === 'kick') speed *= 1.06; }
@@ -1851,13 +1852,18 @@ export class Athlete {
   /** the team-mate nearest the line I'm aiming along (within the cone, closer and straighter wins) */
   _coneMate(aim, minCos, maxD) {
     const g = this.game; let best = null, bestS = -Infinity;
+    // a human's pass reads generously: the team-mate he's roughly pointing at (where they're running to)
+    const ct = g.controllers[this.team]?.type, human = ct === 'human' || ct === 'remote';
+    if (human) minCos = Math.min(minCos, 0.42);
     for (const o of g.live) {
       if (o === this || !g.sameSide(o.team, this.team) || o.role === 'gk') continue;
-      const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+      const px = o.pos.x + o.vel.x * 0.35, pz = o.pos.z + o.vel.z * 0.35;
+      const dx = px - this.pos.x, dz = pz - this.pos.z, d = Math.hypot(dx, dz);
       if (d < 1.5 || d > maxD) continue;
       const c = (dx * aim.x + dz * aim.z) / d;
       if (c < minCos) continue;
-      const s = c * 3 - d * 0.04;
+      let free = 4; for (const e of g.live) if (this._isOpp(e)) free = Math.min(free, Math.hypot(e.pos.x - o.pos.x, e.pos.z - o.pos.z));
+      const s = c * 3 - d * 0.035 + free * 0.12;
       if (s > bestS) { bestS = s; best = o; }
     }
     return best;

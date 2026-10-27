@@ -590,8 +590,9 @@ export class Game {
     let diff = Math.atan2(tx, tz) - Math.atan2(v.x, v.z);
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     if (Math.abs(diff) > 0.8) return;                                   // gone past him / never his
-    const ct = this.controllers[r.team]?.type, human = ct === 'human' || ct === 'remote';
-    const rate = (human ? 1.1 : 0.5) * dt, step = Math.max(-rate, Math.min(rate, diff));
+    const isH = (a) => { const t = this.controllers[a.team]?.type; return t === 'human' || t === 'remote'; };
+    const human = isH(r) || isH(lt);                                   // a human's pass, or a pass to a human
+    const rate = (human ? 1.2 : 0.5) * dt, step = Math.max(-rate, Math.min(rate, diff));
     const c = Math.cos(step), s = Math.sin(step), vx = v.x * c + v.z * s, vz = -v.x * s + v.z * c;
     v.x = vx; v.z = vz;
   }
