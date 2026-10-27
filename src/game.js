@@ -554,6 +554,26 @@ export class Game {
   }
 
   /**
+   * A pass on its way bends gently towards the team-mate it was meant for (more so when that's a
+   * human, who may have changed his run since it was played), so passes arrive where you are.
+   */
+  _passAssist(dt) {
+    const b = this.ball, lt = b.lastTouch, r = lt && lt.passTarget;
+    if (!r || r.out || b.heldBy || b.special || lt.passT < 0 || this.time - lt.passT > 2.4 || this.state !== 'play') return;
+    const v = b.vel, sp = Math.hypot(v.x, v.z); if (sp < 2.5) return;
+    const dx = r.pos.x - b.pos.x, dz = r.pos.z - b.pos.z, d = Math.hypot(dx, dz);
+    if (d < 1.1) return;
+    const t = d / sp, tx = dx + r.vel.x * t * 0.5, tz = dz + r.vel.z * t * 0.5;
+    let diff = Math.atan2(tx, tz) - Math.atan2(v.x, v.z);
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    if (Math.abs(diff) > 0.8) return;                                   // gone past him / never his
+    const ct = this.controllers[r.team]?.type, human = ct === 'human' || ct === 'remote';
+    const rate = (human ? 1.1 : 0.5) * dt, step = Math.max(-rate, Math.min(rate, diff));
+    const c = Math.cos(step), s = Math.sin(step), vx = v.x * c + v.z * s, vz = -v.x * s + v.z * c;
+    v.x = vx; v.z = vz;
+  }
+
+  /**
    * A pass carries the move's elements: an opponent who cuts it out feels them (a mild version) and
    * the ball spills off him; a team-mate just takes it.
    */
@@ -656,6 +676,7 @@ export class Game {
     if (this.state !== 'kickoff') {
       const order = [...live].sort((p, q) => this._distBall(q) - this._distBall(p));
       for (const a of order) a.handleBall(dt);
+      this._passAssist(dt);
       this.ball.colliders = live.flatMap((a) => (a.colliders || []).filter((c) => c.active));
       const p0 = this._bp0 || (this._bp0 = new THREE.Vector3()); p0.copy(this.ball.pos);
       const events = this.ball.update(dt);

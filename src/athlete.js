@@ -128,14 +128,15 @@ export class Athlete {
     // lead direction: where they're running, else towards the goal they'd attack
     let lx = rcv.vel.x, lz = rcv.vel.z, ls = Math.hypot(lx, lz);
     if (ls < 1.5) { const gt = rcv.goalTarget(); lx = gt.x - rcv.pos.x; lz = gt.z - rcv.pos.z; ls = Math.hypot(lx, lz) || 1; }
-    const lead = p > 0.3 ? ((p - 0.3) / 0.7) * 4 : 0;
+    const ct = this.game.controllers[rcv.team]?.type, human = ct === 'human' || ct === 'remote';
+    const lead = (p > 0.3 ? ((p - 0.3) / 0.7) * 4 : 0) * (human ? 0.45 : 1), vk = human ? 0.55 : 0.8;
     let tx = rcv.pos.x, tz = rcv.pos.z, sp = 0;
     for (let k = 0; k < 3; k++) {
       const d = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
       sp = clamp(Math.sqrt(arrive * arrive + 2 * 0.9 * d) + 0.8, 7, 23);
       const t = d / ((sp + arrive) / 2) + 0.2;
-      tx = rcv.pos.x + rcv.vel.x * t * 0.8 + (lx / ls) * lead;
-      tz = rcv.pos.z + rcv.vel.z * t * 0.8 + (lz / ls) * lead;
+      tx = rcv.pos.x + rcv.vel.x * t * vk + (lx / ls) * lead;
+      tz = rcv.pos.z + rcv.vel.z * t * vk + (lz / ls) * lead;
     }
     const q = this._pl || (this._pl = new THREE.Vector3());
     q.set(tx, 0, tz); clampToArena(q, 0.8); pushOutOfObstacles(q, 0.6);
@@ -1285,6 +1286,7 @@ export class Athlete {
       const chain = this._chainFor(prev, oneTouch);
       const special = !mate && !h.soft && g.state === 'play' && this._goalOn(h.aim, 1.4, 30) ? comboOf(chain) : null;
       if (special) sp = this._elemSpeed(sp * 1.06, special, 15);
+      if (special && special.level > 1) { h.aim.copy(this._assistAim(h.aim, 1, 1.05, 0.6)); el = Math.min(el, 0.02); }
       ball.vel.set(h.aim.x * sp * Math.cos(el), Math.sin(el) * sp, h.aim.z * sp * Math.cos(el));
       ball.spin.multiplyScalar(0.2);
       ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.3; this.ignoreBall = 0.25; this.stats.touches++;
@@ -1719,7 +1721,9 @@ export class Athlete {
     if (k.skill) { err *= 0.2; slice *= 0.3; }
     if (oneTouch) { err *= 0.3; slice *= 0.4; if (k.type === 'kick') speed *= 1.06; }
     if (k.over) { err *= 1.6; elev += Math.random() * 0.05; }          // leathered: power over control
-    const dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.025);
+    let dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.025);
+    // a combo shot is guided onto the target: pulled well inside the posts from a much wider angle
+    if (special && special.level > 1) { dir = this._assistAim(k.aim, 1, 1.05, 0.6); elev = Math.min(elev, 0.06); }
     elev += (1 - quality) * 0.05 * (Math.random() - 0.3);
     if (volley && k.type === 'kick') elev = Math.min(elev, 0.04 + (ball.pos.y > 0.8 ? -0.05 : 0));   // a volley is struck through the ball, kept down
     let vel = dir.multiplyScalar(Math.cos(elev) * speed); vel.y = Math.sin(elev) * speed;
@@ -1846,17 +1850,17 @@ export class Athlete {
    * Steer a shot onto the goal: where the aim crosses the goal line is pulled inside the posts.
    * Full strength when aiming near the mouth, fading out by ~35° off it (so you can still aim wide on purpose).
    */
-  _assistAim(aim, strength = 1) {
-    const goal = this._goalOn(aim, 0.62, 34);
+  _assistAim(aim, strength = 1, cone = 0.62, margin = 0.45) {
+    const goal = this._goalOn(aim, cone, 40);
     if (!goal) return aim;
     const gg = goal.g, A = gg.axis, L = A === 'x' ? 'z' : 'x', line = gg.sign * gg.line;
-    const inset = FIELD.goalHalfW - Math.min(0.45, FIELD.goalHalfW * 0.3);
+    const inset = FIELD.goalHalfW - Math.min(margin, FIELD.goalHalfW * 0.3);
     let cross;
     if (Math.abs(aim[A]) > 0.05) cross = this.pos[L] + aim[L] * ((line - this.pos[A]) / aim[A]); else cross = goal.g.centre[L];
     const lat = clamp(cross - gg.centre[L], -inset, inset);
     const tx = A === 'x' ? line : gg.centre.x + lat, tz = A === 'x' ? gg.centre.z + lat : line;
     const want = new THREE.Vector3(tx - this.pos.x, 0, tz - this.pos.z).normalize();
-    const w = clamp((0.62 - goal.ang) / 0.25, 0, 1) * strength;
+    const w = clamp((cone - goal.ang) / 0.25, 0, 1) * strength;
     return aim.clone().lerp(want, w).normalize();
   }
 

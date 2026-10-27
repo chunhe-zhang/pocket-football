@@ -311,6 +311,8 @@ export class Ball {
       }
       if (sp.vanishT && !sp.ported) return;                // in between: nowhere
     }
+    // a combo homes in on the goal: whatever the wiggles, it's brought back inside the posts and under the bar
+    if (c.level > 1 && sp.goal && !(c.gk === 'teleport')) this._home(sp, h);
     // the aura: anyone it flies close past feels it
     if (c.aura && this.pos.y < 2.6) {
       const r = c.aura === 'quake' ? 2.2 : c.aura === 'freeze' ? 1.9 : 1.6;
@@ -324,6 +326,24 @@ export class Ball {
       }
     }
     if (sp.t > (c.level > 1 ? 2.6 : 2.2) || this.speed < 7 || this.goalTeam >= 0 || this.pos.y > 4.5) this.endSpecial();
+  }
+
+  _home(sp, h) {
+    const g = sp.goal, p = this.pos, v = this.vel;
+    const A = Math.abs(g.x) > Math.abs(g.z) ? 'x' : 'z', B = A === 'x' ? 'z' : 'x', sg = Math.sign(g[A]) || 1;
+    const line = sg * halfOf(A), toLine = (line - p[A]) * sg;
+    if (toLine < 0.3 || v[A] * sg < 2) return;
+    if (sp.tgtB === undefined) {
+      // the spot it was meant for: where it was heading, kept a hand's width inside the post
+      const t0 = toLine / Math.abs(v[A]), m = FIELD.goalHalfW - 0.6;
+      sp.tgtB = Math.max(-m, Math.min(m, p[B] + v[B] * t0));
+    }
+    const t = toLine / Math.abs(v[A]);
+    const wantB = (sp.tgtB - p[B]) / t;                      // the sideways speed that lands it on the spot
+    const k = Math.min(1, h * (toLine < 9 ? 9 : 4));
+    v[B] += (wantB - v[B]) * k;
+    const yAt = p.y + v.y * t - 0.5 * BALL.gravity * 0.5 * t * t;
+    if (yAt > FIELD.goalH - 0.45) v.y -= (yAt - (FIELD.goalH - 0.7)) / Math.max(t, 0.1) * Math.min(1, h * 8);
   }
 
   // the ball meets heads, chests, thighs, shins and boots as real spheres
