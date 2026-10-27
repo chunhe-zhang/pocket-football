@@ -97,7 +97,13 @@ export class AIController {
     }
     this.think -= dt;
     this.passCD = Math.max(0, this.passCD - dt);
-    if (g.possessor !== me) this._had = false; else if (!this._had) { this._had = true; this.passCD = Math.max(this.passCD, 0.5); }
+    if (g.possessor !== me) this._had = false;
+    else if (!this._had) {
+      this._had = true;
+      // 6v6: the moment the ball arrives, decide and play (shoot / pass / combo), no dwelling on it
+      if (g.m5 && me.role !== 'gk') { this.passCD = 0; this.think = Math.min(this.think, 0.04); this._gotT = g.time; }
+      else this.passCD = Math.max(this.passCD, 0.5);
+    }
     if (this.think <= 0) { this.think = this.cfg.react * (0.7 + Math.random() * 0.6); if (g.m5) this._decide5(); else this._decide(); }
     this._avoidObstacles();
     it.move.lerp(this.plan.move, Math.min(1, dt * 10));
@@ -679,12 +685,13 @@ export class AIController {
     const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z), gd = to.length();
     const near = (p, r) => opps.some((o) => Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < r);
     const pressure = near(me.pos, 1.9);
-    const range = this.cfg.shootRange * 1.15;
+    const quick = g.time - (this._gotT ?? -9) < 0.9;           // just got it: play it now
+    const range = this.cfg.shootRange * (quick ? 1.4 : 1.15);
     const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
     // mid skill move (or just out of it): strike there and then — the instant, sweet-spot 技能射门
     const flashy = me.power || g.time - (me.powerEndT ?? -9) < 0.5;
     if (flashy && me.role !== 'gk' && gd < range * 1.6 && angleOK && Math.random() < 0.55 + 0.35 * this.cfg.skill) { this._shoot(tgt, gd, false, true); return; }
-    if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
+    if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < (quick ? 0.8 : 0.5) || gd < 6.5)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
     // out wide near the byline: whip a cross in for someone to attack in the air
     if (this.passCD <= 0 && me.role !== 'gk' && Math.abs(me.pos.z) > FIELD.hz * 0.38 && gd < 15) {
       const box = mates.filter((m) => m.role !== 'gk' && m.stunT <= 0 && (() => { const t = m.goalTarget(); return Math.hypot(t.x - m.pos.x, t.z - m.pos.z) < 11; })() && Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z) > 5);
@@ -705,7 +712,7 @@ export class AIController {
         if ((m.giveGoT || 0) > g.time || Math.hypot(m.vel.x, m.vel.z) > 4 && m.vel.x * d > 2) sc += 1.2;   // a runner: play them in
         if (sc > bestS) { bestS = sc; best = m; }
       }
-      const want = me.role === 'gk' ? -99 : pressure ? 0.1 : me.role === 'back' ? 0.6 : me.role === 'fwd' ? 1.8 : 1.0;
+      const want = (me.role === 'gk' ? -99 : pressure ? 0.1 : me.role === 'back' ? 0.6 : me.role === 'fwd' ? 1.8 : 1.0) - (quick ? 1.2 : 0);
       const humanFree = best && this._isHuman(best) && Math.min(...opps.map((o) => Math.hypot(o.pos.x - best.pos.x, o.pos.z - best.pos.z))) > 2;
       if (best && (bestS > want || humanFree || (this.assist && this._isHuman(best)))) {
         const dm = Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z);

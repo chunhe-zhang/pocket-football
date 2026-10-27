@@ -232,7 +232,7 @@ export class Ball {
     const sp = this.special;
     if (sp) this._special(h);
     if (!grounded) {
-      v.y -= BALL.gravity * h * (sp ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1);
+      v.y -= BALL.gravity * h * (sp && !sp.lob ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1);
       const s = v.length();
       if (s > 0) v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * h));
       v.x += BALL.magnus * (w.y * v.z - w.z * v.y) * h;
@@ -343,7 +343,7 @@ export class Ball {
     const wantB = (sp.tgtB - p[B]) / t;                      // the sideways speed that lands it on the spot
     const k = Math.min(1, h * (toLine < 9 ? 9 : 4));
     v[B] += (wantB - v[B]) * k;
-    const yAt = p.y + v.y * t - 0.5 * BALL.gravity * 0.5 * t * t;
+    const yAt = p.y + v.y * t - 0.5 * BALL.gravity * (sp.lob ? 1 : 0.5) * t * t;
     if (yAt > FIELD.goalH - 0.45) v.y -= (yAt - (FIELD.goalH - 0.7)) / Math.max(t, 0.1) * Math.min(1, h * 8);
   }
 

@@ -1052,7 +1052,9 @@ export class Athlete {
   _skillStrike(type) {
     this._endPower();
     this.powerEndT = -9;
-    this.chargeType = type; this.charge = type === 'pass' ? 0.45 : type === 'chip' ? 0.62 : 0.74;
+    // the pass weighted for the next move: firm enough to arrive quickly, soft enough to hit first time
+    this.chargeType = type; this.charge = type === 'pass' ? 0.36 : type === 'chip' ? 0.5 : 0.74;
+    if (type === 'chip' && !this.loftKind) this.loftKind = Math.random() < 0.5 ? 'head' : 'volley';   // onto a head or a boot
     this._needRelease = true; this._skillShot = true;
     this._release();
     this._skillShot = false;
@@ -1106,7 +1108,7 @@ export class Athlete {
 
   _endPower() {
     const P = this.power; if (!P) return;
-    this.power = null; this.powerEndT = this.game.time;
+    this.power = null; this.powerEndT = this.lastSkillT = this.game.time;
     this.char.group.visible = !this.out;
     const b = this.game.ball;
     if (b.passThrough === this) b.passThrough = null;
@@ -1703,6 +1705,8 @@ export class Athlete {
     const prev = k.feeder && (ball.lastTouch === k.feeder || ball.lastTouch === this) ? k.feeder : ball.lastTouch;
     const oneTouch = !!prev && prev !== this && g.sameSide(prev.team, this.team) && g.time - prev.lastTouchTime < 3 && g.state === 'play';
     if (oneTouch) quality = Math.max(quality, 0.92);
+    // fresh out of a skill move and playing a team-mate's ball first time: still a 技能 strike
+    if (oneTouch && (footTouched || k.armed) && g.time - (this.lastSkillT ?? -9) < 2.5) k.skill = true;
     if (k.skill) quality = Math.max(quality, 0.95);              // out of a skill move: struck clean
     // the move this strike belongs to: everyone who played it first time adds their element
     const chain = this._chainFor(prev, oneTouch && (footTouched || k.armed));
@@ -1717,9 +1721,11 @@ export class Athlete {
     // every proper 爆射 (anything firmer than a side-footed pass) is an element shot: the striker's own
     // element, or (first time at the end of a passing move) every element in the move
     // (even a light one: every shot carries the elements; a soft one just isn't any faster for it)
-    const special = k.type === 'kick' && g.state === 'play' ? comboOf(chain) : null;
-    if (special) speed = this._elemSpeed(speed, special, Math.min(20, speed * 1.08));
-    if (special) {
+    // a 挑射 (chip at goal, nobody it's for) is an element shot too, on its normal lob
+    const lobShot = k.type === 'chip' && !k.loft && !this.passTarget;
+    const special = (k.type === 'kick' || lobShot) && g.state === 'play' ? comboOf(chain) : null;
+    if (special && k.type === 'kick') speed = this._elemSpeed(speed, special, Math.min(20, speed * 1.08));
+    if (special && k.type === 'kick') {
       if (!special.ids.includes('gale') && !special.ids.includes('phantom')) elev = Math.min(elev, 0.07);   // driven at body height: it goes through people
       k.perfect = true; k.over = false;
     }
@@ -1744,7 +1750,7 @@ export class Athlete {
     if (k.over) { err *= 1.6; elev += Math.random() * 0.05; }          // leathered: power over control
     let dir = k.aim.clone().applyAxisAngle(UP, err - slice * 0.025);
     // a combo shot is guided onto the target: pulled well inside the posts from a much wider angle
-    if (special && special.level > 1) { dir = this._assistAim(k.aim, 1, 1.05, 0.6); elev = Math.min(elev, 0.06); }
+    if (special && special.level > 1) { dir = this._assistAim(k.aim, 1, 1.05, 0.6); if (!lobShot) elev = Math.min(elev, 0.06); }
     elev += (1 - quality) * 0.05 * (Math.random() - 0.3);
     if (volley && k.type === 'kick') elev = Math.min(elev, 0.04 + (ball.pos.y > 0.8 ? -0.05 : 0));   // a volley is struck through the ball, kept down
     let vel = dir.multiplyScalar(Math.cos(elev) * speed); vel.y = Math.sin(elev) * speed;
@@ -1766,7 +1772,7 @@ export class Athlete {
     ball.chain = { els: chain, last: this };
     ball.shotDist = gd;
     if (this.passTarget && !special) { ball.passTo = this.passTarget; ball.passToT = 1.3; }
-    if (special) { ball.startSpecial(chain, this, dir, p, this.goalTarget()); g.onSpecial?.(this, special); }
+    if (special) { ball.startSpecial(chain, this, dir, p, this.goalTarget()); if (lobShot) ball.special.lob = true; g.onSpecial?.(this, special); }
     else this._elemPass(chain);                                    // every pass carries them too, however soft
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
