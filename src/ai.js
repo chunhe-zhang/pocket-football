@@ -4,9 +4,9 @@ import { FIELD, OBSTACLES, PLAYER, BALL, inOwnBox, clampToArena, pushOutOfObstac
 const LEVELS = {
   // 女朋友模式: slow, sleepy, never tackles, rarely saves, shoots softly and wide (and feeds the humans)
   gf:   { react: 0.6,  speed: 0.62, sprint: false, skill: 0.1,  shootRange: 5,   charge: [0.2, 0.45], aimNoise: 0.9, guard: 0.1, noTackle: true },
-  easy:   { react: 0.45, speed: 0.72, sprint: false, skill: 0.25, shootRange: 6.5, charge: [0.3, 0.6], aimNoise: 0.6, guard: 0.25, noTackle: true },
-  normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.65 },
-  hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 0.9 },
+  easy:   { react: 0.45, speed: 0.72, sprint: false, skill: 0.25, shootRange: 6.5, charge: [0.3, 0.6], aimNoise: 0.6, guard: 0.25, tackle: 0.4 },
+  normal: { react: 0.22, speed: 0.92, sprint: true,  skill: 0.65, shootRange: 9.5, charge: [0.45, 0.85], aimNoise: 0.3, guard: 0.65, tackle: 1.3 },
+  hard:   { react: 0.1,  speed: 1.0,  sprint: true,  skill: 0.95, shootRange: 11.5, charge: [0.55, 1.0], aimNoise: 0.12, guard: 0.9, tackle: 1.4 },
 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -133,23 +133,27 @@ export class AIController {
     // decide once per shot whether I react at all (easier CPUs sometimes freeze)
     const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
-    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? Math.max(0.8, this.cfg.guard + 0.2) : this.cfg.guard) * (ball.specialType === 'phantom' ? 0.4 : 1); }   // the phantom shot is hard to pick up
+    // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
+    const st = ball.specialType || '', ghost = st.includes('phantom'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.55 + 0.4 * this.cfg.guard : this.cfg.guard) * (invis ? 0.45 : ghost ? 0.72 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
-    if (sp < 7 || ball.pos.y > 1.6) return false;
+    if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
     // time until the ball reaches my position along the goal's inward axis
     const toward = -(v.x * home.inward.x + v.z * home.inward.z);
     if (toward < 4) return false;
     const myDepth = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
     const ballDepth = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
     const t = (ballDepth - myDepth) / toward;
-    if (t <= 0 || t > (gk ? 0.62 : 0.45) + 0.1 * this.cfg.skill) return false;
-    const cx = ball.pos.x + v.x * t, cz = ball.pos.z + v.z * t;
+    if (t <= 0 || t > (gk ? 0.75 : 0.45) + 0.1 * this.cfg.skill) return false;
+    let cx = ball.pos.x + v.x * t, cz = ball.pos.z + v.z * t;
+    if (this._fooled) { const lx = cx - me.pos.x, lz = cz - me.pos.z, ix = home.inward.x, iz = home.inward.z, dot = lx * ix + lz * iz; cx = me.pos.x - (lx - ix * dot) + ix * dot; cz = me.pos.z - (lz - iz * dot) + iz * dot; }
     // only if it's heading for the goal mouth
     const along = home.axis === 'x' ? 'z' : 'x';
     const atLine = ball.pos[along] + v[along] * ((ballDepth) / toward);
     if (Math.abs(atLine) > FIELD.goalHalfW + 0.4) return false;
     const off = Math.hypot(cx - me.pos.x, cz - me.pos.z);
-    if (off < (gk ? 0.35 : 0.45) || off > (gk ? 3 : 2.4)) return false;
+    if (off < (gk ? 0.8 : 0.45) || off > (gk ? 3.6 : 2.4)) return false;   // straight at him: he stands and blocks
+    if (gk && t > 0.5) { it.move.set(cx - me.pos.x, cz - me.pos.z).normalize(); return true; }   // early: shuffle across first, dive late
     it.move.set(cx - me.pos.x, cz - me.pos.z).normalize();
     it.tackle = true; it.kick = it.lob = false;
     return true;
@@ -308,7 +312,7 @@ export class AIController {
     if (fresh && lt === me && me.passedTo && !me.passedTo.out) { this._support(me.passedTo); return; }
     // 2v2: my team-mate has it: get into space to receive (unless the ball is by my own goal)
     if (mateHas && toHome > 6) { this._support(holder); return; }
-    if (!this.cfg.noTackle && !mateHas && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
+    if (!this.cfg.noTackle && (this.cfg.tackle ?? 1) > 0 && !mateHas && !(this.assist && humanHas) && holder && holder !== me && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
       // is the carrier shielding it? the better defenders step round to the ball's side first
       const bx = bp.x - holder.pos.x, bz = bp.z - holder.pos.z, mx = me.pos.x - holder.pos.x, mz = me.pos.z - holder.pos.z;
       const shielded = (bx * mx + bz * mz) / ((Math.hypot(bx, bz) * Math.hypot(mx, mz)) || 1) < -0.2;
@@ -318,7 +322,7 @@ export class AIController {
         this._goTo(q.x, q.z, 0.3, 1.5); return;
       }
       const poke = myDist < 1.6;
-      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.2 * this.cfg.skill)) {
+      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.12 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // a slide that misses is costly now
         const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
         plan.move.set(tx, tz).normalize();
         plan.tackle = true;
@@ -607,7 +611,7 @@ export class AIController {
   _chase5(holder, myDist) {
     const me = this.me, g = this.game, ball = g.ball, bp = ball.pos, plan = this.plan;
     const humanHas = holder && this._isHuman(holder);
-    if (!this.cfg.noTackle && !(this.assist && humanHas) && holder && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
+    if (!this.cfg.noTackle && (this.cfg.tackle ?? 1) > 0 && !(this.assist && humanHas) && holder && me.slideCD <= 0 && myDist < 2.4 && myDist > 0.5) {
       const bx = bp.x - holder.pos.x, bz = bp.z - holder.pos.z, mx = me.pos.x - holder.pos.x, mz = me.pos.z - holder.pos.z;
       const shielded = (bx * mx + bz * mz) / ((Math.hypot(bx, bz) * Math.hypot(mx, mz)) || 1) < -0.2;
       if (shielded && this.cfg.skill > 0.6 && Math.random() < this.cfg.skill * 0.8) {
@@ -616,7 +620,7 @@ export class AIController {
         this._goTo(q.x, q.z, 0.3, 1.5); return;
       }
       const poke = myDist < 1.6;
-      if (Math.random() < (poke ? 0.22 * this.cfg.skill + 0.06 : 0.05 * this.cfg.skill)) {   // 5v5: patient, fewer lunges
+      if (Math.random() < (poke ? 0.22 * this.cfg.skill + 0.08 : 0.04 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // 5v5: patient, fewer lunges
         plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize();
         plan.tackle = true;
         return;

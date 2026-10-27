@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
@@ -154,6 +154,7 @@ export class Ball {
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
     this.lastTouch = null; this.goalTeam = -1;
     this.special = null; this.specialType = null;
+    this.chain = null; this.passEls = null; this.passBy = null; this.hidden = false;
     this.heldBy = null;
     this.sq.amp = 0;
     this.trail.reset(this.pos);
@@ -166,7 +167,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0; this.loftKind = null;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -178,16 +179,22 @@ export class Ball {
   }
   release() { this.heldBy = null; }
 
-  /** a character's special shot is in flight: see _special and _bodies */
-  startSpecial(type, owner, dir, power = 1) {
-    const l = Math.hypot(dir.x, dir.z) || 1;
-    this.special = { type, owner, power, t: 0, hit: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1 };
-    this.specialType = type;
-    this.spin.set(0, 0, 0);
+  /**
+   * A special shot is in flight (see _special and _bodies). els: one element per player in the move
+   * (a solo shot has one). goal: where the shooter was aiming in the goal (for the teleport).
+   */
+  startSpecial(els, owner, dir, power = 1, goal = null) {
+    if (typeof els === 'string') els = [els];
+    const l = Math.hypot(dir.x, dir.z) || 1, c = comboOf(els);
+    this.special = { els, ids: c.ids, combo: c, type: c.ids.length === 1 ? c.ids[0] : c.key, has: (id) => c.ids.includes(id), owner, power, t: 0, hit: new Set(), aura: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1, goal };
+    this.specialType = c.key + (c.n > c.ids.length ? '!' : '');      // '!' = more players than elements (stronger look)
+    this.spin.set(0, 0, 0); this.hidden = false;
+    this.passEls = null;
+    return c;
   }
   endSpecial() {
     if (this.special) this.events.push({ type: 'specialEnd', kind: this.special.type });
-    this.special = null; this.specialType = null;
+    this.special = null; this.specialType = null; this.hidden = false;
   }
 
   /** visual squash along an impact direction (any vector), amount ~0..0.25 */
@@ -203,6 +210,7 @@ export class Ball {
     this._hit.clear();
     this.noCatchT = Math.max(0, (this.noCatchT || 0) - dt);
     this.guardT = Math.max(0, (this.guardT || 0) - dt);   // a pass just played: clear of the marker's legs for a moment
+    this.dribbleGuard = Math.max(0, (this.dribbleGuard || 0) - dt);   // under close control: opponents must tackle for it
     if (this.heldBy) {
       const k = this.heldBy;
       if (k.out || !k.holding) this.heldBy = null;
@@ -223,7 +231,7 @@ export class Ball {
     const sp = this.special;
     if (sp) this._special(h);
     if (!grounded) {
-      v.y -= BALL.gravity * h * (sp ? (sp.type === 'thunder' ? 0.25 : sp.type === 'cannon' ? 0.5 : sp.type === 'gale' ? 0.7 : 0.8) : 1);
+      v.y -= BALL.gravity * h * (sp ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1);
       const s = v.length();
       if (s > 0) v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * h));
       v.x += BALL.magnus * (w.y * v.z - w.z * v.y) * h;
@@ -273,19 +281,49 @@ export class Ball {
 
   // special shot in flight: its own little bit of physics, and it fizzles out once it has slowed
   _special(h) {
-    const sp = this.special, v = this.vel;
+    const sp = this.special, v = this.vel, c = sp.combo, p = this.pos;
     sp.t += h;
-    if (sp.type === 'gale') {
+    if (sp.has('gale')) {
       // S-bend: a sideways push that swings one way, then the other
-      const f = 46 * Math.cos(sp.t * 6.8 + 0.3) * sp.sgn;
+      const f = (c.level > 1 ? 40 : 34) * Math.cos(sp.t * 6.8 + 0.3) * sp.sgn;
       v.x += -sp.dz * f * h; v.z += sp.dx * f * h;
     }
-    if (sp.type === 'thunder' && sp.t < 1.2) {
+    if (c.zig) {
+      // lightning zigzag: hard sideways jinks, back and forth
+      const f = 70 * Math.sign(Math.sin(sp.t * 26 + 0.5)) * sp.sgn;
+      v.x += -sp.dz * f * h; v.z += sp.dx * f * h;
+    }
+    if (sp.has('thunder') && sp.t < 1.2) {
       // keeps its pace: lightning doesn't slow down
       const s = Math.hypot(v.x, v.z), want = sp.v0 || (sp.v0 = s);
       if (s > 1 && s < want) { v.x *= want / s; v.z *= want / s; }
     }
-    if (sp.t > 2.2 || this.speed < 7 || this.goalTeam >= 0 || this.pos.y > 4.5) this.endSpecial();
+    // 雷+影: the ball vanishes in a flash and reappears inside the net
+    if (c.gk === 'teleport' && sp.goal && !sp.ported) {
+      const gd = Math.hypot(sp.goal.x - p.x, sp.goal.z - p.z);
+      if (!sp.vanishT && (sp.t > 0.1 || gd < 5)) { sp.vanishT = sp.t; this.hidden = true; this.events.push({ type: 'teleport', from: [p.x, p.y, p.z] }); }
+      if (sp.vanishT && sp.t - sp.vanishT > 0.22) {
+        sp.ported = true; this.hidden = false;
+        const g = sp.goal, A = Math.abs(g.x) > Math.abs(g.z) ? 'x' : 'z', B = A === 'x' ? 'z' : 'x', sg = Math.sign(g[A]) || 1;
+        p[A] = sg * (halfOf(A) + 0.55); p[B] = Math.max(-FIELD.goalHalfW + 0.45, Math.min(FIELD.goalHalfW - 0.45, g[B])); p.y = Math.min(FIELD.goalH - 0.5, 0.8);
+        v.set(0, 0, 0); v[A] = sg * 14; v.y = 1;
+        this.events.push({ type: 'teleport', to: [p.x, p.y, p.z] });
+      }
+      if (sp.vanishT && !sp.ported) return;                // in between: nowhere
+    }
+    // the aura: anyone it flies close past feels it
+    if (c.aura && this.pos.y < 2.6) {
+      const r = c.aura === 'quake' ? 2.2 : c.aura === 'freeze' ? 1.9 : 1.6;
+      for (const col of this.colliders) {
+        const who = col.owner;
+        if (who === sp.owner || sp.aura.has(who) || sp.hit.has(who) || !sp.owner._isOpp(who)) continue;
+        if (Math.hypot(who.pos.x - p.x, who.pos.z - p.z) > r) continue;
+        sp.aura.add(who);
+        const kind = c.aura === 'freeze' ? 'frost' : c.aura === 'jolt' ? 'thunder' : c.aura === 'quake' ? 'cannon' : 'blaze';
+        this.events.push({ type: 'zap', who, kind, els: [kind], n: [sp.dx, 0, sp.dz], mild: true, keeper: false });
+      }
+    }
+    if (sp.t > (c.level > 1 ? 2.6 : 2.2) || this.speed < 7 || this.goalTeam >= 0 || this.pos.y > 4.5) this.endSpecial();
   }
 
   // the ball meets heads, chests, thighs, shins and boots as real spheres
@@ -296,7 +334,10 @@ export class Ball {
     const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
       if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
+      if (this.hidden) continue;                                         // vanished (mid-teleport)
+      if (this.special && c.owner !== this.special.owner && !this.special.owner._isOpp(c.owner)) continue;   // a shot flies past the shooter's own team
       if (this.guardT > 0 && this.guardBy && c.owner.gi !== this.guardBy.gi && !c.owner.slide && !c.owner.poke) continue;
+      if (this.dribbleGuard > 0 && this.dribbleBy && c.owner !== this.dribbleBy && this.dribbleBy._isOpp(c.owner) && !c.owner.slide && !c.owner.poke && !c.owner.isKeeper) continue;
       A.copy(c.prev).lerp(c.pos, u);
       let s = 0;
       if (c.b) {
@@ -312,15 +353,31 @@ export class Ball {
       const nx = dx / d, ny = dy / d, nz = dz / d;
       const spc = this.special;
       if (spc && c.owner !== spc.owner) {
-        const who = c.owner;
-        // a goalkeeper in their own box gets a body in the way (except of the cannon), but still feels it
+        const who = c.owner, cb = spc.combo, n = [spc.dx, 0, spc.dz];
         const keeper = inOwnBox(who.gi, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
-        const pierce = spc.type === 'thunder' || spc.type === 'blaze' || spc.type === 'frost' || spc.type === 'cannon';
-        if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, n: [spc.dx, 0, spc.dz] }); }
-        if (pierce && !(keeper && !(spc.type === 'cannon' && spc.power >= 0.8))) continue;   // straight through them (a full-power cannon even through the keeper)
-        if (pierce) { v.multiplyScalar(0.55); }                         // the keeper takes the sting out of it
-        this.noCatchT = 0.3;                                            // a special shot is never held: it's beaten away
-        this.endSpecial();
+        if (!keeper) {
+          // out-field players: a combo goes through anyone; a solo shot through people with lightning, fire, ice or earth
+          const pierce = cb.level > 1 || spc.has('thunder') || spc.has('blaze') || spc.has('frost') || spc.has('cannon');
+          if (pierce && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: spc.type, els: spc.ids, n, level: cb.level }); }
+          if (pierce) continue;
+          this.endSpecial();
+        } else if (cb.level === 1) {
+          // a solo shot and the keeper: he gets a body (or the gloves) to it. Only ice still gets him
+          if (spc.has('frost') && !spc.hit.has(who)) { spc.hit.add(who); this.events.push({ type: 'zap', who, kind: 'frost', els: ['frost'], n, keeper: true }); }
+          this.endSpecial();
+        } else {
+          // a combo: what it does to the keeper depends on the elements in it
+          const through = cb.gk === 'through' || cb.gk === 'blast' || cb.gk === 'teleport' || (cb.pierceGk && Math.random() < cb.pierceGk);
+          if (!spc.hit.has(who)) {
+            spc.hit.add(who);
+            const els = cb.gk === 'freeze' && !spc.has('frost') ? [...spc.ids, 'frost'] : spc.ids;
+            this.events.push({ type: 'zap', who, kind: spc.type, els, n, keeper: true, force: through || cb.gk === 'freeze', level: cb.level, blast: cb.gk === 'blast' });
+          }
+          if (through) continue;                                          // straight through him
+          v.multiplyScalar(0.62);
+          this.noCatchT = 0.35;                                           // too hot to hold: it's beaten away
+          this.endSpecial();
+        }
       } else if (spc && c.owner === spc.owner) continue;
       p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
       const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
@@ -633,6 +690,9 @@ export class Ball {
     this.blob.position.set(this.pos.x, 0.012, this.pos.z);
     this.blob.scale.set(s, s, 1);
     this.blob.material.opacity = Math.max(0.15, 1 - hgt * 0.22);
+    // vanished mid-teleport, or an invisible combo shot: no marker giving it away
+    const inv = this.hidden || /phantom\+(blaze|frost|cannon)|(blaze|frost|cannon)\+phantom/.test(this.specialType || '');
+    this.marker.visible = this.blob.visible = !inv; if (inv) this.stem.visible = false;
   }
 
   /** Predict where the ball will be after t seconds (ignores walls, good enough for AI). */

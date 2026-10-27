@@ -305,6 +305,12 @@ export class Sfx {
     if (!this.ok) return;
     const t = this.now;
     [523, 659, 784, 1046].slice(0, 2 + Math.min(2, level)).forEach((f, i) => this._tone(t + i * 0.06, { f0: f, type: 'triangle', peak: 0.07, d: 0.3 }));
+    if (level >= 3) {
+      // a 合击: the whole chord rings out together, with a bright shimmer on top
+      const t2 = t + 0.26;
+      for (const f of [523, 659, 784, 1046, 1318]) this._tone(t2, { f0: f, type: 'triangle', peak: 0.05, d: 0.7 });
+      this._tone(t2, { f0: 2093, f1: 3136, type: 'sine', peak: 0.03, d: 0.5 });
+    }
   }
 
   // ---------------------------------------------------------------- 方块乐园 devices --

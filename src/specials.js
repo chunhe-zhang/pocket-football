@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CHAR, BALL } from './config.js';
+import { CHAR, BALL, COMBOS } from './config.js';
 
 // Looks of the characters' special shots: the glowing ball, its element trail and particles,
 // a crackling bolt behind the lightning shot, ice blocks round frozen players, and a pulsing
@@ -51,33 +51,55 @@ export class SpecialFx {
 
   update(dt, game) {
     this.t += dt;
-    const ball = game.ball, type = ball.specialType, def = type ? CHAR[type] : null;
-    // ---- the ball ----
-    const on = !!def;
+    const ball = game.ball, type = ball.specialType;
+    // a special shot: one element, or a combo ('a+b', a trailing '!' when more players than elements)
+    const ids = type ? type.replace('!', '').split('+').filter((id) => CHAR[id]) : [];
+    const strong = !!type && type.endsWith('!'), combo = ids.length > 1 || strong;
+    const on = ids.length > 0;
+    // which colour right now: a combo cycles through its elements
+    const def = on ? CHAR[ids[Math.floor(this.t * 9) % ids.length]] : null;
+    const pair = on && ids.length === 2 ? COMBOS[ids.join('+')] : null;
+    const has = (id) => ids.includes(id);
+    // a pass carrying elements: a lighter tint and a few sparks
+    const pe = !on && ball.passEls ? ball.passEls.split('+').filter((id) => CHAR[id]) : [];
     this.aura.visible = this.core.visible = on;
-    ball.trail.tint = on ? this._c.set(def.color) : null;
-    ball.trail.wide = on ? (type === 'cannon' ? 3 : 2.2) : 1;
-    let ballVisible = true;
+    if (on) ball.trail.tint = this._c.set(def.color);
+    else if (pe.length) ball.trail.tint = this._c.set(CHAR[pe[Math.floor(this.t * 6) % pe.length]].color);
+    else ball.trail.tint = null;
+    ball.trail.wide = on ? (has('cannon') || combo ? 3 : 2.2) * (ids.length >= 3 ? 1.3 : 1) : pe.length ? 1.4 : 1;
+    let ballVisible = !ball.hidden;
+    const big = on && (has('cannon') || (pair && pair.big) || ids.length >= 3);
     if (on) {
       const p = ball.pos;
       const pulse = 1 + 0.18 * Math.sin(this.t * 40);
       this.aura.position.copy(p); this.core.position.copy(p);
       this.aura.material.color.set(def.color); this.core.material.color.set(def.color);
-      this.aura.scale.setScalar(pulse * (type === 'cannon' ? 1.5 : 1));
-      this.core.material.opacity = type === 'phantom' ? 0.25 : 0.5;
-      if (type === 'phantom') ballVisible = Math.sin(this.t * 26) > 0.55;     // flickers in and out
+      this.aura.scale.setScalar(pulse * (big ? 1.5 : 1) * (combo ? 1.35 : 1) * (ids.length >= 3 ? 1.3 : 1));
+      this.core.material.opacity = has('phantom') ? 0.25 : 0.5;
+      // the phantom flickers in and out; the invisible combos all but disappear
+      if (pair && pair.invis) ballVisible = ballVisible && Math.sin(this.t * 31) > 0.82;
+      else if (has('phantom')) ballVisible = ballVisible && Math.sin(this.t * 26) > 0.55;
       this.aura.visible = this.core.visible = ballVisible;
-      // particles streaming off it
-      const kind = PARTS[type], v = ball.vel, sp = Math.hypot(v.x, v.z) || 1;
-      const n = type === 'phantom' ? 2 : type === 'cannon' ? 6 : 5;
-      if (ballVisible || type !== 'phantom') this.particles.burst(p, { x: -v.x / sp, z: -v.z / sp }, n, 2.6, kind, type === 'cannon' ? 0.3 : 0.2);
-      if (type === 'gale' && Math.random() < 0.5) this.particles.burst(p, { x: v.z / sp, z: -v.x / sp }, 2, 3, 'wind', 0.08);
+      // particles streaming off it: every element of the move
+      const v = ball.vel, sp = Math.hypot(v.x, v.z) || 1;
+      if (!ball.hidden) for (const id of ids) {
+        const n = (id === 'phantom' ? 2 : id === 'cannon' ? 6 : 5) * (combo ? 1 : 1) / (ids.length > 2 ? 1.5 : 1);
+        this.particles.burst(p, { x: -v.x / sp, z: -v.z / sp }, Math.max(1, Math.round(n)), combo ? 3.4 : 2.6, PARTS[id], id === 'cannon' ? 0.3 : 0.2);
+      }
+      if (has('gale') && Math.random() < 0.5) this.particles.burst(p, { x: v.z / sp, z: -v.x / sp }, 2, 3, 'wind', 0.08);
+      // a decoy ball: ghosts either side of the real one
+      if (pair && pair.decoy && Math.random() < 0.8) for (const s of [-1, 1]) this.particles.burst({ x: p.x + (v.z / sp) * 1.4 * s, y: p.y, z: p.z - (v.x / sp) * 1.4 * s }, { x: -v.x / sp, z: -v.z / sp }, 2, 1.5, 'ghost', 0.22);
+      // auras: the ground under it shakes / freezes / burns as it flies
+      if (pair && pair.aura && Math.random() < 0.6) this.particles.burst({ x: p.x, y: 0.15, z: p.z }, { x: 0, z: 0 }, 3, 3, pair.aura === 'freeze' ? 'ice' : pair.aura === 'quake' ? 'dust' : pair.aura === 'jolt' ? 'bolt' : 'fire', 0.25);
+    } else if (pe.length && Math.random() < 0.7) {
+      const v = ball.vel, sp = Math.hypot(v.x, v.z) || 1;
+      if (sp > 3) this.particles.burst(ball.pos, { x: -v.x / sp, z: -v.z / sp }, 1, 1.6, PARTS[pe[Math.floor(Math.random() * pe.length)]], 0.12);
     }
     ball.root.visible = ballVisible;
-    ball.root.scale.setScalar(on && type === 'cannon' ? 1.35 : 1);
+    ball.root.scale.setScalar(big ? (pair && pair.big || ids.length >= 3 ? 1.6 : 1.35) : 1);
     // ---- the lightning bolt ----
     this.hist.unshift(ball.pos.clone()); if (this.hist.length > 18) this.hist.length = 18;
-    const bolting = type === 'thunder';
+    const bolting = on && ids.includes('thunder') && ballVisible;
     this.bolt.visible = this.bolt2.visible = bolting;
     if (bolting) {
       for (const [line, j] of [[this.bolt, 0.22], [this.bolt2, 0.35]]) {

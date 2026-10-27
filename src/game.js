@@ -14,6 +14,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const CAM_MODES = ['broadcast', 'high'];
 const SFX_EVENTS = new Set(['kick', 'pass', 'touch', 'head', 'body', 'slide', 'bump', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd', 'element', 'combo', 'device', 'shatter']);
+const PART_OF = { thunder: 'bolt', blaze: 'fire', frost: 'ice', gale: 'wind', phantom: 'ghost', cannon: 'smoke' };
 const SNAP_INTERVAL = 0.05; // host sends 20 snapshots a second
 const INTERP_DELAY = 0.12;  // guests render this far behind the newest snapshot
 
@@ -538,13 +539,38 @@ export class Game {
   /** an impact flash at a player (cannon hits) */
   onImpact(ath, color) { this.powerFx.start({ pos: ath.pos.clone() }, 'hit', { color }); this.emit({ e: 'hit', p: [ath.pos.x, ath.pos.z], c: color }); }
 
-  /** a character's special shot leaves the boot */
-  onSpecial(ath, def) {
+  /** an element shot leaves the boot (c: comboOf(the move's elements) — or a character for old callers) */
+  onSpecial(ath, c) {
+    const ids = c.ids || [c.id], lv = c.level || 1;
     ath.stats.specials = (ath.stats.specials || 0) + 1;
-    this.hitstop = 0.05; this.shake = Math.max(this.shake, 0.15); this.emit({ e: 'shake', v: 0.15 });
-    this.sfx.kick(1); this.sfx.element(def.id, 'shot'); this.sfx.crowd(0.2, 0.6); this.sfx.ooh();
-    this.fx(def.id === 'blaze' ? 'fire' : def.id === 'frost' ? 'ice' : def.id === 'thunder' ? 'bolt' : def.id === 'gale' ? 'wind' : def.id === 'phantom' ? 'ghost' : 'smoke', this.ball.pos, { x: 0, z: 0 }, 30, 5);
+    if (lv > 1) ath.stats.combos = (ath.stats.combos || 0) + 1;
+    this.hitstop = Math.max(this.hitstop, 0.05); this.shake = Math.max(this.shake, lv > 1 ? 0.25 : 0.15); this.emit({ e: 'shake', v: 0.15 });
+    this.sfx.kick(1); ids.forEach((id, k) => setTimeout(() => this.sfx.element(id, 'shot', k ? 0.75 : 1), k * 70));
+    if (lv > 1) this.sfx.combo?.(lv >= 3 ? 3 : 2);
+    this.sfx.crowd(lv > 1 ? 0.35 : 0.2, 0.6); this.sfx.ooh();
+    for (const id of ids) this.fx(PART_OF[id], this.ball.pos, { x: 0, z: 0 }, Math.round(30 / Math.sqrt(ids.length)) + (lv > 1 ? 10 : 0), lv > 1 ? 7 : 5);
+    if (lv > 1) this.onImpact({ pos: this.ball.pos }, CHAR[ids[0]].color);
     this.rumble(ath, 1, 220);
+  }
+
+  /**
+   * A pass carries the move's elements: an opponent who cuts it out feels them (a mild version) and
+   * the ball spills off him; a team-mate just takes it.
+   */
+  _elemPassTick() {
+    const b = this.ball; if (!b.passEls) return;
+    const by = b.passBy, lt = b.lastTouch;
+    if (!by || by.out || this.time - b.passAt > 2.5 || b.special || b.heldBy || this.state !== 'play') { b.passEls = null; return; }
+    if (lt === by) { if (this.time - by.lastTouchTime > 0.05 && b.speed < 2) b.passEls = null; return; }
+    if (lt && by._isOpp(lt)) {
+      const els = b.passEls.split('+'), dir = new THREE.Vector3(lt.pos.x - by.pos.x, 0, lt.pos.z - by.pos.z).normalize();
+      lt.elemHit(els, dir, { mild: true });
+      lt.touchCD = Math.max(lt.touchCD, 0.4); lt.dribbling = false;
+      for (const k of els) this.fx(PART_OF[k], { x: lt.pos.x, y: 0.9, z: lt.pos.z }, { x: dir.x, z: dir.z }, 12, 3);
+      this.sfx.element(els[0], 'hit', 0.5);
+      this.emit({ e: 'zap', i: lt.team, k: els.includes('frost') ? 'frost' : els[0], d: [dir.x, dir.z] });
+    }
+    b.passEls = null;
   }
 
 
@@ -631,8 +657,11 @@ export class Game {
       const order = [...live].sort((p, q) => this._distBall(q) - this._distBall(p));
       for (const a of order) a.handleBall(dt);
       this.ball.colliders = live.flatMap((a) => (a.colliders || []).filter((c) => c.active));
+      const p0 = this._bp0 || (this._bp0 = new THREE.Vector3()); p0.copy(this.ball.pos);
       const events = this.ball.update(dt);
       for (const e of events) this._ballEvent(e);
+      if (this.m5) for (const a of live) if (a.isKeeper) a.saveCheck(p0);
+      this._elemPassTick();
     } else this.ball.sync(dt);
 
     this._updatePossession(dt);
@@ -701,13 +730,22 @@ export class Game {
       }
       case 'goal': if (this.state === 'play') this.goal(e.team); break;
       case 'zap': {
-        const a = e.who, dir = new THREE.Vector3(e.n[0], 0, e.n[2]);
-        a.zap(e.kind, dir);
-        const kind = e.kind === 'blaze' ? 'fire' : e.kind === 'frost' ? 'ice' : e.kind === 'thunder' ? 'bolt' : 'smoke';
-        this.fx(kind, { x: a.pos.x, y: 1.0, z: a.pos.z }, { x: dir.x, z: dir.z }, 22, 4);
-        this.sfx.body(14); this.sfx.element(e.kind, 'hit', 0.8);
-        this.shake = Math.max(this.shake, 0.15);
-        this.emit({ e: 'zap', i: a.team, k: e.kind, d: [dir.x, dir.z] });
+        const a = e.who, dir = new THREE.Vector3(e.n[0], 0, e.n[2]), els = e.els || [e.kind];
+        a.elemHit(els, dir, e);
+        for (const k of els) this.fx(PART_OF[k] || 'spark', { x: a.pos.x, y: 1.0, z: a.pos.z }, { x: dir.x, z: dir.z }, e.mild ? 10 : Math.round(22 / Math.sqrt(els.length)) + 4, 4);
+        this.sfx.body(e.mild ? 8 : 14); for (const k of els.slice(0, 3)) this.sfx.element(k, 'hit', e.mild ? 0.45 : 0.8);
+        if (e.blast) { this.onImpact(a, 0xff7a2a); this.shake = Math.max(this.shake, 0.35); }
+        this.shake = Math.max(this.shake, e.mild ? 0.06 : 0.15);
+        this.emit({ e: 'zap', i: a.team, k: els.includes('frost') ? 'frost' : els[0], d: [dir.x, dir.z] });
+        break;
+      }
+      case 'teleport': {
+        // 雷+影: a flash where the ball vanishes, another where it lands in the net
+        const p = e.from || e.to;
+        this.powerFx.start({ pos: new THREE.Vector3(p[0], 0, p[2]) }, 'hit', { color: 0xb58cff });
+        this.fx('ghost', { x: p[0], y: p[1], z: p[2] }, { x: 0, z: 0 }, 24, 4); this.fx('bolt', { x: p[0], y: p[1], z: p[2] }, { x: 0, z: 0 }, 16, 4);
+        this.emit({ e: 'hit', p: [p[0], p[2]], c: 0xb58cff });
+        this.sfx.element('phantom', 'shot', 0.8); this.sfx.element('thunder', 'hit', 0.7);
         break;
       }
       case 'squash': this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.a); break;
@@ -887,7 +925,7 @@ export class Game {
     const snap = {
       k: 's', t: r(this.time, 1000), st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
       c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label), sh: [...this.ball.shields],
-      bs: this.ball.specialType || 0, gold: this.golden ? 1 : 0, cur: this.m5 ? this._curSnap() : 0,
+      bs: this.ball.specialType || 0, pe: this.ball.passEls || 0, bh: this.ball.hidden ? 1 : 0, gold: this.golden ? 1 : 0, cur: this.m5 ? this._curSnap() : 0,
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
       a: this.athletes.map((a) => [
         r(a.pos.x, 1000), r(a.pos.z, 1000), r(a.vel.x), r(a.vel.z), r(a.facing, 1000),
@@ -981,7 +1019,7 @@ export class Game {
       if (changed) this.ui.onScore(this);
     }
     if (s1.lb) s1.lb.forEach((n, i) => { if (this.athletes[i]) this.athletes[i].label = n; });
-    this.ball.specialType = s1.bs || null; this.golden = !!s1.gold;
+    this.ball.specialType = s1.bs || null; this.ball.passEls = s1.pe || null; this.ball.hidden = !!s1.bh; this.golden = !!s1.gold;
     if (s1.cur) {
       const key = JSON.stringify(s1.cur);
       if (key !== this._curKey) {

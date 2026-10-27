@@ -74,6 +74,15 @@ function textures() {
     const gr = g.createRadialGradient(0, 0, s * 0.3, 0, 0, s / 2); gr.addColorStop(0, 'rgba(180,120,255,0)'); gr.addColorStop(0.85, 'rgba(200,150,255,0.9)'); gr.addColorStop(1, 'rgba(200,150,255,0)');
     g.fillStyle = gr; g.beginPath(); g.arc(0, 0, s / 2, 0, Math.PI * 2); g.fill();
   });
+  TEX.hitbox = tex(256, (g, s) => {
+    // a rounded slab on the grass: soft glowing fill, bright rim, chevrons pointing the way it slides
+    const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+    const gr = g.createLinearGradient(0, s, 0, 0); gr.addColorStop(0, 'rgba(255,255,255,0.08)'); gr.addColorStop(1, 'rgba(255,255,255,0.42)');
+    rr(10, 10, s - 20, s - 20, 70); g.fillStyle = gr; g.fill();
+    g.lineWidth = 12; g.strokeStyle = 'rgba(255,255,255,1)'; g.stroke();
+    g.lineWidth = 9; g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineCap = 'round';
+    for (const y of [70, 120, 170]) { g.beginPath(); g.moveTo(s * 0.3, y + 26); g.lineTo(s * 0.5, y); g.lineTo(s * 0.7, y + 26); g.stroke(); }
+  });
   TEX.streak = tex(128, (g, s) => {
     const gr = g.createLinearGradient(0, 0, s, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = gr; g.fillRect(0, s * 0.42, s, s * 0.16);
@@ -81,7 +90,8 @@ function textures() {
   return TEX;
 }
 
-const N = 160;
+const N = 200;
+const SLIDE_COL = { thunder: 0x5fe1ff, blaze: 0xff6a2b, frost: 0x9fe6ff, gale: 0x6dff9a, phantom: 0xb58cff, cannon: 0xffd23f };
 
 export class PowerFx {
   constructor(scene) {
@@ -131,6 +141,8 @@ export class PowerFx {
       beam.visible = false; beam.renderOrder = 5; scene.add(beam);
       this.portals.push({ m, beam, life: 0 });
     }
+    // slide tackles: the area the slide covers, drawn on the grass in the element's colour
+    this.boxes = []; for (let i = 0; i < 6; i++) { const m = flat(T.hitbox, 0xffffff); m.material.blending = THREE.AdditiveBlending; this.boxes.push(m); }
     this.bolts = []; for (let i = 0; i < 8; i++) {
       const n = 12, g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
@@ -400,8 +412,29 @@ export class PowerFx {
         if (!f.go) { f.go = true; this.shock(p.x, p.z, f.color || 0xffd23f, 3.5, 0.4); this.puff(T.glow, { x: p.x, y: 1, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.2, 3, f.color || 0xffd23f); for (let k = 0; k < 8; k++) { const a1 = Math.random() * 6.28; this.puff(T.streak, { x: p.x, y: 1, z: p.z }, { x: Math.cos(a1) * 6, y: (Math.random() - 0.3) * 4, z: Math.sin(a1) * 6 }, 0.25, 0.8, 1.2, 0xffffff); } }
         f.done = true;
       } else if (f.kind.startsWith('slide:')) {
-        // every character's slide tackle carries their element
-        const k = f.kind.slice(6), on = !!a.slide && t < 0.6;
+        // every character's slide tackle carries their element, and shows exactly what it covers
+        const k = f.kind.slice(6), on = t < (k === 'frost' ? 0.75 : k === 'thunder' ? 0.5 : 0.6) && (a.slide !== null || t < 0.1);
+        const col = SLIDE_COL[k] || 0xffffff, reach = a.slide?.reach || (k === 'cannon' ? 1.5 : 1.15);
+        if (!f.box) { f.box = this.boxes.find((m) => !m.userData.busy) || this.boxes[0]; f.box.userData.busy = true; this.shock(p.x, p.z, col, 2.2, 0.35); this.puff(T.glow, { x: p.x, y: 0.4, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.2, 2.6, col, 0, false, 0.6); }
+        const bx = f.box, fade = on ? Math.min(1, t * 10) : Math.max(0, 1 - (t - 0.6) * 6);
+        bx.visible = fade > 0.01;
+        if (bx.visible) {
+          const fx = Math.sin(a.facing), fz = Math.cos(a.facing), L = reach + 0.75, W = reach * 1.45;
+          bx.position.set(p.x + fx * (reach * 0.5 - 0.1), 0.05, p.z + fz * (reach * 0.5 - 0.1));
+          bx.rotation.set(-Math.PI / 2, 0, a.facing + Math.PI);
+          bx.scale.set(W, L, 1); bx.material.color.set(col); bx.material.opacity = fade * (0.75 + 0.25 * Math.sin(t * 40));
+          // the rim crackles with the element
+          if (on && Math.random() < 0.9) {
+            const u = Math.random() * 2 - 1, ex = p.x + fx * reach + -fz * u * W * 0.5, ez = p.z + fz * reach + fx * u * W * 0.5;
+            if (k === 'thunder') this.bolt({ x: p.x, y: 0.3, z: p.z }, { x: ex, y: 0.15, z: ez }, 0.07, 0.07, 0xdff9ff);
+            else if (k === 'blaze') this.puff(T.flame, { x: ex, y: 0.2, z: ez }, { x: fx * 2, y: 2.4, z: fz * 2 }, 0.45, 0.6, 0.2, 0xffffff, -1, true, 0.95);
+            else if (k === 'frost') this.puff(T.snow, { x: ex, y: 0.25, z: ez }, { x: fx, y: 1, z: fz }, 0.6, 0.45, 0.25, 0xe6f8ff, 0, true);
+            else if (k === 'gale') this.puff(T.wind, { x: ex, y: 0.35, z: ez }, { x: -fx * 4, y: 0.5, z: -fz * 4 }, 0.3, 0.5, 0.7, 0x9fffc0, 0, false, 0.8);
+            else if (k === 'phantom') this.puff(T.glow, { x: ex, y: 0.3, z: ez }, { x: 0, y: 1.4, z: 0 }, 0.4, 0.5, 0.1, 0xa070ff, 0, false, 0.85);
+            else this.puff(T.smoke, { x: ex, y: 0.15, z: ez }, { x: fx * 2, y: 0.8, z: fz * 2 }, 0.5, 0.5, 1.1, 0xffe8a0, -0.2, true, 0.6);
+          }
+        } else bx.userData.busy = false;
+        if (!on && !bx.visible) bx.userData.busy = false;
         if (on) {
           if (k === 'thunder') { if (f.last) this.bolt({ x: f.last.x, y: 0.3, z: f.last.z }, { x: p.x, y: 0.3, z: p.z }, 0.25, 0.12); f.last = { x: p.x, z: p.z }; this.puff(T.glow, { x: p.x, y: 0.4, z: p.z }, { x: 0, y: 0, z: 0 }, 0.2, 1.2, 0.4, 0x6fe0ff); }
           if (k === 'blaze') for (let q = 0; q < 2; q++) this.puff(T.flame, { x: p.x + (Math.random() - 0.5) * 0.4, y: 0.15, z: p.z + (Math.random() - 0.5) * 0.4 }, { x: 0, y: 1.6, z: 0 }, 0.7, 0.55, 0.15, 0xffffff, -1, true, 0.9);
@@ -411,7 +444,8 @@ export class PowerFx {
           if (k === 'cannon') { this.puff(T.smoke, { x: p.x, y: 0.2, z: p.z }, { x: 0, y: 0.6, z: 0 }, 0.6, 0.5, 1.3, 0xffffff, -0.2, true, 0.6); }
         }
         if (k === 'phantom' && !f.opened && f.from) { f.opened = true; this.portal(f.from.x, f.from.z, 0.45); this.portal(p.x, p.z, 0.5); }
-        f.done = t > 0.7;
+        f.done = t > 0.95;
+        if (f.done) f.box.userData.busy = false, f.box.visible = false;
       }
     }
     this.fx = this.fx.filter((f) => !f.done);

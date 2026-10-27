@@ -156,19 +156,54 @@ export const GOALS = TEAMS.map((_, i) => goalInfo(i));
 // Every 爆射 firmer than a side-footed pass (30% charge or more) is the special shot.
 export const CHARS = [
   { id: 'thunder', name: '雷', skill: '闪电射门', icon: '⚡', css: '#5fe1ff', color: 0x5fe1ff, hair: '#ffe14a',
-    desc: '贯穿人墙，碰到的人全身麻痹', move: 'Z 字闪电冲刺，从防守人身边折到他身后', speed: 1.38 },
+    desc: '贯穿人墙，碰到的人全身麻痹', move: 'Z 字闪电冲刺，从防守人身边折到他身后', speed: 1.26 },
   { id: 'blaze', name: '火', skill: '火焰射门', icon: '🔥', css: '#ff6a2b', color: 0xff6a2b, hair: '#ff4a2a',
-    desc: '火球穿过人群，烧到的人被掀翻', move: '怒吼爆炎，把身边的人全部震飞', speed: 1.28 },
+    desc: '火球穿过人群，烧到的人被掀翻', move: '怒吼爆炎，把身边的人全部震飞', speed: 1.18 },
   { id: 'frost', name: '冰', skill: '冰冻射门', icon: '❄️', css: '#9fe6ff', color: 0x9fe6ff, hair: '#d8f6ff',
-    desc: '穿人的寒冰球，碰到的人被冻住', move: '寒气爆发，把身边的人冻成冰雕', speed: 1.18 },
+    desc: '穿人的寒冰球，碰到的人被冻住', move: '寒气爆发，把身边的人冻成冰雕', speed: 1.12 },
   { id: 'gale', name: '风', skill: '旋风射门', icon: '🌪️', css: '#6dff9a', color: 0x6dff9a, hair: '#5fe08a',
-    desc: '走 S 形弯道，门将很难判断', move: '旋转腾空，带着球从人头上飞过去', speed: 1.2 },
+    desc: '走 S 形弯道，门将很难判断', move: '旋转腾空，带着球从人头上飞过去', speed: 1.14 },
   { id: 'phantom', name: '影', skill: '幻影射门', icon: '👻', css: '#b58cff', color: 0xb58cff, hair: '#9a6bff',
-    desc: '球忽隐忽现，门将来不及反应', move: '原地消失，瞬移到防守人身后', speed: 1.24 },
+    desc: '球忽隐忽现，门将来不及反应', move: '原地消失，瞬移到防守人身后', speed: 1.16 },
   { id: 'cannon', name: '土', skill: '重炮射门', icon: '🪨', css: '#ffd23f', color: 0xffd23f, hair: '#3b3546',
-    desc: '最快最重，撞谁谁倒，蓄满时连门将也挡不住', move: '低头往前猛冲，挡路的人被撞飞', speed: 1.5 },
+    desc: '最快最重，撞谁谁倒（门将站得住）', move: '低头往前猛冲，挡路的人被撞飞', speed: 1.3 },
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
+
+/**
+ * Combo shots: a move where several players hit the ball first time, one after another, ends in a
+ * shot carrying every one of their elements. Two elements make one of these named pairs (key: the
+ * two ids sorted); three or more players make a 合击 that nothing stops.
+ *   gk: what it does to the goalkeeper: 'teleport' (vanishes and reappears in the net),
+ *       'blast' / 'through' (straight through him), 'freeze' (frozen, the ball spills), 'parry'
+ *       (too hot to hold: beaten away). aura: what it does to anyone it flies past.
+ */
+export const COMBOS = {
+  'phantom+thunder': { name: '瞬影雷闪', gk: 'teleport' },
+  'blaze+cannon':    { name: '熔岩爆破', gk: 'blast', big: true },
+  'frost+gale':      { name: '暴风雪', gk: 'freeze', aura: 'freeze' },
+  'gale+phantom':    { name: '幻风分身', gk: 'parry', decoy: true },
+  'blaze+thunder':   { name: '雷火流星', gk: 'parry', fast: 1.22, pierceGk: 0.5 },
+  'frost+thunder':   { name: '冰雷折线', gk: 'freeze', zig: true },
+  'gale+thunder':    { name: '雷暴旋风', gk: 'parry', zig: true, aura: 'jolt' },
+  'cannon+thunder':  { name: '雷霆地震', gk: 'through', aura: 'quake' },
+  'blaze+frost':     { name: '冰火蒸汽', gk: 'freeze', aura: 'knock' },
+  'blaze+gale':      { name: '火龙卷', gk: 'parry', aura: 'knock', pierceGk: 0.35 },
+  'blaze+phantom':   { name: '隐形火焰', gk: 'through', invis: true },
+  'frost+phantom':   { name: '隐形寒冰', gk: 'freeze', invis: true },
+  'cannon+frost':    { name: '冰山撞击', gk: 'through', big: true },
+  'cannon+gale':     { name: '沙暴', gk: 'parry', aura: 'quake', pierceGk: 0.35 },
+  'cannon+phantom':  { name: '幽灵巨石', gk: 'through', invis: true, big: true },
+};
+const NUM = ['', '', '双', '三', '四', '五', '六'];
+/** what a strike carrying these elements (one per player in the move, repeats allowed) is */
+export function comboOf(els) {
+  const ids = [...new Set(els)].sort(), n = els.length;
+  if (n <= 1) return { ids, n, level: 1, key: ids.join('+'), name: '', gk: 'save' };
+  if (n >= 3) return { ids, n, level: 3, key: ids.join('+'), name: `${NUM[Math.min(6, n)]}人合击`, gk: 'through', aura: 'knock', big: true };
+  if (ids.length === 1) return { ids, n, level: 2, key: ids[0], name: `双${CHAR[ids[0]].name}合击`, gk: 'parry', pierceGk: 0.3 };
+  return { ids, n, level: 2, key: ids.join('+'), ...COMBOS[ids.join('+')] };
+}
 export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
 /** which goal (team index) a goal-line side belongs to */
 export function goalIndexFor(axis, sign) { return GOALS.findIndex((g) => g.axis === axis && g.sign === sign); }
