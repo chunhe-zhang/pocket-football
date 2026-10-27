@@ -330,7 +330,7 @@ export class Game {
     // the humans' players aren't CPUs: full skill and speed (the AI made them its level)
     for (const c of this.cursors) { const a = A[c.idx]; a.speedMul = 1; a.skill = 1; }
     // twelve players on one pitch: everyone a bit slower, so it's football rather than a scrum
-    for (const a of A) a.speedMul *= 0.78;
+    for (const a of A) a.speedMul *= 0.84;
     this.slots = A.map((a) => ({ kind: 'cpu', name: a.label }));
     this._applyCursors();
     this.endShown = false;

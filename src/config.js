@@ -109,8 +109,8 @@ export const MAPS = {
   // Kick it hard and see where it ends up.
   // classic five-a-side: a long rectangle, one goal at each end, boards round the sides (no throw-ins)
   pitch5: {
-    name: '六人制球场', hx: 20, hz: 12.5, cornerR: 2.4, goalHalfW: 2.5, goalH: 2.05, boxHalfW: 7, boxDepth: 6,
-    lives: 99, kickoff: 6, follow: false, goals: 2, lines: true,   // fixed camera: the whole pitch, no panning
+    name: '六人制球场', hx: 25, hz: 15.5, cornerR: 2.8, goalHalfW: 2.7, goalH: 2.1, boxHalfW: 8.5, boxDepth: 7,
+    lives: 99, kickoff: 7, follow: false, goals: 2, lines: true, noStands: true,   // fixed camera: the whole pitch, no panning
     islands: [], bumpers: [], pads: [], springs: [], portals: [], boosts: [], vortices: [], wheels: [] },
   track: {
     name: '方块乐园', hx: 10, hz: 10, cornerR: 0.02, goalHalfW: 10, goalH: 2.2, boxHalfW: 10, boxDepth: 2.4,
@@ -228,7 +228,7 @@ export function setMap(name) {
   FIELD.vortices = m.vortices.map((c) => ({ ...c }));
   FIELD.wheels = m.wheels.map((c) => ({ ...c }));
   FIELD.goalHalfW = m.goalHalfW; FIELD.goalH = m.goalH; FIELD.boxHalfW = m.boxHalfW; FIELD.boxDepth = m.boxDepth;
-  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields; FIELD.lines = !!m.lines;
+  FIELD.lives = m.lives; FIELD.kickoff = m.kickoff; FIELD.follow = m.follow; FIELD.square = !!m.square; FIELD.shields = !!m.shields; FIELD.lines = !!m.lines; FIELD.noStands = !!m.noStands;
   GOALS.length = 0; TEAMS.slice(0, m.goals || 4).forEach((_, i) => GOALS.push(goalInfo(i)));
   OBSTACLES.length = 0; for (const b of FIELD.bumpers) OBSTACLES.push({ x: b.x, z: b.z, r: b.r, h: 9, bumper: true, sq: !!b.sq });
   _nav = null;

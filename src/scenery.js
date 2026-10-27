@@ -45,9 +45,11 @@ export class Scenery {
     this.fans = [];
     // stands: the far side and both ends (the camera side stays open)
     const back = HZ + 3.2, side = HX + 3.4;
-    this._stand(0, -back, 2 * HX + 4, 0);                 // far side, facing +z
-    this._stand(-side - 0.6, 0, 2 * HZ - 1, Math.PI / 2);  // left end, facing +x
-    this._stand(side + 0.6, 0, 2 * HZ - 1, -Math.PI / 2);  // right end
+    if (!FIELD.noStands) {                                  // the big 6v6 pitch has no stands: just the park round it
+      this._stand(0, -back, 2 * HX + 4, 0);                 // far side, facing +z
+      this._stand(-side - 0.6, 0, 2 * HZ - 1, Math.PI / 2);  // left end, facing +x
+      this._stand(side + 0.6, 0, 2 * HZ - 1, -Math.PI / 2);  // right end
+    }
     this._buildCrowd();
     this._bunting(HX, HZ);
     this._balloons(HX);

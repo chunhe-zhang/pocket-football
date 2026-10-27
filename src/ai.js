@@ -534,6 +534,15 @@ export class AIController {
     const side = [me, ...mates].sort((a, b) => eta(a) - eta(b));
     const chaser = side[0], second = side[1];
     const ours = holder && holder.gi === me.gi;
+    // 一对一: an attacker running at goal through my box — come out, narrow the angle, go down at his feet
+    if (me.role === 'gk' && holder && holder.gi !== me.gi && inOwnBox(me.end, holder.pos.x, holder.pos.z)
+      && Math.hypot(holder.pos.x - home.centre.x, holder.pos.z - home.centre.z) < FIELD.boxDepth + 2.5 && !this.cfg.noTackle) {
+      const gx = home.centre.x - bp.x, gz = home.centre.z - bp.z, gl = Math.hypot(gx, gz) || 1;
+      const q = legal(bp.x + (gx / gl) * 0.7, bp.z + (gz / gl) * 0.7, 0.4);
+      this._goTo(q.x, q.z, 0.3, 1.5); plan.sprint = true;
+      if (myDist < 1.8 && me.slideCD <= 0 && Math.random() < 0.18 + 0.3 * this.cfg.skill) { plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize(); plan.tackle = true; }
+      return;
+    }
     if (me.role === 'gk' && chaser !== me) { this._gk5(); return; }
     // the other side has played a pass: only go for it if it's actually coming past me
     const theirPass = fresh && lt && lt.gi !== me.gi && lt.passedTo && !holder;
