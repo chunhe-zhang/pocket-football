@@ -50,11 +50,11 @@ export const PLAYER = {
   accel: 20,
   decel: 26,
   turnRate: 11,
-  chargeTime: 0.8,       // seconds to reach full power
+  chargeTime: 0.55,      // seconds to reach full power
   chargeAutoRelease: 0.35,
-  passChargeTime: 0.7,   // a pass fills its bar a little quicker
+  passChargeTime: 0.42,  // a pass fills its bar a lot quicker
   staminaDrain: 0.32,
-  staminaRegen: 0.2,
+  staminaRegen: 0.38,
   shotSpeed: [7.5, 27.5], // base + power^1.15 * k (m/s): a tap is a pass, full power a rocket
   chipSpeed: [8, 10],
 };

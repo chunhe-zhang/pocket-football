@@ -166,7 +166,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 

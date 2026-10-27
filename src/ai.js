@@ -431,8 +431,9 @@ export class AIController {
   _attackingHalf() { const me = this.me, t = me.goalTarget(); return Math.hypot(t.x - me.pos.x, t.z - me.pos.z) < Math.hypot(me.home.centre.x - me.pos.x, me.home.centre.z - me.pos.z); }
 
   /** 挑射 cross: a chip weighted to drop around a team-mate's head */
-  _crossTo(rcv) {
+  _crossTo(rcv, kind = null) {
     const me = this.me;
+    me.loftKind = kind;
     const tx = rcv.pos.x + rcv.vel.x * 0.9, tz = rcv.pos.z + rcv.vel.z * 0.9;
     const d = Math.hypot(tx - me.pos.x, tz - me.pos.z);
     // chip speed 8 + 10p at ~0.65 rad: range ≈ v²·sin(2e)/g, with a bit lost to drag
@@ -458,7 +459,7 @@ export class AIController {
     let power = a + Math.random() * (b - a);
     if (gd < 5) power *= 0.75;
     if (oneTouch) power = Math.max(power, 0.55);
-    this.shooting = { hold: 0.05 + power * 0.8, aim, lob, oneTouch };
+    this.shooting = { hold: 0.05 + power * PLAYER.chargeTime, aim, lob, oneTouch };
   }
 
   // ===================================================================== 5v5 ==
@@ -664,14 +665,17 @@ export class AIController {
         if (this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)) continue;
         const free = Math.min(4, Math.min(...opps.map((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z))));
         let sc = (m.pos.x - me.pos.x) * d * 0.45 + free * 0.8 - dm * 0.05;
-        if (this._isHuman(m)) sc += this.assist ? 6 : 1.5;
+        if (this._isHuman(m)) sc += this.assist ? 7 : 4;          // the human team-mate gets the ball a lot
         if ((m.giveGoT || 0) > g.time || Math.hypot(m.vel.x, m.vel.z) > 4 && m.vel.x * d > 2) sc += 1.2;   // a runner: play them in
         if (sc > bestS) { bestS = sc; best = m; }
       }
       const want = me.role === 'gk' ? -99 : pressure ? 0.1 : me.role.startsWith('def') ? 1.0 : me.role === 'mid' ? 1.3 : 1.8;
-      if (best && (bestS > want || (this.assist && this._isHuman(best)))) {
+      const humanFree = best && this._isHuman(best) && Math.min(...opps.map((o) => Math.hypot(o.pos.x - best.pos.x, o.pos.z - best.pos.z))) > 2;
+      if (best && (bestS > want || humanFree || (this.assist && this._isHuman(best)))) {
         const dm = Math.hypot(best.pos.x - me.pos.x, best.pos.z - me.pos.z);
         const bgd = Math.hypot(best.goalTarget().x - best.pos.x, best.goalTarget().z - best.pos.z);
+        // to the human in attack: half the time a ball to head, half the time one to volley
+        if (this._isHuman(best) && bgd < 22 && dm > 6 && Math.random() < 0.75) { this._crossTo(best, Math.random() < 0.5 ? 'head' : 'volley'); this.passCD = 1.2; if (this._attackingHalf()) me.giveGoT = g.time + 1.8; return; }
         if (bgd < 12 && dm > 7 && Math.random() < 0.4 + 0.35 * this.cfg.skill) this._crossTo(best);
         else this._kickTo(best, 0.1 + Math.random() * 0.3 + (dm > 12 ? 0.15 : 0));
         if (this._attackingHalf()) me.giveGoT = g.time + 1.8;

@@ -186,6 +186,7 @@ export class Athlete {
 
     // ---- charging / release: 射门 (kick), 平传 (pass) or 挑传/挑射 (chip); a ball in the air gets headed
     const wantShot = it.kick || it.lob || it.pass;
+    if (!wantShot) this._needRelease = false;
     const pressedKick = it.kick && !this._prevKick, pressedLob = it.lob && !this._prevLob, pressedPass = it.pass && !this._prevPass;
     this._prevKick = it.kick; this._prevLob = it.lob; this._prevPass = it.pass;
     if (this.header) this._headerMotionTick(dt);
@@ -195,7 +196,7 @@ export class Athlete {
     else if (!this.kick && !this.header) {
       if ((pressedKick || pressedLob || pressedPass) && !this.charging && g.state === 'play' && (this._headerChance() || (pressedLob && this._headerChance(true)))) {
         this._startHeader(pressedLob ? 'lob' : pressedPass ? 'pass' : 'shot');
-      } else if (wantShot && !this.charging && g.state !== 'menu' && !(this.noChargeT > 0)) {
+      } else if (wantShot && !this.charging && g.state !== 'menu' && !(this.noChargeT > 0) && !this._needRelease) {
         this.charging = true; this.charge = 0; this.chargeHold = 0; this.armed = null;
         this.chargeType = it.pass ? 'pass' : it.lob ? 'chip' : 'kick';
         this._steerAim(dt, true);
@@ -207,7 +208,15 @@ export class Athlete {
         this.charge = Math.min(1, this.charge + dt / (this.chargeType === 'pass' ? PLAYER.passChargeTime : PLAYER.chargeTime));
         if (this.charge >= 1) this.chargeHold += dt;
         this.char.face('angry', 0.15 + 0.35 * this.charge);
-        if (!held || this.chargeHold > PLAYER.chargeAutoRelease) { this.char.face('angry', 0); this._release(); }
+        // a team-mate's ball arriving while I'm still winding up: hit it first time, right now
+        const coming = held && this.charge > (this.chargeType === 'pass' ? 0.12 : 0.25) && this._incoming();
+        this._chargeComing = coming;
+        const hs = coming && g.ball.pos.y > 1.15 ? this._headerSpot(PLAYER.runSpeed * this.speedMul, this.chargeType === 'chip') : null;
+        const headBall = g.ball.loftKind === 'head';
+        if (hs && hs.t < 0.45 && hs.y > Athlete.MAXH[this.chargeType] + 0.1 && (headBall || !this._volleyLater(this.chargeType))) { this.char.face('angry', 0); this.charging = false; this.charge = 0; this._needRelease = true; this._startHeader(this.chargeType === 'chip' ? 'lob' : this.chargeType === 'pass' ? 'pass' : 'shot'); }
+        else if (coming && this._inStrikeReach(this.chargeType)) { this.char.face('angry', 0); this._needRelease = true; this._fromArmed = this._feederFor() || true; this._release(); this._fromArmed = false; }
+        else if (coming && this.chargeHold > PLAYER.chargeAutoRelease) { /* keep it cocked until the ball gets here */ }
+        else if (!held || this.chargeHold > PLAYER.chargeAutoRelease) { this.char.face('angry', 0); this._release(); }
         else this.char.windup = this.charge;
       }
     }
@@ -217,7 +226,7 @@ export class Athlete {
       am.t += dt;
       const bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
       if (this.frozen || this.slide || this.dive || this.stunT > 0 || this.kick || g.state !== 'play' || am.t > (am.max || 0.8) || bd > (am.far || 7) || b.goalTeam >= 0 || (b.lastTouch && b.lastTouch !== am.from && am.from !== undefined && b.lastTouch !== this)) this.armed = null;
-      else if (b.pos.y > 1.15 && (() => { const hs = this._headerSpot(PLAYER.runSpeed * this.speedMul, am.type === 'chip'); return hs && hs.t < 0.5 && hs.y > Athlete.MAXH[am.type] + 0.1 && !this._volleyLater(am.type); })()) {
+      else if (b.pos.y > 1.15 && (() => { const hs = this._headerSpot(PLAYER.runSpeed * this.speedMul, am.type === 'chip'); return hs && hs.t < 0.5 && hs.y > Athlete.MAXH[am.type] + 0.1 && (b.loftKind === 'head' || !this._volleyLater(am.type)); })()) {
         // it's coming in high: meet it with the head (or an overhead kick on the 挑 button)
         const type = am.type; this.armed = null; this._startHeader(type === 'chip' ? 'lob' : type === 'pass' ? 'pass' : 'shot');
       } else if (this._inStrikeReach(am.type)) {
@@ -244,7 +253,7 @@ export class Athlete {
       const mag = Math.min(1, it.move.length());
       let target = PLAYER.runSpeed;
       const wantsSprint = it.sprint && mag > 0.5 && !this.exhausted;
-      if (wantsSprint) target = PLAYER.sprintSpeed * (this.charId === 'thunder' ? 1.12 : this.charId === 'gale' ? 1.08 : 1);
+      if (wantsSprint) target = PLAYER.sprintSpeed * (this.charId === 'thunder' ? 1.08 : this.charId === 'gale' ? 1.08 : 1);
       if (mag < 0.7) target = PLAYER.walkSpeed + (PLAYER.runSpeed - PLAYER.walkSpeed) * Math.max(0, (mag - 0.25) / 0.45);
       if (this.charging) target *= 0.55;
       if (this.receive && this.receive.type !== 'trapFoot') target *= 0.6; // settle under a dropping ball
@@ -279,7 +288,7 @@ export class Athlete {
         const dl = desired.length();
         if (dl > 0.03) desired.multiplyScalar(Math.min(sp, dl * 7) / dl); else desired.set(0, 0, 0);
       }
-      if (this.armed && !this.frozen) {
+      if ((this.armed || (this.charging && this._chargeComing)) && !this.frozen) {
         // meet the ball: the earliest point on its path I can get behind in time
         const sp = (it.sprint && !this.exhausted ? PLAYER.sprintSpeed : PLAYER.runSpeed) * this.speedMul;
         const p = this._armedSpot(sp);
@@ -288,7 +297,9 @@ export class Athlete {
         if (dl > 0.02) desired.multiplyScalar(Math.min(sp, dl * 6) / dl); else desired.set(0, 0, 0);
       }
       const dv = this._w.copy(desired).sub(this.vel);
-      const a = (desired.lengthSq() > this.vel.lengthSq() ? PLAYER.accel : PLAYER.decel) * dt * (this.slipT > 0 ? 0.18 : 1);
+      // lightning's sprint is fast, so it gets sharper grip too: quick to turn, quick to stop
+      const grip = this.charId === 'thunder' && this.sprinting ? 1.8 : 1;
+      const a = (desired.lengthSq() > this.vel.lengthSq() ? PLAYER.accel : PLAYER.decel) * grip * dt * (this.slipT > 0 ? 0.18 : 1);
       if (dv.length() > a) dv.setLength(a);
       this.vel.add(dv);
 
@@ -857,9 +868,10 @@ export class Athlete {
     };
     switch (kind) {
       case 'thunder': {          // a Z-shaped lightning dash round the defender
-        P.dur = 0.42; const end = behind(4.5), r = new THREE.Vector3(-dir.z, 0, dir.x), a = this.pos;
+        // a tighter, shorter zigzag that goes where the stick points (it can be steered while it runs)
+        P.dur = 0.36; const end = behind(3.6), r = new THREE.Vector3(-dir.z, 0, dir.x), a = this.pos;
         const side = opp && ((opp.pos.x - a.x) * r.x + (opp.pos.z - a.z) * r.z) > 0 ? -1 : 1;
-        P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 1.3 * side), a.clone().lerp(end, 0.66).addScaledVector(r, -1.0 * side), end];
+        P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 0.85 * side), a.clone().lerp(end, 0.66).addScaledVector(r, -0.65 * side), end];
         for (const q of P.path) { clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); }   // never zig out of the pitch
         this.char.play('dash', { duration: P.dur + 0.1 }); break;
       }
@@ -953,7 +965,7 @@ export class Athlete {
     const b = this.game.ball;
     if (b.passThrough === this) b.passThrough = null;
     if (P.type === 'gale') this.facing = Math.atan2(P.dir.x, P.dir.z);
-    this.burstT = Math.max(this.burstT, 0.6);
+    this.burstT = Math.max(this.burstT, P.type === 'thunder' ? 0.3 : 0.6);   // lightning comes out of it under control
     // the ball carries on at my feet
     b.lastTouch = this; this.lastTouchTime = this.game.time; this.touchCD = 0.15;
   }
@@ -963,8 +975,16 @@ export class Athlete {
     const P = this.power, u = Math.min(1, P.t / P.dur);
     const dir = P.dir;
     if (P.type === 'thunder') {
-      // along the zigzag at lightning speed
+      // along the zigzag at lightning speed; the stick bends what's left of it (about 290°/s)
       const seg = Math.min(2, Math.floor(u * 3)), k = u * 3 - seg;
+      const m = this.intent.move;
+      if (m.lengthSq() > 0.09) {
+        const d = wrapAngle(Math.atan2(m.x, m.y) - Math.atan2(dir.x, dir.z)), step = clamp(d, -5 * dt, 5 * dt);
+        if (Math.abs(step) > 1e-4) {
+          for (let i = seg + 1; i < P.path.length; i++) { const q = P.path[i].sub(this.pos).applyAxisAngle(UP, step).add(this.pos); clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); }
+          dir.applyAxisAngle(UP, step);
+        }
+      }
       const a = P.path[seg], b = P.path[seg + 1];
       const nx = a.x + (b.x - a.x) * k, nz = a.z + (b.z - a.z) * k;
       this.vel.set((nx - this.pos.x) / Math.max(dt, 1e-3), 0, (nz - this.pos.z) / Math.max(dt, 1e-3));
@@ -1066,7 +1086,7 @@ export class Athlete {
     const b = this.game.ball, q = this._r;
     for (let t = 0; t <= 0.85; t += 0.033) {
       b.predict(t, q);
-      const lo = bike ? 1.2 : 0.5, hi = bike ? 2.45 : 2.85;
+      const lo = bike ? 1.2 : 0.5, hi = bike ? 2.45 : 2.3;   // a jumping header meets it at up to ~2.3 m
       if (q.y < lo || q.y > hi) continue;
       const low = !bike && q.y < 1.05;
       if (low && (b.speed < 3.5 || t > 0.6)) continue;            // only dive at a ball that's coming
@@ -1113,7 +1133,9 @@ export class Athlete {
       touching = Math.hypot(ball.pos.x - (this.pos.x + this.forward.x * 0.1), ball.pos.y - 2.0, ball.pos.z - (this.pos.z + this.forward.z * 0.1)) < 0.78;
     } else {
       const head = this.colliders?.find((c) => c.part === 'head');
-      touching = !!head && head.pos.distanceTo(ball.pos) < R + (h.kind === 'dive' ? 0.3 : h.kind === 'jump' ? 0.32 : 0.26);
+      // a team-mate's cross is meant for the head: a little more forgiving to meet
+      const fed = ball.loftKind === 'head' || (ball.lastTouch && ball.lastTouch !== this && g.sameSide(ball.lastTouch.team, this.team));
+      touching = !!head && head.pos.distanceTo(ball.pos) < R + (h.kind === 'dive' ? 0.3 : h.kind === 'jump' ? 0.32 : 0.26) + (fed ? 0.22 : 0);
     }
     if (touching) {
       h.hit = true; h.hitT = h.t;
@@ -1382,7 +1404,7 @@ export class Athlete {
   _armedSpot(speed) {
     const ball = this.game.ball, aim = this.armedAim(new THREE.Vector3());
     const right = new THREE.Vector3().crossVectors(aim, UP), q = new THREE.Vector3();
-    const maxY = Athlete.MAXH[this.armed?.type || 'kick'];
+    const maxY = Athlete.MAXH[this.armed?.type || this.chargeType || 'kick'];
     for (let t = 0; t <= 1.6; t += 0.05) {
       ball.predict(t, q);
       if (q.y > maxY) continue;                      // wait for it to drop to volley height
@@ -1402,7 +1424,7 @@ export class Athlete {
       const b = g.ball, bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
       const coming = this._incoming();
       if (g.state === 'play' && ((bd < 6 && b.pos.y < 2) || (coming && bd < 20 && b.pos.y < 4))) {
-        this.armed = { type, power, passTo: this.passTo || this.intendTo, t: 0, max: coming ? 2.4 : 0.8, far: coming ? 22 : 7, from: coming ? b.lastTouch : undefined };
+        this.armed = { type, power, passTo: this.passTo || this.intendTo, t: 0, max: coming ? 2.4 : 0.8, far: coming ? 22 : 7, from: coming ? this._feederFor() : undefined };
         this.char.windup = 0;
         return;
       }
@@ -1430,9 +1452,10 @@ export class Athlete {
       // 挑传: a lofted ball onto a team-mate (head or volley height); aimed at the goal instead it's a 挑射
       const goal = this._goalOn(aim);
       const rcv = this.passTarget || this._coneMate(aim, 0.8, 36);
-      const rcvBetter = rcv && (!goal || Math.hypot(goal.x - rcv.pos.x, goal.z - rcv.pos.z) < goal.d - 2);
-      if (rcv && rcvBetter) { loft = this._loftTo(rcv, power); aim = loft.aim; this.passTarget = rcv; }
+      const rcvBetter = rcv && (rcv === meant || !goal || Math.hypot(goal.x - rcv.pos.x, goal.z - rcv.pos.z) < goal.d - 2);
+      if (rcv && rcvBetter) { loft = this._loftTo(rcv, power, this.loftKind); aim = loft.aim; this.passTarget = rcv; }
       else if (goal) aim = this._assistAim(aim, 0.7);
+      this.loftKind = null;
     } else if (type === 'kick') {
       // shots are steered onto the target: aim anywhere near a goal and it's pulled inside the posts
       aim = this._assistAim(aim, 1);
@@ -1571,6 +1594,7 @@ export class Athlete {
     spin.y = lateral * 16 * p * (k.type === 'chip' ? 0.6 : 1) + slice * 9 * p;
     ball.strike(vel, spin, this);
     if ((k.type === 'pass' || k.loft) && this.passTarget) { ball.guardT = 0.32; ball.guardBy = this; }
+    ball.loftKind = k.loft ? k.loft.kind : null;
     if (special) { ball.startSpecial(special.id, this, dir, p); g.onSpecial?.(this, special); }
     this.ignoreBall = 0.15;
     g.squashBall(dir, k.type === 'pass' ? 0.06 + 0.08 * p : 0.1 + 0.16 * p);
@@ -1596,11 +1620,20 @@ export class Athlete {
   /** a word over my head for a moment (also sent to guests) */
   flair(text) { this.flairText = text; this.flairT = this.game.time; this.game.sfx.combo?.(/凌空|倒钩|鱼跃/.test(text) ? 2 : 1); this.game.emit?.({ e: 'flair', i: this.team, s: text }); }
 
+  /** the team-mate who played the ball that's coming to me (remembered even if it brushes me first) */
+  _feederFor() {
+    const lt = this.game.ball.lastTouch;
+    if (lt && lt !== this) return lt;
+    return this._feeder && this.game.time - this._feederT < 2.5 ? this._feeder : lt;
+  }
+
   /** is the ball on its way to me (a pass meant for me, or rolling right at me)? */
   _incoming() {
     const b = this.game.ball, lt = b.lastTouch;
     if (b.heldBy) return false;
-    if (lt && lt !== this && lt.passedTo === this) return true;
+    if (lt && lt !== this && lt.passedTo === this) { this._feeder = lt; this._feederT = this.game.time; return true; }
+    // it brushed me on the way in: still the same pass
+    if (lt === this && this._feeder && this.game.time - this._feederT < 2.5 && this.game.time - this.lastTouchTime < 0.6 && !this.dribbling) return true;
     if (this.game.live.some((o) => o !== this && this.game.sameSide(o.team, this.team) && ((o.intendTo === this && (o.charging || o.armed)) || (o.kick && !o.kick.hit && o.passTarget === this) || (o.armed && o.armed.passTo === this)))) return true;   // it's about to be played to me
     const dx = this.pos.x - b.pos.x, dz = this.pos.z - b.pos.z, d = Math.hypot(dx, dz), v = Math.hypot(b.vel.x, b.vel.z);
     if (v < 3 || d < 0.5) return false;
@@ -1654,16 +1687,16 @@ export class Athlete {
   }
 
   /** a lofted ball dropping onto a team-mate's run: head height near goal, volley height elsewhere */
-  _loftTo(rcv, power) {
+  _loftTo(rcv, power, kind = null) {
     const ball = this.game.ball;
-    const t = this.passLead(rcv, 0.3 + 0.4 * power);
+    const t = this.passLead(rcv, kind ? 0.15 : 0.3 + 0.4 * power);
     const dx = t.x - ball.pos.x, dz = t.z - ball.pos.z, d = Math.max(2, Math.hypot(dx, dz));
     const nearGoal = (() => { const gt = rcv.goalTarget(); return Math.hypot(gt.x - rcv.pos.x, gt.z - rcv.pos.z) < 13; })();
     const T = clamp(0.5 + d * 0.05, 0.75, 1.7);
-    const hEnd = nearGoal ? 1.55 : 0.75;
+    const hEnd = kind === 'head' ? 1.65 : kind === 'volley' ? 0.8 : nearGoal ? 1.55 : 0.75;
     const vh = (d / T) * (1.04 + d * 0.003);                       // a little extra for the air drag
     const vy = (hEnd - ball.pos.y + 0.5 * BALL.gravity * T * T) / T;
-    return { aim: new THREE.Vector3(dx / d, 0, dz / d), vh, vy };
+    return { aim: new THREE.Vector3(dx / d, 0, dz / d), vh, vy, kind: kind || (nearGoal ? 'head' : 'volley') };
   }
 
   /** automatic ball control: first touch, dribbling, shielding */
