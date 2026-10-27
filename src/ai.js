@@ -592,13 +592,16 @@ export class AIController {
     const pressed = opps.some((o) => Math.hypot(o.pos.x - me.pos.x, o.pos.z - me.pos.z) < 2.6);
     const humanMate = mates.find((m) => this._isHuman(m));
     // in range: hit it first time (the human's team-mates set the human up instead, in assist mode)
-    if (gd < this.cfg.shootRange * 1.15 && angleOK && !(this.assist && humanMate) && Math.random() < 0.5 + 0.4 * sk) { this._shoot(tgt, gd, false, true); return true; }
+    // CPUs love the flashy finish: anything in range is hit first time (a ball in the air all the more:
+    // that's a volley or a header)
+    const aerial = ball.pos.y > 0.8 || ball.vel.y > 1.5 || ball.loftKind;
+    if (gd < this.cfg.shootRange * (aerial ? 1.9 : 1.7) && angleOK && !(this.assist && humanMate) && Math.random() < (aerial ? 0.9 : 0.72) + 0.2 * sk) { this._shoot(tgt, gd, false, true); return true; }
     // the passer has gone on a run: give it straight back into their path
-    if ((passer.giveGoT || 0) > g.time && !passer.stunT && Math.random() < 0.3 + 0.5 * sk && !this._laneBlocked(me.pos.x, me.pos.z, passer.pos.x, passer.pos.z)) { this._kickTo(passer, 0.55, true); this.passCD = 1.0; return true; }
+    if ((passer.giveGoT || 0) > g.time && !passer.stunT && Math.random() < 0.45 + 0.45 * sk && !this._laneBlocked(me.pos.x, me.pos.z, passer.pos.x, passer.pos.z)) { this._kickTo(passer, 0.55, true); this.passCD = 1.0; return true; }
     // under pressure, or going forward as a group: move it on first time to a free team-mate further up
     // (every first-time touch adds an element: this is how the combos are built)
     const attackHalf = this._attackingHalf();
-    if ((pressed || attackHalf) && Math.random() < (pressed ? 0.25 + 0.45 * sk : 0.2 + 0.4 * sk)) {
+    if ((pressed || attackHalf) && Math.random() < (pressed ? 0.35 + 0.45 * sk : 0.35 + 0.4 * sk)) {
       const d = me.end === 0 ? 1 : -1;
       const fwd = mates.filter((m) => m !== passer && m.role !== 'gk' && (m.pos.x - me.pos.x) * d > (pressed ? 2 : 0.5) && !this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)
         && !opps.some((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < 2))
@@ -678,11 +681,14 @@ export class AIController {
     const pressure = near(me.pos, 1.9);
     const range = this.cfg.shootRange * 1.15;
     const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
+    // mid skill move (or just out of it): strike there and then — the instant, sweet-spot 技能射门
+    const flashy = me.power || g.time - (me.powerEndT ?? -9) < 0.5;
+    if (flashy && me.role !== 'gk' && gd < range * 1.6 && angleOK && Math.random() < 0.55 + 0.35 * this.cfg.skill) { this._shoot(tgt, gd, false, true); return; }
     if (me.role !== 'gk' && gd < range && angleOK && (Math.random() < 0.5 || gd < 6.5)) { this._shoot(tgt, gd, gd > 9 && Math.random() < 0.15); return; }
     // out wide near the byline: whip a cross in for someone to attack in the air
     if (this.passCD <= 0 && me.role !== 'gk' && Math.abs(me.pos.z) > FIELD.hz * 0.38 && gd < 15) {
       const box = mates.filter((m) => m.role !== 'gk' && m.stunT <= 0 && (() => { const t = m.goalTarget(); return Math.hypot(t.x - m.pos.x, t.z - m.pos.z) < 11; })() && Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z) > 5);
-      if (box.length && Math.random() < 0.35 + 0.4 * this.cfg.skill) { this._crossTo(box[0]); this.passCD = 1.4; return; }
+      if (box.length && Math.random() < 0.5 + 0.4 * this.cfg.skill) { this._crossTo(box[0], Math.random() < 0.5 ? 'head' : 'volley'); this.passCD = 1.4; return; }
     }
     // look for a team-mate
     if (this.passCD <= 0) {
@@ -706,7 +712,7 @@ export class AIController {
         const bgd = Math.hypot(best.goalTarget().x - best.pos.x, best.goalTarget().z - best.pos.z);
         // to the human in attack: half the time a ball to head, half the time one to volley
         if (this._isHuman(best) && bgd < 22 && dm > 6 && Math.random() < 0.75) { this._crossTo(best, Math.random() < 0.5 ? 'head' : 'volley'); this.passCD = 1.2; if (this._attackingHalf()) me.giveGoT = g.time + 1.8; return; }
-        if (bgd < 12 && dm > 7 && Math.random() < 0.4 + 0.35 * this.cfg.skill) this._crossTo(best);
+        if (bgd < 14 && dm > 6 && Math.random() < 0.5 + 0.35 * this.cfg.skill) this._crossTo(best, Math.random() < 0.5 ? 'head' : 'volley');   // set up a volley or a header
         else this._kickTo(best, 0.1 + Math.random() * 0.3 + (dm > 12 ? 0.15 : 0));
         if (this._attackingHalf()) me.giveGoT = g.time + 1.8;
         this.passCD = 1.3;
@@ -724,7 +730,7 @@ export class AIController {
       const rx = a.pos.x - me.pos.x, rz = a.pos.z - me.pos.z, d = Math.hypot(rx, rz);
       return d < 2.6 && (rx * to.x + rz * to.y) / (d * gd || 1) > 0.5;
     });
-    if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.trick && Math.random() < 0.18 + 0.35 * this.cfg.skill) {
+    if (blocker && this.cfg.skill >= 0.3 && me.skillCD <= 0 && !me.trick && Math.random() < 0.3 + 0.45 * this.cfg.skill) {   // show-offs: beat the man with a trick
       const r = me.rightDir, bx = blocker.pos.x - me.pos.x, bz = blocker.pos.z - me.pos.z;
       const sideOf = (bx * r.x + bz * r.z) > 0 ? -1 : 1;
       const mv = new THREE.Vector2(r.x * sideOf, r.z * sideOf);
