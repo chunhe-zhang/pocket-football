@@ -189,7 +189,7 @@ export class Ball {
     // from range the keeper has time: a two-man combo's unstoppable trick (through him, teleport,
     // blast) often fades into a plain thunderbolt he can get to; even a 合击 from very far sometimes
     const dist = this.shotDist ?? 12;
-    if (c.level === 2 && (c.gk === 'through' || c.gk === 'blast' || c.gk === 'teleport') && Math.random() < Math.min(0.85, Math.max(0, (dist - 11) / 9))) { c.gk = 'parry'; c.faded = true; }
+    if (c.level === 2 && c.gk !== 'parry' && Math.random() < Math.min(0.9, Math.max(0, (dist - 9) / 8))) { c.gk = 'parry'; c.faded = true; }
     if (c.level === 2 && c.pierceGk) c.pierceGk *= Math.max(0.15, 1 - Math.max(0, dist - 11) / 10);
     if (c.level >= 3 && dist > 17 && Math.random() < Math.min(0.5, (dist - 17) / 10)) { c.gk = 'parry'; c.faded = true; }
     this.special = { els, ids: c.ids, combo: c, type: c.ids.length === 1 ? c.ids[0] : c.key, has: (id) => c.ids.includes(id), owner, power, t: 0, hit: new Set(), aura: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1, goal };
