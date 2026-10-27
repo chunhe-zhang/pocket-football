@@ -203,7 +203,7 @@ export class Athlete {
       const P = this.power;
       // mid-move: strike it there and then, at the sweet power (the move sets the shot up)
       const want = pressedAny ? (pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick') : this._queued;
-      if (P.type === 'gale' && want && want !== 'pass' && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) { this._queued = null; this._galeVolley(); }
+      if (P.type === 'gale' && want && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) { this._queued = null; if (want === 'pass') this._galePass(); else this._galeVolley(); }
       else if (want && P.type !== 'gale' && (P.type === 'phantom' ? P.jumped : P.type === 'blaze' || P.type === 'frost' ? P.blasted : P.t > P.dur * 0.2)) { this._queued = null; this._skillStrike(want); }
       else if (pressedAny) this._queued = want;            // pressed a touch early: it goes the moment it can
       if (this.power) { this.charging = false; this.charge = 0; }
@@ -1057,7 +1057,7 @@ export class Athlete {
 
   /** a shot / pass out of (or straight after) a skill move: no wind-up, the comfortable power, struck clean */
   _skillStrike(type) {
-    const wasPower = !!this.power;
+    const wasPower = !!this.power || this.game.time - (this.lastSkillT ?? -9) < 0.95;
     this._endPower();
     // the move carried the ball at dash speed: gather it at the boot so the strike meets it now
     const b = this.game.ball;
@@ -1119,6 +1119,33 @@ export class Athlete {
     g.onKick(this, { type: 'kick', power: 0.9 }, vel);
     // she floats back down: the leap gesture carries on and finishes on its own
     this.vel.multiplyScalar(0.4); void P;
+  }
+
+  /** the gale leap's pass: from the top of the jump, a ball driven down onto a team-mate's feet */
+  _galePass() {
+    const g = this.game, ball = g.ball;
+    const aim = this.aimDir(new THREE.Vector3());
+    const mate = this._coneMate(aim, 0.3, 32) || this._coneMate(aim, -0.3, 26);
+    this._endPower();
+    let vel;
+    if (mate) {
+      const t = this.passLead(mate, 0.35);
+      const dx = t.x - ball.pos.x, dz = t.z - ball.pos.z, d = Math.hypot(dx, dz) || 1;
+      const sp = clamp(7 + d * 0.45, 9, 18), T = d / sp, h = Math.max(0, ball.pos.y - BALL.r);
+      const vy = (0.5 * BALL.gravity * T * T - h) / T;                    // lands right at the feet
+      vel = new THREE.Vector3((dx / d) * sp, vy, (dz / d) * sp);
+      this.passTarget = mate; this.passT = g.time;
+    } else { vel = aim.clone().multiplyScalar(12); vel.y = -1; this.passTarget = null; this.passT = -1; }
+    ball.strike(vel, new THREE.Vector3(), this);
+    const chain = [this.charId];
+    ball.chain = { els: chain, last: this }; this._elemPass(chain);
+    if (mate) { ball.passTo = mate; ball.passToT = 1.5; ball.guardT = 0.32; ball.guardBy = this; }
+    this.char.play('airKick', { duration: 0.42 });
+    this.lastTouchTime = g.time; this.touchCD = 0.35; this.ignoreBall = 0.3; this.stats.touches++;
+    this.flair('技能传球!'); this.noChargeT = 0.6; this._needRelease = true;
+    g.fx('wind', ball.pos, { x: vel.x, z: vel.z }, 18, 4); g.squashBall(vel, 0.15); g.rumble(this, 0.6, 90);
+    g.onKick(this, { type: 'pass', power: 0.4 }, vel);
+    this.vel.multiplyScalar(0.4);
   }
 
   _endPower() {
