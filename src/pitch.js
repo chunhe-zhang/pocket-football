@@ -93,13 +93,20 @@ function grassTexture() {
       g.rotate(Math.atan2(goal.inward.z, goal.inward.x));
       // local +x points into the pitch
       const BD = FIELD.boxDepth * ppm, BW = FIELD.boxHalfW * ppm;
-      g.fillStyle = t.css + '33'; g.fillRect(0, -BW, BD, 2 * BW);
-      g.strokeStyle = t.css; g.lineWidth = 0.09 * ppm;
-      g.strokeRect(0, -BW, BD, 2 * BW);
-      if (GOALS.length === 2) {   // 6v6: the 小禁区 (goal area) inside the box
+      if (GOALS.length === 2) {
+        // 6v6: 大禁区 and 小禁区 drawn like real markings — bold white lines with a team-colour edge,
+        // the goal area shaded deeper so the two zones read at a glance
         const SD = SMALL_BOX.depth * ppm, SW = (FIELD.goalHalfW + SMALL_BOX.side) * ppm;
-        g.fillStyle = t.css + '2a'; g.fillRect(0, -SW, SD, 2 * SW);
-        g.strokeRect(0, -SW, SD, 2 * SW);
+        g.fillStyle = t.css + '30'; g.fillRect(0, -BW, BD, 2 * BW);
+        g.fillStyle = t.css + '60'; g.fillRect(0, -SW, SD, 2 * SW);
+        for (const [d, w] of [[BD, BW], [SD, SW]]) {
+          g.strokeStyle = t.css; g.lineWidth = 0.32 * ppm; g.strokeRect(0, -w, d, 2 * w);
+          g.strokeStyle = 'rgba(255,255,255,0.97)'; g.lineWidth = 0.17 * ppm; g.strokeRect(0, -w, d, 2 * w);
+        }
+      } else {
+        g.fillStyle = t.css + '33'; g.fillRect(0, -BW, BD, 2 * BW);
+        g.strokeStyle = t.css; g.lineWidth = 0.09 * ppm;
+        g.strokeRect(0, -BW, BD, 2 * BW);
       }
       g.fillStyle = t.css; g.fillRect(-0.06 * ppm, -FIELD.goalHalfW * ppm, 0.14 * ppm, 2 * FIELD.goalHalfW * ppm);
       g.beginPath(); g.arc(BD + 1.1 * ppm, 0, 0.12 * ppm, 0, Math.PI * 2); g.fill();
@@ -115,6 +122,22 @@ function grassTexture() {
         g.beginPath(); g.arc(X(s * (HX - 6)), Y(0), 0.13 * ppm, 0, Math.PI * 2); g.fill();
         // the arc at the top of the box
         g.beginPath(); g.arc(X(s * (HX - FIELD.boxDepth)), Y(0), 1.6 * ppm, s < 0 ? -Math.PI / 2 : Math.PI / 2, s < 0 ? Math.PI / 2 : Math.PI * 1.5); g.stroke();
+      }
+      g.restore();
+    }
+    // names painted on the grass in each half: 大禁区 by the edge of the box, 小禁区 in the goal area
+    if (GOALS.length === 2) {
+      g.save(); g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (const goal of GOALS) {
+        const A = goal.axis, ix = goal.inward.x, iz = goal.inward.z, lx = A === 'x' ? 0 : 1, lz = A === 'x' ? 1 : 0;
+        const put = (txt, depth, lat, size, alpha) => {
+          const px = goal.centre.x + ix * depth + lx * lat, pz = goal.centre.z + iz * depth + lz * lat;
+          g.font = `800 ${Math.round(size * ppm)}px "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif`;
+          g.lineWidth = size * ppm * 0.16; g.strokeStyle = 'rgba(30,90,40,0.45)'; g.strokeText(txt, X(px), Y(pz));
+          g.fillStyle = `rgba(255,255,255,${alpha})`; g.fillText(txt, X(px), Y(pz));
+        };
+        put('大禁区', FIELD.boxDepth - 1.0, -(FIELD.boxHalfW - 2.6), 0.95, 0.72);
+        put('小禁区', SMALL_BOX.depth * 0.5, FIELD.goalHalfW + SMALL_BOX.side * 0.5 - 0.1, 0.5, 0.8);
       }
       g.restore();
     }
