@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES, waveOff, SMALL_BOX } from './config.js';
+import { FIELD, TEAMS, GOALS, insideArena, OBSTACLES, waveOff, bigBox } from './config.js';
 import { Scenery } from './scenery.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
@@ -96,10 +96,11 @@ function grassTexture() {
       if (GOALS.length === 2) {
         // 6v6: 大禁区 and 小禁区 drawn like real markings — bold white lines with a team-colour edge,
         // the goal area shaded deeper so the two zones read at a glance
-        const SD = SMALL_BOX.depth * ppm, SW = (FIELD.goalHalfW + SMALL_BOX.side) * ppm;
-        g.fillStyle = t.css + '30'; g.fillRect(0, -BW, BD, 2 * BW);
-        g.fillStyle = t.css + '60'; g.fillRect(0, -SW, SD, 2 * SW);
-        for (const [d, w] of [[BD, BW], [SD, SW]]) {
+        // the 小禁区 is the keeper's box (BD × BW); the 大禁区 round it takes half of the half
+        const BB = bigBox(), LD = BB.depth * ppm, LW = BB.halfW * ppm;
+        g.fillStyle = t.css + '22'; g.fillRect(0, -LW, LD, 2 * LW);
+        g.fillStyle = t.css + '50'; g.fillRect(0, -BW, BD, 2 * BW);
+        for (const [d, w] of [[LD, LW], [BD, BW]]) {
           g.strokeStyle = t.css; g.lineWidth = 0.32 * ppm; g.strokeRect(0, -w, d, 2 * w);
           g.strokeStyle = 'rgba(255,255,255,0.97)'; g.lineWidth = 0.17 * ppm; g.strokeRect(0, -w, d, 2 * w);
         }
@@ -121,7 +122,8 @@ function grassTexture() {
       for (const s of [-1, 1]) {
         g.beginPath(); g.arc(X(s * (HX - 6)), Y(0), 0.13 * ppm, 0, Math.PI * 2); g.fill();
         // the arc at the top of the box
-        g.beginPath(); g.arc(X(s * (HX - FIELD.boxDepth)), Y(0), 1.6 * ppm, s < 0 ? -Math.PI / 2 : Math.PI / 2, s < 0 ? Math.PI / 2 : Math.PI * 1.5); g.stroke();
+        const arcAt = GOALS.length === 2 ? bigBox().depth : FIELD.boxDepth;
+        g.beginPath(); g.arc(X(s * (HX - arcAt)), Y(0), 1.6 * ppm, s < 0 ? -Math.PI / 2 : Math.PI / 2, s < 0 ? Math.PI / 2 : Math.PI * 1.5); g.stroke();
       }
       g.restore();
     }
@@ -136,8 +138,9 @@ function grassTexture() {
           g.lineWidth = size * ppm * 0.16; g.strokeStyle = 'rgba(30,90,40,0.45)'; g.strokeText(txt, X(px), Y(pz));
           g.fillStyle = `rgba(255,255,255,${alpha})`; g.fillText(txt, X(px), Y(pz));
         };
-        put('大禁区', FIELD.boxDepth - 1.0, -(FIELD.boxHalfW - 2.6), 0.95, 0.72);
-        put('小禁区', SMALL_BOX.depth * 0.5, FIELD.goalHalfW + SMALL_BOX.side * 0.5 - 0.1, 0.5, 0.8);
+        const BB = bigBox();
+        put('大禁区', BB.depth - 1.4, -(BB.halfW - 3.2), 1.25, 0.72);
+        put('小禁区', FIELD.boxDepth - 1.0, -(FIELD.boxHalfW - 2.4), 0.9, 0.8);
       }
       g.restore();
     }

@@ -192,7 +192,7 @@ export class Ball {
     // two-man combos are never a sure thing: deadly close in (their trick usually comes off), a plain
     // hard shot from range. Only a three-man 合击 can't be stopped — and even that fades from very far
     const zone = this.shotZone || 'box';
-    c.range = zone === 'small' ? 0 : zone === 'box' ? Math.max(0, Math.min(0.5, (dist - 5) / 10)) : Math.max(0.6, Math.min(1, (dist - 8) / 12));   // 0 in the 小禁区 … 1 from 20 m+
+    c.range = zone === 'small' ? 0.05 : zone === 'box' ? Math.max(0.25, Math.min(0.6, (dist - 6) / 10)) : Math.max(0.75, Math.min(1, (dist - 8) / 12));   // ~0 in the 小禁区 … 1 from far out
     if (c.level === 2 && c.gk !== 'parry' && Math.random() < 0.3 + 0.62 * c.range) { c.gk = 'parry'; c.faded = true; }
     if (c.level === 2 && c.pierceGk) c.pierceGk *= 1 - 0.85 * c.range;
     if (c.level === 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far

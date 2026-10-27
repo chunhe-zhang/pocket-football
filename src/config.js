@@ -409,17 +409,20 @@ export function inOwnBox(team, x, z) {
   const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x;
   return depth > g.line - FIELD.boxDepth && Math.abs(along) < FIELD.boxHalfW;
 }
-/** the 6v6 小禁区 (goal area) in front of goal `team`: 3 m deep, 2 m either side of the posts */
-export const SMALL_BOX = { depth: 3, side: 2 };
-export function inSmallBox(team, x, z) {
+/**
+ * 6v6 zones in front of each goal: the 小禁区 is the keeper's area (FIELD.boxDepth × boxHalfW,
+ * see inOwnBox); the 大禁区 round it is huge — half of each half of the pitch.
+ */
+export const bigBox = () => ({ depth: FIELD.hx / 2, halfW: Math.min(FIELD.hz - 2.5, FIELD.hz * 0.8) });
+export function inBigBox(team, x, z) {
   const g = GOALS[team]; if (!g) return false;
-  const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x;
-  return depth > g.line - SMALL_BOX.depth && Math.abs(along) < FIELD.goalHalfW + SMALL_BOX.side;
+  const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x, B = bigBox();
+  return depth > g.line - B.depth && Math.abs(along) < B.halfW;
 }
-/** where a shot is struck from, relative to the goal it's aimed at: 'small' | 'box' | 'out' */
+/** where a shot is struck from, relative to the goal it's aimed at: 'small' (小禁区) | 'box' (大禁区) | 'out' */
 export function shotZone(x, z, tx, tz) {
   let gi = -1, best = Infinity;
   GOALS.forEach((g, i) => { const d = Math.hypot(g.centre.x - tx, g.centre.z - tz); if (d < best) { best = d; gi = i; } });
   if (gi < 0) return 'out';
-  return inSmallBox(gi, x, z) ? 'small' : inOwnBox(gi, x, z) ? 'box' : 'out';
+  return inOwnBox(gi, x, z) ? 'small' : inBigBox(gi, x, z) ? 'box' : 'out';
 }

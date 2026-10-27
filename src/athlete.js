@@ -665,7 +665,7 @@ export class Athlete {
     // from range the keeper sees it all the way; close in there's no time
     const dist = b.shotDist ?? 14;
     const zone = b.shotZone || (dist < 4 ? 'small' : dist < 9 ? 'box' : 'out');
-    chance += zone === 'small' ? -0.3 : zone === 'box' ? clamp((dist - 8) * 0.015, -0.06, 0.04) : 0.12 + clamp((dist - 12) * 0.02, 0, 0.16);
+    chance += zone === 'small' ? -0.3 + clamp((dist - 4) * 0.02, 0, 0.06) : zone === 'box' ? -0.08 + clamp((dist - 8) * 0.012, 0, 0.06) : 0.12 + clamp((dist - 13) * 0.02, 0, 0.14);
     if (spc) chance -= spc.has('phantom') ? 0.1 : 0.04;
     if (cb && cb.level > 1) chance -= (cb.level >= 3 ? 0.35 : 0.22) * Math.max(0.1, 1 - (cb.range ?? 0.3));   // a combo is hot close in, readable from range
     chance -= (1 - this._gkLevel()) * 0.6;
@@ -1785,7 +1785,7 @@ export class Athlete {
     // where it's struck from: 小禁区 (goal area) full power, the box about normal, outside it a long shot loses a lot
     const gt = this.goalTarget(), zone = shotZone(this.pos.x, this.pos.z, gt.x, gt.z);
     if (k.type === 'kick' && special) {
-      const zf = zone === 'small' ? 1.12 : zone === 'box' ? clamp(1.06 - (gd - 4) * 0.01, 0.98, 1.06) : clamp(0.88 - (gd - 12) * 0.012, 0.72, 0.88);
+      const zf = zone === 'small' ? 1.1 : zone === 'box' ? clamp(1.0 - (gd - 7) * 0.012, 0.92, 1.0) : clamp(0.86 - (gd - 13) * 0.012, 0.72, 0.86);
       speed *= special.level > 1 ? 1 - (1 - zf) * 0.6 : zf;               // combos lose less of it
     }
     if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);
