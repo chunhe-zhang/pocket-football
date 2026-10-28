@@ -37,7 +37,7 @@ export class UI {
   constructor({ sfx, input, camera }) {
     this.sfx = sfx; this.input = input; this.camera = camera;
     const saved = (store.get('pf-chars') || '').split(',');
-    this.settings = { net: 'local', humans: 1, level: 'hard', mode: 'match5', pairing: 'humans', map: 'classic', duration: 180, who: '0',
+    this.settings = { net: 'local', humans: 1, level: 'hard', mode: 'match5', practice: 'gk', pairing: 'humans', map: 'classic', duration: 180, who: '0',
       chars: [0, 1, 2, 3].map((i) => (CHAR[saved[i]] ? saved[i] : CHARS[i].id)) };
     this.muted = false;
     this.tags = [];
@@ -55,7 +55,9 @@ export class UI {
         const key = seg.dataset.key, v = b.dataset.v;
         for (const s2 of document.querySelectorAll(`.seg[data-key="${key}"]`)) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
         this.settings[key] = key === 'duration' || key === 'humans' ? +v : v;
-        if (key === 'map' && this.game.state === 'menu' && this.settings.mode !== 'match5') this.game.applyMap(v);
+        // the 6v6 pitch is the 6v6 modes' pitch: picking it picks 6v6; the 6v6 modes only play on it
+        if (key === 'map' && v === 'pitch5' && !this._m5mode()) { this.settings.mode = 'match5'; for (const s2 of document.querySelectorAll('.seg[data-key="mode"]')) s2.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === 'match5')); if (this.game.state === 'menu') this.game.previewMode('match5', 'pitch5'); }
+        if (key === 'map' && this.game.state === 'menu' && !this._m5mode()) this.game.applyMap(v);
         if (key === 'mode' && this.game.state === 'menu') this.game.previewMode(v, this.settings.map);
         if (key === 'humans' && +this.settings.who >= +v) this._setWho('0');
         this._refreshMenu();
@@ -128,7 +130,7 @@ export class UI {
     const cur = CHAR[this.settings.chars[who]] || CHARS[0];
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
     this.showroom?.select(cur.id, !!this._cheer);
-    const m5 = this.settings.mode === 'match5';
+    const m5 = this._m5mode();
     for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? this._campLine(cur.id) : ''}${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
@@ -154,18 +156,26 @@ export class UI {
     if (isTouch && (online || n === 1)) help = HELP.touch;
     $('#controls-help').innerHTML = help;
     const team = this.settings.mode === 'team' || this.settings.mode === 'match5';
-    const m5 = this.settings.mode === 'match5';
-    for (const r of document.querySelectorAll('.map-row, .map-note')) r.classList.toggle('hidden', m5);
+    const m5 = this._m5mode(), practice = this.settings.mode === 'practice';
+    // the map row: the 6v6 modes play on the 6v6 pitch only, the others never on it
+    for (const s2 of document.querySelectorAll('.seg[data-key="map"]')) s2.querySelectorAll('button').forEach((x) => {
+      const p5 = x.dataset.v === 'pitch5';
+      x.classList.toggle('on', m5 ? p5 : x.dataset.v === this.settings.map);
+      x.classList.toggle('dis', m5 ? !p5 : false);
+    });
+    for (const r of document.querySelectorAll('.practice-row')) r.classList.toggle('hidden', !practice);
     this._refreshChars();
     const people = online ? (this.lobby ? this.lobby.slots.length : (this.guestLobby?.slots.length || 1)) : n;
     for (const r of document.querySelectorAll('.pairing-row')) r.classList.toggle('hidden', !team || people < 2);
     const pairNote = this.settings.pairing === 'vs' ? '真人分在两边' : '真人尽量分在同一队';
-    for (const m of document.querySelectorAll('.map-note')) m.textContent = this.settings.map === 'track'
+    for (const m of document.querySelectorAll('.map-note')) m.textContent = m5 ? '6v6 标准场：50 × 31 米长方形球场，两个球门，大小禁区，波浪形围板。6v6 比赛和练习场都在这块场地上。' : this.settings.map === 'track'
       ? '拼运气的方块乐园：小正方形场地，每人的球门就是自己那一整条边，中间塞满方形机关（每种四个，对每个人都一样）：传送门、加速块、漩涡、命运转盘、果冻弹块、弹跳垫。每个门前有护盾，第一次撞碎，第二次才能进。大脚一踢，球自己会找到某个门。每人 3 条命。'
       : '小巧的圆形球场，一眼看全场。';
     const LV = { easy: '简单：电脑跑得慢、射门偏，很少抢断。', normal: '普通：电脑会配合、会抢断，门将不错。', hard: '困难：电脑反应快、爱一脚出球和打连携，门将很难打穿。', gf: '女友模式：电脑很菜，拿到球就传给真人玩家，让你射门。' };
     for (const m of document.querySelectorAll('.level-note')) m.textContent = LV[this.settings.level] || '';
-    for (const m of document.querySelectorAll('.mode-note')) m.textContent = m5
+    for (const m of document.querySelectorAll('.mode-note')) m.textContent = practice
+      ? '练习场：6v6 标准场上只有你和对方门将，可以再加一个队友或一个对手（上面的“练习”一栏），用来练带球、过人、射门和配合。没有比赛时间，不判越位，进球后从中圈重新开始。'
+      : m5
       ? `大号六人制球场（波浪围板），两队各 6 人（1 门将 + 1 后卫 + 左中右三人组 + 1 前锋，每队六种元素各一个），分上下半场，${Math.round(this.settings.duration / 60)} 分钟比赛，进球多的一队赢，平局就金球加时。你从头到尾控制同一名球员（前锋），其他 11 人都是电脑，门将也由电脑控制。${people >= 2 ? (this.settings.pairing === 'vs' ? '真人分在两队。' : '真人都在蓝队。') : ''}`
       : team
       ? `两人一队，开赛时随机分配球门${people >= 2 ? `，${pairNote}` : ''}。往队友那边轻踢就是传球，挑射可以传给队友头球；最后还有人在场的一队获胜。`
@@ -215,7 +225,7 @@ export class UI {
   startLocal() {
     this.sfx.init();
     this.game.role = 'local';
-    this.game.start({ humans: this.settings.humans, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration, chars: this.settings.chars.slice(), slots: null });
+    this.game.start({ humans: this.settings.mode === 'practice' ? 1 : this.settings.humans, practice: this.settings.practice, level: this.settings.level, mode: this.settings.mode, pairing: this.settings.pairing, map: this.settings.map, duration: this.settings.duration, chars: this.settings.chars.slice(), slots: null });
     this._showHud();
   }
 
@@ -234,6 +244,8 @@ export class UI {
 
   toggleMute() { this.muted = !this.muted; this.sfx.setMuted(this.muted); $('#btn-mute').classList.toggle('off', this.muted); }
 
+  _m5mode() { return this.settings.mode === 'match5' || this.settings.mode === 'practice'; }
+
   /** 6v6: which camp this element is in, which camp it beats and which beats it */
   _campLine(id) {
     const c = CAMP[id], els = (k) => CHARS.filter((x) => CAMP[x.id] === k).map((x) => `${x.icon}${x.name}`).join(' ');
@@ -247,6 +259,10 @@ export class UI {
   }
 
   onScore(g) {
+    if (g.m5 && g.practice) {
+      $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">练习场</span><span class="n">进球 ${g.conceded[1]}</span></span>`;
+      this._clockKey = null; return;
+    }
     if (g.m5) {
       const gold = g.golden ? ' <span class="gold">金球</span>' : '';
       const cd = (i) => { const c = g.cards?.[i]; return c ? `<span class="cd">${'▮'.repeat(Math.min(3, c.y)).replace(/▮/g, '<i class="y"></i>')}${'<i class="r"></i>'.repeat(Math.min(3, c.r))}</span>` : ''; };
@@ -292,7 +308,7 @@ export class UI {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
     $('#clock').classList.toggle('low', g.m5 ? g.clock < 15 && !g.golden : !g.side && left === 2);
-    if (g.m5) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : '') + (g.half || 1); if (tm && key !== this._clockKey) { this._clockKey = key; if ((g.golden && !$('#clock .gold')) || $('#clock .hf')?.textContent !== (g.golden ? '' : g.half === 2 ? '下半场' : '上半场')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
+    if (g.m5 && !g.practice) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : '') + (g.half || 1); if (tm && key !== this._clockKey) { this._clockKey = key; if ((g.golden && !$('#clock .gold')) || $('#clock .hf')?.textContent !== (g.golden ? '' : g.half === 2 ? '下半场' : '上半场')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];

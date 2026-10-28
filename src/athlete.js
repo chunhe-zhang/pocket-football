@@ -996,7 +996,7 @@ export class Athlete {
     // can I even reach it?
     if (Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) > 1.3 || ball.pos.y > 0.7) chance = 0;
     if (carrier) {
-      chance *= 0.38;                                      // a carrier on the ball is hard to rob
+      chance *= 0.2;                                       // a carrier with it under control is very hard to rob standing up (a slide is the way)
       // how exposed is the ball: tight at the carrier's boots it's hard to get at; knocked a stride
       // ahead (between touches) it's there for the taking
       const dcb = Math.hypot(ball.pos.x - carrier.pos.x, ball.pos.z - carrier.pos.z);
@@ -1365,7 +1365,20 @@ export class Athlete {
     if (P.type === 'gale') this.facing = Math.atan2(P.dir.x, P.dir.z);
     this.burstT = Math.max(this.burstT, P.type === 'thunder' ? 0.3 : 0.6);   // lightning comes out of it under control
     // the ball carries on at my feet (off the ball: only if I actually got to it)
-    if (!P.off || P.got) { b.lastTouch = this; this.lastTouchTime = this.game.time; this.touchCD = 0.15; }
+    if (!P.off || P.got) {
+      b.lastTouch = this; this.lastTouchTime = this.game.time; this.touchCD = 0;
+      // out of the move under full control: the ball is put back at my boot, moving with me (never shot
+      // off ahead at dash speed), and for a moment nobody can just take it off me
+      const hv = Math.hypot(this.vel.x, this.vel.z), cap = PLAYER.sprintSpeed * (this.speedMul || 1);
+      if (hv > cap) this.vel.multiplyScalar(cap / hv);
+      if (!b.heldBy && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 2.5 && b.pos.y < 3.2) {
+        const f = this.forward;
+        b.pos.set(this.pos.x + f.x * (R + 0.32), BALL.r, this.pos.z + f.z * (R + 0.32)); clampToArena(b.pos, BALL.r + 0.05);
+        b.vel.set(this.vel.x, 0, this.vel.z); b.spin.set(0, 0, 0);
+        this.dribbling = true; this.knockT = 0; this.touch = null; this.dribbleT = 0;
+        b.dribbleBy = this; b.dribbleGuard = 0.5; b.carryBy = this; b.carryGuard = 1.2;
+      }
+    }
   }
 
   /** the body during a character move */
@@ -1394,8 +1407,8 @@ export class Athlete {
       const b = this.game.ball, dx = this.pos.x - b.pos.x, dz = this.pos.z - b.pos.z, d = Math.hypot(dx, dz);
       if (!b.heldBy && d < 3.4 && d > 0.6 && b.pos.y < 1.5) {
         const car = b.lastTouch;
-        if (car && this._isOpp(car) && CAMP[car.charId] !== 'force' && d < 2.4) { car.knockFree = Math.max(car.knockFree || 0, 0.3); car.dribbling = false; }
-        if (!(car && this._isOpp(car) && CAMP[car.charId] === 'force' && d > 1.2)) { b.vel.x += (dx / d) * 18 * dt; b.vel.z += (dz / d) * 18 * dt; }
+        const held = car && this._isOpp(car) && (car.dribbling || car.power) && car.stunT <= 0;   // a ball under control stays with him: the wind only takes loose balls
+        if (!held) { b.vel.x += (dx / d) * 18 * dt; b.vel.z += (dz / d) * 18 * dt; }
       }
       if (Math.random() < dt * 30) this.game.fx('wind', { x: this.pos.x, y: 0.4, z: this.pos.z }, { x: 0, z: 0 }, 3, 4);
     } else if (P.type === 'gale') {
@@ -1430,6 +1443,7 @@ export class Athlete {
     if (P.type === 'gale' && !P.planted) b.vel.y = 0.001;
     b.spin.set(this.vel.z / BALL.r, 0, -this.vel.x / BALL.r);
     b.lastTouch = this; this.lastTouchTime = this.game.time;
+    b.dribbleBy = this; b.dribbleGuard = 0.15; b.carryBy = this; b.carryGuard = 1.2;   // mid-move it's mine: only a tackle can win it
     b.endSpecial?.();
   }
 
@@ -1556,7 +1570,6 @@ export class Athlete {
       const heavy = CAMP[o.charId] === 'force';
       if (o.power) { o._endPower(); o.stunT = Math.max(o.stunT, 0.4); o.flair('被卷住!', true); }
       o.pullT = Math.max(o.pullT || 0, dur); o.pullC = c.clone ? c.clone() : new THREE.Vector3(c.x, 0, c.z); o.pullK = strength * (heavy ? 0.3 : 1);
-      if (!heavy && o.dribbling) { o.knockFree = Math.max(o.knockFree || 0, 0.3); o.dribbling = false; }
     }
   }
 
@@ -2368,7 +2381,9 @@ export class Athlete {
         if (!(Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) < 0.9 && ball.pos.y < 0.9)) return false;
         // a lightning dash / a shadow's blink onto a ball someone has at his feet: it's poked loose, not won clean
         const lt = ball.lastTouch, contested = lt && this._isOpp(lt) && g.time - lt.lastTouchTime < 0.6;
-        if (contested && (P.type === 'thunder' || P.type === 'phantom') && lt.dribbling && Math.random() < 0.5) { P.poked = true; lt.flair('护住!', true); return false; }   // under close control he often keeps it
+        // and nobody's skill just takes a ball off a man who has it under control (knocked down, he's lost it)
+        if (contested && (lt.dribbling || lt.power) && lt.stunT <= 0 && P.type !== 'thunder' && P.type !== 'phantom') return false;
+        if (contested && (P.type === 'thunder' || P.type === 'phantom') && (lt.power || (lt.dribbling && Math.random() < 0.75))) { P.poked = true; lt.flair('护住!', true); return false; }   // mid-skill: always kept   // under close control he often keeps it
         if (contested && (P.type === 'thunder' || P.type === 'phantom')) {
           P.poked = true; const d = P.dir, s = (Math.random() - 0.5) * 3;
           ball.vel.set(d.x * 4.5 - d.z * s, 0.5, d.z * 4.5 + d.x * s); ball.lastTouch = this; this.lastTouchTime = g.time;

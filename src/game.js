@@ -131,7 +131,7 @@ export class Game {
 
   /** menu preview of a mode: the right map and the right number of players */
   previewMode(mode, map) {
-    const m5 = mode === 'match5';
+    const m5 = mode === 'match5' || mode === 'practice';
     this.setRoster(m5);
     this.m5 = m5;
     this.applyMap(m5 ? 'pitch5' : map || 'classic');
@@ -260,7 +260,8 @@ export class Game {
   start(settings) {
     Object.assign(this.settings, settings);
     const { level, duration } = this.settings;
-    this.m5 = this.settings.mode === 'match5';
+    this.practice = this.settings.mode === 'practice';
+    this.m5 = this.settings.mode === 'match5' || this.practice;
     this.setRoster(this.m5);
     if (this.m5) { this._start5(); return; }
     this.applyMap(this.settings.map || 'classic');
@@ -339,11 +340,27 @@ export class Game {
     this.endShown = false;
     this.ends = 0; this.half = 1;                 // two halves: the sides change ends at half time
     this.kickSide = this.firstKick = Math.random() < 0.5 ? 0 : 1;
+    if (this.practice) this._setupPractice();
     this.ui.onScore(this);
     this.kickoff();
     this.banner('6v6 比赛', `${TEAMS[0].cn}队 vs ${TEAMS[1].cn}队 · ${Math.round(this.clock / 60)} 分钟`);
     if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration: this.settings.duration, mode: 'match5', map: 'pitch5' }, side: this.side,
       slots: this.slots, chars: A.map((a) => a.charId), cur: this._curSnap() });
+  }
+
+  /**
+   * 练习场: on the 6v6 pitch just me and their goalkeeper — plus, if asked, one team-mate and/or one
+   * opponent. No clock, no offside; after a goal I kick off again.
+   */
+  _setupPractice() {
+    const A = this.athletes, me = A[this.cursors[0]?.idx ?? 0], opt = this.settings.practice || 'gk';
+    const keep = new Set([me, A.find((a) => a.gi !== me.gi && a.role === 'gk')]);
+    if (opt === 'mate' || opt === 'both') keep.add(A.find((a) => a.gi === me.gi && a.role === (me.role === 'mid' ? 'fwd' : 'mid')));
+    if (opt === 'opp' || opt === 'both') keep.add(A.find((a) => a.gi !== me.gi && a.role === 'back'));
+    for (const a of A) if (!keep.has(a)) { a.out = true; a.char.group.visible = false; a.place(60 + a.team * 3, 60, 0); }
+    this.kickSide = this.firstKick = me.gi;
+    this.clock = 0;
+    this._roles = {};
   }
 
   _curSnap() { return this.cursors.map((c) => [c.kind === 'remote' ? c.id : (this.role === 'host' ? this.net?.id : null), c.idx, c.name]); }
@@ -461,7 +478,7 @@ export class Game {
     const sc = `${TEAMS[0].cn} ${this.conceded[1]} : ${this.conceded[0]} ${TEAMS[1].cn}`;
     const who = own ? `${toucher ? toucher.label : ''} 乌龙球` : `${toucher.label} 为${TEAMS[side].cn}队进球`;
     this.banner(own ? '乌龙球！' : this.golden ? '金球绝杀！' : '进球！', `${who} · ${sc}`);
-    this.kickSide = team;          // the side that conceded kicks off
+    this.kickSide = this.practice ? (this.cursors[0] ? this.athletes[this.cursors[0].idx].gi : 0) : team;          // the side that conceded kicks off (练习场: always me)
     this.ui.onScore(this);
     this.emit({ e: 'focus', i: this.focus ? this.focus.team : -1 });
   }
@@ -626,7 +643,7 @@ export class Game {
    * (level counts as onside, with a little leeway). Goalkeepers are never offside.
    */
   offsidePos(a) {
-    if (!this.m5 || !a || a.isKeeper || a.out) return false;
+    if (!this.m5 || this.practice || !a || a.isKeeper || a.out) return false;
     const s = -GOALS[a.end].sign, f = a.pos.x * s, tol = 0.35;     // s: the way this side attacks along x
     if (f <= tol || f <= this.ball.pos.x * s + tol) return false;
     let l1 = -Infinity, l2 = -Infinity;
@@ -852,7 +869,7 @@ export class Game {
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
       if (this.m5) {
-        if (!this.golden) {
+        if (!this.golden && !this.practice) {
           this.clock = Math.max(0, this.clock - dt);
           if (this.half === 1 && this.clock <= (this.settings.duration || MATCH.defaultDuration) / 2 && this.clock > 0) this._halfTime();
           else if (this.clock <= 0) {
@@ -888,7 +905,7 @@ export class Game {
       this.timer -= rawDt;
       if (this.timer <= 0) {
         // the knocked-out player leaves and their goal is boarded up
-        if (this.m5) { if (this.golden || this.clock <= 0) this.end(); else this.kickoff(); }
+        if (this.m5) { if (!this.practice && (this.golden || this.clock <= 0)) this.end(); else this.kickoff(); }
         else {
           for (let i = 0; i < this.alive.length; i++) if (!this.alive[i] && !this.athletes[i].out) this.eliminate(i);
           if (this._standing() <= 1) this.end(); else this.kickoff();
@@ -1304,7 +1321,8 @@ export class Game {
   startGuest(msg, myId) {
     this.role = 'guest';
     this.settings = { ...this.settings, ...msg.settings };
-    this.m5 = this.settings.mode === 'match5';
+    this.practice = this.settings.mode === 'practice';
+    this.m5 = this.settings.mode === 'match5' || this.practice;
     this.setRoster(this.m5);
     this.applyMap(this.m5 ? 'pitch5' : this.settings.map || 'classic');
     this.slots = msg.slots;
