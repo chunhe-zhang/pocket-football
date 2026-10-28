@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR } from './config.js';
+import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR, CAMP, CAMP_NAME, beats } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -129,7 +129,7 @@ export class UI {
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
     this.showroom?.select(cur.id, !!this._cheer);
     const m5 = this.settings.mode === 'match5';
-    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? this._campLine(cur.id) : ''}${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
   _sendMyChar() {
@@ -234,6 +234,13 @@ export class UI {
 
   toggleMute() { this.muted = !this.muted; this.sfx.setMuted(this.muted); $('#btn-mute').classList.toggle('off', this.muted); }
 
+  /** 6v6: which camp this element is in, which camp it beats and which beats it */
+  _campLine(id) {
+    const c = CAMP[id], els = (k) => CHARS.filter((x) => CAMP[x.id] === k).map((x) => `${x.icon}${x.name}`).join(' ');
+    const win = { force: 'ctrl', ctrl: 'agile', agile: 'force' }[c], lose = { force: 'agile', ctrl: 'force', agile: 'ctrl' }[c];
+    return `<br><b>阵营：${CAMP_NAME[c]}</b>（${els(c)}）· <b style="color:#7cf07c">克制</b> ${CAMP_NAME[win]}（${els(win)}）· <b style="color:#ff8a7a">被克制</b> ${CAMP_NAME[lose]}（${els(lose)}）。比赛里对手名字旁会标出“我克 / 克我”。<br>`;
+  }
+
   toast(msg) {
     const k = $('#keyhint'); k.textContent = msg; k.style.transition = 'none'; k.style.opacity = '1';
     clearTimeout(this._toastT); this._toastT = setTimeout(() => { k.style.transition = 'opacity 0.8s'; k.style.opacity = '0'; }, 1300);
@@ -299,10 +306,14 @@ export class UI {
       const ctl = g.controllers[i];
       const s = g.side && !g.m5 ? SIDES[g.side[i]] : null, d = a.charDef;
       const nm = g.m5 ? (ctl?.cursor?.name || ctl?.cursorName || (ctl?.type === 'self' ? '我' : '') || `${a.no} ${a.label}`) : a.label;
-      const key = (s ? s.icon : '') + nm + d.id;
+      // 6v6: next to every opponent, whether I (the player I'm controlling) beat him or he beats me
+      const meA = g.m5 ? g._myAthlete?.() : null;
+      const rel = meA && a !== meA && a.gi !== meA.gi ? (beats(meA.charId, a.charId) ? 'win' : beats(a.charId, meA.charId) ? 'lose' : '') : meA === a ? 'me' : '';
+      const key = (s ? s.icon : '') + nm + d.id + rel;
       if (t.key !== key) {
         t.key = key;
-        t.lbl.innerHTML = `<span class="ci">${d.icon}</span>` + (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(nm);
+        const relTag = rel === 'win' ? '<span class="rel win">我克</span>' : rel === 'lose' ? '<span class="rel lose">克我</span>' : rel === 'me' ? `<span class="rel me">${CAMP_NAME[CAMP[d.id]]}</span>` : '';
+        t.lbl.innerHTML = `<span class="ci">${d.icon}</span>` + (s ? `<span class="side-badge">${s.icon}</span>` : '') + esc(nm) + relTag;
         t.el.classList.toggle('side', !!s);
         if (s) t.el.style.setProperty('--sc', s.css);
       }

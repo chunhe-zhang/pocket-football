@@ -221,6 +221,12 @@ export class Athlete {
         const t = pressedAny ? (pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick') : this._queued;
         this._queued = null; this.trick = null; this.trickEndT = -9;
         this._skillStrike(t);
+      } else if ((pressedPass || pressedLob) && !this.charging && g.state !== 'menu' && !(this.noChargeT > 0) && this._isHumanCtl()) {
+        // a human's pass (I) or chip (K) goes the moment it's pressed, weighted for the receiver — no wind-up
+        this.chargeType = pressedPass ? 'pass' : 'chip';
+        this._autoPass = true; this.charge = this.chargeType === 'pass' ? 0.3 : 0.5;
+        this._needRelease = true; this.armed = null;
+        this._release(); this._autoPass = false;
       } else if (wantShot && !this.charging && g.state !== 'menu' && !(this.noChargeT > 0) && !this._needRelease) {
         this.charging = true; this.charge = 0; this.chargeHold = 0; this.armed = null;
         this.chargeType = it.pass ? 'pass' : it.lob ? 'chip' : 'kick';
@@ -497,6 +503,8 @@ export class Athlete {
         // a skill move in progress: the ball is lifted / rolled over the sliding boot
         const carrier = g.possessor;
         if (carrier && carrier !== this && carrier.dodging && Math.random() < 0.6) { ball.vel.y = Math.max(ball.vel.y, 2.2); g.sfx.touch(); return; }
+        // a dribbler sees it coming now and then and lifts the ball over the boot
+        if (carrier && carrier !== this && carrier.dribbling && this._isOpp(carrier) && Math.random() < 0.3) { ball.vel.y = Math.max(ball.vel.y, 2.0); carrier.flair('挑过!', true); g.sfx.touch(); return; }
         const lateral = (Math.random() - 0.5) * 2.4;
         ball.vel.set(sl.dir.x * (sp * 0.85 + 3.2) - sl.dir.z * lateral, 0.6 + Math.random() * 1.2, sl.dir.z * (sp * 0.85 + 3.2) + sl.dir.x * lateral);
         ball.spin.set(0, (Math.random() - 0.5) * 20, 0);
@@ -666,7 +674,7 @@ export class Athlete {
     if (!force && this._tough()) { this._stagger(dir); return; }
     this.knock(dir, strength);
     const f = this.forward, fromBehind = dir.x * f.x + dir.z * f.z > 0;
-    this.stunT = 1.35;
+    this.stunT = 1.05;
     this.vel.copy(dir).multiplyScalar(Math.min(maxV, 1.5 + strength * 0.35));
     this.char.play(fromBehind ? 'fallF' : 'fallB', { duration: 1.5 });
     this.game.fx?.('dust', { x: this.pos.x + dir.x * 0.6, y: 0.05, z: this.pos.z + dir.z * 0.6 }, { x: dir.x, z: dir.z }, 10, 1.5);
@@ -923,6 +931,12 @@ export class Athlete {
       if (has('frost')) this.freeze(mild ? 0.9 : 1.5); else this._stagger(dir);
       return;
     }
+    // a mild touch of an element (an element pass cut out, a combo's aura brushing past) only rocks you
+    if (mild && !o.blast) {
+      if (has('frost')) this._freezeRaw(0.5);
+      else { this.knock(dir, 1); this.stunT = has('thunder') ? 0.2 : 0.25; this.char.play('stagger', { duration: 0.4, amp: 0.5 }); }
+      return;
+    }
     if (o.blast) this.launch(dir, 9, 6.5, true);                                   // 土+火: blown clean away
     else if (has('frost')) this.freeze((mild ? 0.9 : 1.8) * (lv > 1 ? 1.2 : 1));
     else if (has('cannon')) mild ? this.fall(dir, 8, 6, o.force) : this.launch(dir, 6.5, 8.5, o.force);
@@ -982,7 +996,7 @@ export class Athlete {
     // can I even reach it?
     if (Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) > 1.3 || ball.pos.y > 0.7) chance = 0;
     if (carrier) {
-      chance *= 0.64;                                      // a carrier on the ball is hard to rob
+      chance *= 0.38;                                      // a carrier on the ball is hard to rob
       // how exposed is the ball: tight at the carrier's boots it's hard to get at; knocked a stride
       // ahead (between touches) it's there for the taking
       const dcb = Math.hypot(ball.pos.x - carrier.pos.x, ball.pos.z - carrier.pos.z);
@@ -1923,7 +1937,7 @@ export class Athlete {
   }
 
   _release() {
-    const power = Math.max(0.12, this.charge);
+    let power = Math.max(0.12, this.charge);
     let type = this.chargeType;
     this.charging = false; this.charge = 0;
     const g = this.game;
@@ -1934,9 +1948,15 @@ export class Athlete {
       if ((ct === 'human' || ct === 'remote') && (type === 'pass' || type === 'chip') && !this.passTo) {
         const aim0 = this.aimDir(new THREE.Vector3()), stick = this.intent.move.lengthSq() > 0.09;
         const r = this._pickReceiver(aim0, power, type, stick);
+        if (r && this._autoPass) {
+          const run = Math.hypot(r.vel.x, r.vel.z), gt = r.goalTarget(), fwd = run > 2.5 && ((gt.x - r.pos.x) * r.vel.x + (gt.z - r.pos.z) * r.vel.z) > 0;
+          this.charge = type === 'pass' ? (fwd ? 0.5 : 0.15) : 0.5;            // into his run, or to his feet
+          if (type === 'chip' && !this.loftKind) this.loftKind = Math.hypot(gt.x - r.pos.x, gt.z - r.pos.z) < 16 ? 'head' : 'volley';
+        }
         const goal = type === 'chip' && stick ? this._goalOn(aim0) : null;
         const chipShot = goal && r && Math.hypot(goal.x - r.pos.x, goal.z - r.pos.z) > goal.d - 2;   // aimed at goal: a 挑射, not a pass
         if (r && !chipShot) this.intendTo = r;
+        if (this._autoPass) power = Math.max(0.12, this.charge);
       }
     }
     // the ball isn't there yet: keep the strike ready and go and meet it (first time, as it arrives)
@@ -2230,8 +2250,10 @@ export class Athlete {
    * (pass ≈ 4.5 m + 21 m × power, chip ≈ 9 m + 20 m × power), in the direction held, with space
    * round him, a clear lane, onside, and further towards goal all count in his favour.
    */
+  _isHumanCtl() { const t = this.game.controllers[this.team]?.type; return t === 'human' || t === 'remote'; }
+
   _pickReceiver(aim, power, type, stick) {
-    const g = this.game, ideal = type === 'chip' ? 9 + 20 * power : 4.5 + 21 * power;
+    const g = this.game, ideal = type === 'chip' ? 9 + 20 * power : 4.5 + 21 * power, auto = !!this._autoPass;
     const mt = this.goalTarget(), myGd = Math.hypot(mt.x - this.pos.x, mt.z - this.pos.z);
     let best = null, bs = -Infinity;
     for (const o of g.live) {
@@ -2251,7 +2273,10 @@ export class Athlete {
         }
       }
       const gt = o.goalTarget(), gd = Math.hypot(gt.x - px, gt.z - pz);
-      const s = (stick ? c * 3 : c * 0.6) - Math.abs(dm - ideal) * 0.22 + free * 0.35 - lane * 1.5 + (myGd - gd) * 0.05 - (g.offsidePos?.(o) ? 2.5 : 0);
+      // instant passes: no weight to read the distance from — the best-placed man: free, a clear lane,
+      // further up, onside (a chip likes a man in or near the box, to head it)
+      const dTerm = auto ? -Math.max(0, dm - 18) * 0.12 - (dm < 4 ? 1 : 0) + (type === 'chip' && gd < 14 ? 1.2 : 0) : -Math.abs(dm - ideal) * 0.22;
+      const s = (stick ? c * 3 : c * 0.6) + dTerm + free * 0.35 - lane * 1.5 + (myGd - gd) * (auto ? 0.09 : 0.05) - (g.offsidePos?.(o) ? 2.5 : 0);
       if (s > bs) { bs = s; best = o; }
     }
     return best;
@@ -2343,6 +2368,7 @@ export class Athlete {
         if (!(Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) < 0.9 && ball.pos.y < 0.9)) return false;
         // a lightning dash / a shadow's blink onto a ball someone has at his feet: it's poked loose, not won clean
         const lt = ball.lastTouch, contested = lt && this._isOpp(lt) && g.time - lt.lastTouchTime < 0.6;
+        if (contested && (P.type === 'thunder' || P.type === 'phantom') && lt.dribbling && Math.random() < 0.5) { P.poked = true; lt.flair('护住!', true); return false; }   // under close control he often keeps it
         if (contested && (P.type === 'thunder' || P.type === 'phantom')) {
           P.poked = true; const d = P.dir, s = (Math.random() - 0.5) * 3;
           ball.vel.set(d.x * 4.5 - d.z * s, 0.5, d.z * 4.5 + d.x * s); ball.lastTouch = this; this.lastTouchTime = g.time;

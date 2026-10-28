@@ -1045,7 +1045,7 @@ export class Game {
         }
         if (e.v > 6) this.squashBall({ x: e.n[0], y: e.n[1], z: e.n[2] }, e.v / 55);
         if (e.v > 14 && this.state === 'play') this.sfx.ooh();
-        if (e.v > 18 && e.part !== 'foot' && e.part !== 'hand' && !a.dive) a.knock(new THREE.Vector3(-e.n[0], 0, -e.n[2]).normalize(), 3); // a rocket to the body knocks you back
+        if (e.v > 25 && e.part !== 'foot' && e.part !== 'hand' && !a.dive) a.knock(new THREE.Vector3(-e.n[0], 0, -e.n[2]).normalize(), 3); // a rocket to the body knocks you back
         break;
       }
     }

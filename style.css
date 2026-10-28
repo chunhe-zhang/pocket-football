@@ -218,3 +218,7 @@ button { font-family: var(--font); cursor: pointer; }
 .score5 .cd i { display: inline-block; width: 7px; height: 10px; border-radius: 1.5px; }
 .score5 .cd i.y { background: #ffd23f; }
 .score5 .cd i.r { background: #ff3b3b; }
+#tags .lbl .rel { margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 11px; font-weight: 800; }
+#tags .lbl .rel.win { background: #2fbf5a; color: #fff; }
+#tags .lbl .rel.lose { background: #e8453c; color: #fff; }
+#tags .lbl .rel.me { background: rgba(255,255,255,0.9); color: #14101e; }
