@@ -167,7 +167,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.passToT = 0; this.shotDist = null; this.shotZone = null;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.carryGuard = 0; this.passToT = 0; this.shotDist = null; this.shotZone = null;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -222,6 +222,7 @@ export class Ball {
     this.noCatchT = Math.max(0, (this.noCatchT || 0) - dt);
     this.guardT = Math.max(0, (this.guardT || 0) - dt);   // a pass just played: clear of the marker's legs for a moment
     this.dribbleGuard = Math.max(0, (this.dribbleGuard || 0) - dt);
+    this.carryGuard = Math.max(0, (this.carryGuard || 0) - dt);
     this.passToT = Math.max(0, (this.passToT || 0) - dt);       // a pass on its way: team-mates it isn't for let it run   // under close control: opponents must tackle for it
     if (this.heldBy) {
       const k = this.heldBy;
@@ -372,6 +373,7 @@ export class Ball {
       if (this.passToT > 0 && this.passTo && c.owner !== this.passTo && this.lastTouch && c.owner !== this.lastTouch && !this.lastTouch._isOpp(c.owner)) continue;   // a pass runs past team-mates it isn't meant for
       if (this.special && c.owner !== this.special.owner && !this.special.owner._isOpp(c.owner)) continue;   // a shot flies past the shooter's own team
       if (this.guardT > 0 && this.guardBy && c.owner.gi !== this.guardBy.gi && !c.owner.slide && !c.owner.poke) continue;
+      if (this.carryGuard > 0 && this.carryBy && this.lastTouch === this.carryBy && c.owner !== this.carryBy && !this.carryBy._isOpp(c.owner)) continue;   // a team-mate's ball, even rolling between his touches: mates don't knock it away
       if (this.dribbleGuard > 0 && this.dribbleBy && c.owner !== this.dribbleBy && (!this.dribbleBy._isOpp(c.owner) || (!c.owner.slide && !c.owner.poke && !c.owner.isKeeper))) continue;   // a ball under close control runs past team-mates and anyone not tackling
       A.copy(c.prev).lerp(c.pos, u);
       let s = 0;

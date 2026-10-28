@@ -2098,8 +2098,11 @@ export class Athlete {
     if (ball.passToT > 0 && ball.passTo && ball.passTo !== this && ball.lastTouch && ball.lastTouch !== this && !this._isOpp(ball.lastTouch) && !ball.passTo.out) { this.dribbling = false; this.receive = null; return false; }
     // a team-mate's ball is his until he passes it: no taking it off his toes by bumping into it
     const lt0 = ball.lastTouch;
-    if (lt0 && lt0 !== this && !lt0.out && !this._isOpp(lt0) && lt0.passTarget !== this && ball.passTo !== this
-      && g.time - lt0.lastTouchTime < 0.9 && (lt0.dribbling || lt0.kick || Math.hypot(ball.pos.x - lt0.pos.x, ball.pos.z - lt0.pos.z) < 2.2)) { this.dribbling = false; return false; }
+    // (a human's ball all the more: running past, bumping it, a loose touch ahead of him — I leave it. Only a
+    // pass to me, or a ball that has really got away from him, is mine)
+    const ltCtl = lt0 && g.controllers[lt0.team]?.type, ltHuman = ltCtl === 'human' || ltCtl === 'remote';
+    if (lt0 && lt0 !== this && !lt0.out && !this._isOpp(lt0) && lt0.passTarget !== this && ball.passTo !== this && !(lt0.passedTo && lt0.passedTo !== this && ball.speed > 4)
+      && g.time - lt0.lastTouchTime < (ltHuman ? 1.8 : 1.2) && (lt0.dribbling || lt0.kick || lt0.charging || (Math.hypot(ball.pos.x - lt0.pos.x, ball.pos.z - lt0.pos.z) < (ltHuman ? 3.6 : 2.6) && ball.speed < 9))) { this.dribbling = false; return false; }
     // someone else has it under close control: only a tackle (or the keeper in his box) wins it
     const db = ball.dribbleGuard > 0 ? ball.dribbleBy : null;
     if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
@@ -2268,6 +2271,7 @@ export class Athlete {
     this.lastTouchTime = g.time;
     // close control: an opponent has to make a tackle to take it off me (no more squeezing it away)
     if (!this.trick || this.trick.type === 'knock') { ball.dribbleBy = this; ball.dribbleGuard = 0.1; }
+    ball.carryBy = this; ball.carryGuard = 1.2;
 
     // visible touches, in step with the run: each boot plays the ball as it swings
     // through (late swing, just before it plants), or a turn touch when changing direction
