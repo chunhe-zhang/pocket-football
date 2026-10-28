@@ -342,20 +342,83 @@ function tintedTexture(tex, color, decorate, mode = 'multiply') {
   return t;
 }
 
-function styleAvatar(root, kit) {
-  const outlineMat = new THREE.MeshBasicMaterial({ color: kit.outline ?? 0x1a1420, side: THREE.BackSide });
-  outlineMat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normal * 0.0042;');
+/**
+ * Anime cel shading, in the style of modern gacha-game characters: one crisp light/shadow edge
+ * from the key light, coloured shadows (warm and rosy on skin, cool on cloth, deep and saturated
+ * on hair) instead of grey, a thin warm band right at the terminator, a fresnel rim light that
+ * separates the figure from the grass, and a glossy "angel ring" highlight across the hair.
+ * Colours are not tone-mapped, so the palette stays clean and flat like the reference art.
+ */
+const CEL = {
+  skin:  { shadow: [0.95, 0.76, 0.76], band: [0.10, 0.03, 0.0], rim: [1.0, 0.92, 0.86], rimK: 0.28 },
+  hair:  { shadow: [0.66, 0.62, 0.84], band: [0.04, 0.02, 0.06], rim: [0.95, 0.95, 1.0], rimK: 0.32, ring: 1 },
+  cloth: { shadow: [0.70, 0.73, 0.90], band: [0.03, 0.03, 0.05], rim: [0.92, 0.95, 1.0], rimK: 0.24 },
+  face:  { shadow: [0.99, 0.92, 0.91], band: [0.02, 0.0, 0.0], rim: [1.0, 0.94, 0.9], rimK: 0.1 },   // faces stay clean: barely any shadow
+};
+function celMaterial(t, kind) {
+  const P = CEL[kind];
+  t.toneMapped = false;
+  t.userData.cel = kind;
+  t.onBeforeCompile = (sh) => {
+    sh.uniforms.uShadow = { value: new THREE.Color(...P.shadow) };
+    sh.uniforms.uBand = { value: new THREE.Color(...P.band) };
+    sh.uniforms.uRim = { value: new THREE.Color(...P.rim) };
+    sh.uniforms.uRimK = { value: P.rimK };
+    sh.uniforms.uRing = { value: P.ring ? 1 : 0 };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uShadow; uniform vec3 uBand; uniform vec3 uRim; uniform float uRimK; uniform float uRing;')
+      .replace('#include <opaque_fragment>', `
+        {
+          #if NUM_DIR_LIGHTS > 0
+            vec3 L = directionalLights[ 0 ].direction;
+          #else
+            vec3 L = normalize( vec3( 0.3, 0.8, 0.5 ) );
+          #endif
+          vec3 N = normalize( normal );
+          vec3 V = normalize( vViewPosition );
+          float ndl = dot( N, L );
+          float lit = smoothstep( 0.02, 0.07, ndl );
+          float band = smoothstep( -0.12, 0.02, ndl ) * ( 1.0 - lit );
+          vec3 base = diffuseColor.rgb;
+          vec3 c = mix( base * uShadow, base, lit ) + base * uBand * band * 3.0;
+          float rim = pow( 1.0 - clamp( dot( N, V ), 0.0, 1.0 ), 4.0 );
+          c += uRim * rim * uRimK * ( 0.35 + 0.65 * lit );
+          #ifdef USE_MAP
+            if ( uRing > 0.5 ) {
+              float ring = smoothstep( 0.28, 0.36, N.y ) * ( 1.0 - smoothstep( 0.46, 0.56, N.y ) );
+              float strands = 0.6 + 0.4 * sin( vMapUv.x * 140.0 );
+              c += vec3( 1.0, 0.98, 0.96 ) * ring * strands * 0.2 * ( 0.4 + 0.6 * lit );
+            }
+          #endif
+          outgoingLight = c * 1.04;
+        }
+        #include <opaque_fragment>`);
   };
+  t.customProgramCacheKey = () => 'cel-' + kind;
+  return t;
+}
+
+function styleAvatar(root, kit) {
+  // outlines: drawn per material in a darker shade of what they outline (warm brown round the skin,
+  // the kit colour deepened round the clothes), the way illustrated characters are inked
+  const inked = (hex) => { const c = new THREE.Color(hex); c.multiplyScalar(0.32); return c; };
+  const mkOutline = (color) => {
+    const m = new THREE.MeshBasicMaterial({ color, side: THREE.BackSide });
+    m.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normal * 0.0042;'); };
+    return m;
+  };
+  const OL = { skin: mkOutline(0x6e3f3c), hair: mkOutline(0x2b2236), dark: mkOutline(kit.outline ?? 0x1a1420),
+    shirt: mkOutline(inked(kit.shirt)), shorts: mkOutline(inked(kit.shorts)) };
   const add = [];
   root.traverse((o) => {
     if (!o.isMesh) return;
     o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     let wantsOutline = false;
+    const olMats = [];
     const next = mats.map((m) => {
       const n = (m.name || '').toUpperCase();
-      if (/EYE|FACE(MOUTH|EYELINE|BROW)|HIGHLIGHT/.test(n)) { const b = m.clone(); b.toneMapped = false; return b; } // eyes and face parts stay unlit
+      if (/EYE|FACE(MOUTH|EYELINE|BROW)|HIGHLIGHT/.test(n)) { const b = m.clone(); b.toneMapped = false; olMats.push(OL.dark); return b; } // eyes and face parts stay unlit
       let map = m.map;
       if (/TOPS/.test(n) && map) map = tintedTexture(map, kit.shirt, (g, w, h) => {
         // squad number on the back panel of the shirt texture
@@ -367,21 +430,23 @@ function styleAvatar(root, kit) {
       });
       if (/BOTTOMS/.test(n) && map) map = tintedTexture(map, kit.shorts);
       if (/HAIR/.test(n) && map && kit.hair) map = tintedTexture(map, kit.hair, null, kit.hairMode || 'multiply');
-      const isSkin = /SKIN/.test(n);
+      const isSkin = /SKIN|BODY/.test(n) && !/TOPS|BOTTOMS/.test(n), isHair = /HAIR/.test(n);
       const t = new THREE.MeshToonMaterial({
         name: m.name, map, color: m.color, gradientMap: gradient(),
         transparent: m.transparent, alphaTest: m.alphaTest, side: m.side, opacity: m.opacity,
       });
       t.emissive = new THREE.Color(0xffffff); t.emissiveMap = map; t.emissiveIntensity = isSkin ? 0.22 : 0.12;
-      if (/HAIR/.test(n) && m.map) t.userData.hairSrc = m.map;   // so the hair can be re-dyed per character
+      celMaterial(t, /FACE/.test(n) ? 'face' : isSkin ? 'skin' : isHair ? 'hair' : 'cloth');
+      if (isHair && m.map) t.userData.hairSrc = m.map;   // so the hair can be re-dyed per character
       if (!m.transparent && !/FACE/.test(n)) wantsOutline = true;
+      olMats.push(isSkin ? OL.skin : isHair ? OL.hair : /TOPS/.test(n) ? OL.shirt : /BOTTOMS/.test(n) ? OL.shorts : OL.dark);
       return t;
     });
     o.material = Array.isArray(o.material) ? next : next[0];
-    if (wantsOutline && o.isSkinnedMesh) add.push(o);
+    if (wantsOutline && o.isSkinnedMesh) add.push([o, Array.isArray(o.material) ? olMats : olMats[0]]);
   });
-  for (const o of add) {
-    const ol = new THREE.SkinnedMesh(o.geometry, outlineMat);
+  for (const [o, olm] of add) {
+    const ol = new THREE.SkinnedMesh(o.geometry, olm);
     ol.bind(o.skeleton, o.bindMatrix);
     ol.frustumCulled = false; ol.castShadow = false; ol.renderOrder = -1;
     o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale);

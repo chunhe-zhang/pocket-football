@@ -279,6 +279,7 @@ export class Athlete {
       if (wantsSprint) target = PLAYER.sprintSpeed * (this.charId === 'thunder' ? 1.08 : this.charId === 'gale' ? 1.08 : 1);
       if (mag < 0.7) target = PLAYER.walkSpeed + (PLAYER.runSpeed - PLAYER.walkSpeed) * Math.max(0, (mag - 0.25) / 0.45);
       if (this.charging) target *= 0.55;
+      if (this.dribbling && this.shieldK) target *= 1 - 0.3 * this.shieldK;   // protecting the ball: a shorter, braced stride
       if (this.receive && this.receive.type !== 'trapFoot') target *= 0.6; // settle under a dropping ball
       if (this.frozen) target = 0;
       if (this.holding) target = this.holding.release ? 0 : Math.min(target, PLAYER.walkSpeed);   // keeper with the ball in his hands
@@ -1526,7 +1527,7 @@ export class Athlete {
     this.char.group.position.copy(this.pos);
     this.char.setFacing(this.facing);
     const hs = Math.hypot(this.vel.x, this.vel.z);
-    this.char.update(dt, { speed: hs, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1) });
+    this.char.update(dt, { speed: hs, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });
   }
 
   // ---------------------------------------------------------------------------
@@ -2068,7 +2069,7 @@ export class Athlete {
     const push = 0.2 + Math.min(sp, PLAYER.runSpeed) * 0.05 + (sprinting ? 0.45 : 0);
     const kd = this.knockDur || 0.3;
     let ahead = near + push * Math.pow(clamp(this.knockT / kd, 0, 1), 0.7);
-    if (!wants && sp < 1) ahead = 0.3 + R;                 // standing: ball at the boot
+    if (!wants) ahead = 0.3 + R + Math.min(sp, 4) * 0.025;   // stick released: the sole stops it at the boot
     if (this.charging) ahead = 0.3 + R + 0.1;              // set it up for the strike
     const tgt = this._w.set(this.pos.x + d.x * ahead, 0, this.pos.z + d.z * ahead);
     // skill moves place the ball themselves
@@ -2088,21 +2089,36 @@ export class Athlete {
     }
     clampToArena(tgt, R + 0.04);              // never steer the ball into the boards
     pushOutOfObstacles(tgt, R + 0.05);        // or into a planter
-    const tx = tgt.x, tz = tgt.z;
+    let tx = tgt.x, tz = tgt.z;
 
     // is the ball behind / beside me relative to where I'm going? then it needs a turn touch
     const bx = ball.pos.x - this.pos.x, bz = ball.pos.z - this.pos.z;
     const bl = Math.hypot(bx, bz) || 1;
     const cosA = (bx * d.x + bz * d.z) / bl;
     const turning = wants && cosA < 0.5 && bl > 0.25;
+    const reverse = turning && !sk && cosA < -0.55;          // a full about-turn: dragged back under the sole
+    if (reverse) { tgt.set(this.pos.x + d.x * 0.18, 0, this.pos.z + d.z * 0.18); }
+    // shielding: a marker close by and I'm not bursting away — the ball goes to the far foot, tucked in
+    if (!sk && !sprinting && !this.charging) {
+      let opp = null, od = 1.8;
+      for (const o of g.live) { if (!this._isOpp(o) || o.stunT > 0) continue; const dd = Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z); if (dd < od) { od = dd; opp = o; } }
+      if (opp) {
+        const r = this.rightDir, sideOpp = (opp.pos.x - this.pos.x) * r.x + (opp.pos.z - this.pos.z) * r.z;
+        const k = 1 - od / 1.8, away = sideOpp > 0 ? -1 : 1; this.shieldSide = sideOpp > 0 ? 1 : -1;
+        tgt.x = this.pos.x + (tgt.x - this.pos.x) * (1 - 0.35 * k) + r.x * away * 0.24 * k;
+        tgt.z = this.pos.z + (tgt.z - this.pos.z) * (1 - 0.35 * k) + r.z * away * 0.24 * k;
+        this.shieldK = k;
+      } else this.shieldK = 0;
+    } else this.shieldK = 0;
+    if (reverse || this.shieldK) { clampToArena(tgt, R + 0.04); pushOutOfObstacles(tgt, R + 0.05); tx = tgt.x; tz = tgt.z; }
 
     // desired relative velocity towards the target, capped so it reads as rolling
-    const kp = sk ? 11 : turning ? 7 : 5.5;
+    const kp = sk ? 11 : reverse ? 9 : turning ? 7 : !wants ? 7 : 5.5;
     let dvx = (tx - ball.pos.x) * kp, dvz = (tz - ball.pos.z) * kp;
     const cap = sk ? 7.5 : turning ? 6.5 : 4.5, m = Math.hypot(dvx, dvz);
     if (m > cap) { dvx *= cap / m; dvz *= cap / m; }
     // swing round the body rather than through it when turning
-    if (turning && !sk) {
+    if (turning && !sk && !reverse) {
       const cross = bx * d.z - bz * d.x; // which way round is shorter
       const s2 = cross > 0 ? 1 : -1, px = -bz / bl * s2, pz = bx / bl * s2;
       dvx += px * 1.8; dvz += pz * 1.8;
@@ -2110,7 +2126,7 @@ export class Athlete {
     // a loose, rolling ball between touches (not glued to the boot): the spring only really bites
     // when a touch is played or the ball has drifted out of reach
     const drift = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
-    const kv = 1 - Math.exp(-dt * (sk ? 16 : turning ? 7 : this.knockT > 0 ? 1.6 : drift > 0.45 ? 6 : 3.6));
+    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? 7 : !wants ? 8 : this.knockT > 0 ? 1.6 : drift > 0.45 ? 6 : 3.6));
     ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
     ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
     if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);

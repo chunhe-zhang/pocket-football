@@ -1009,6 +1009,14 @@ export class Character {
       this._rot(b.head, r, 0.45 * tw);                                                      // head up, looking at the play
       this.root.position.y -= 0.12 * tw;                                                    // knees give (the feet stay planted)
     }
+    // -- shielding the ball: shoulder and arm into the marker (shield > 0: he's on my right), knees bent, low
+    const sw = this.shieldW || 0;
+    if (Math.abs(sw) > 0.01) {
+      this._rot(b.spine1, f, 0.16 * sw); this._rot(b.spine, f, 0.08 * sw);
+      this._rot(sw > 0 ? b.armR : b.armL, f, (sw > 0 ? -1 : 1) * 0.55 * Math.abs(sw));
+      this._rot(b.spine1, r, -0.12 * Math.abs(sw));
+      this.root.position.y -= 0.05 * Math.abs(sw);
+    }
     this._faceBusyT = Math.max(0, (this._faceBusyT || 0) - dt);
     if (!(this._faceBusyT > 0) && this.expr) this.expr.set('aa', Math.max(0, fat - 0.4) * (0.35 + 0.35 * (inhale * 0.5 + 0.5)));
     // -- eyes: they get there first and go further than the head
@@ -1065,7 +1073,8 @@ export class Character {
     if (s > 1e-6) { this._rot(up, axis.divideScalar(s), Math.atan2(s, from.dot(to))); up.updateMatrixWorld(true); }
   }
 
-  update(dt, { speed = 0, turnRate = 0, fatigue = 0 } = {}) {
+  update(dt, { speed = 0, turnRate = 0, fatigue = 0, shield = 0 } = {}) {
+    this.shieldW = (this.shieldW || 0) + (shield - (this.shieldW || 0)) * Math.min(1, dt * 6);
     this._styleTick?.(dt);
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
