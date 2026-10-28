@@ -482,12 +482,14 @@ export class AIController {
     // when we have it and drops back together when we don't
     let X, Z;
     const r = me.role;
+    // the whole team moves as one: everybody pushes up when we have it, everybody drops back when we
+    // don't (the back stays the last man and the forward the furthest up, but both go with the block)
     if (r === 'back') {
-      X = attacking ? clamp(bx * 0.4 - 0.32 * HX, -0.62 * HX, -1.5) : clamp(Math.min(bx - 3, bx * 0.3 - 0.4 * HX), -HX + 3.2, -1.5);
+      X = attacking ? clamp(bx - 6, -0.5 * HX, 0.45 * HX) : clamp(bx - 6.5, -HX + 3, 0.1 * HX);
       Z = bz * 0.3;
     } else if (r === 'fwd') {
-      X = attacking ? clamp(Math.max(bx + 5, 0.45 * HX), 0, HX - 3) : clamp(bx * 0.25 + 0.12 * HX, -0.05 * HX, 0.35 * HX);
-      Z = bz * 0.25 + (attacking ? 0 : 0.15 * HZ);
+      X = attacking ? clamp(Math.max(bx + 5, 0.3 * HX), 0, HX - 3) : clamp(bx + 1.5, -0.6 * HX, 0.2 * HX);
+      Z = bz * 0.25 + (attacking ? 0 : 0.12 * HZ);
     } else {
       const lane = r === 'wingL' ? -0.38 : r === 'wingR' ? 0.38 : 0;
       const line = attacking ? clamp(bx + 2.5, -0.2 * HX, HX - 4) : clamp(bx - 3.5, -HX + 4, 0.25 * HX);

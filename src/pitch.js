@@ -138,9 +138,7 @@ function grassTexture() {
           g.lineWidth = size * ppm * 0.16; g.strokeStyle = 'rgba(30,90,40,0.45)'; g.strokeText(txt, X(px), Y(pz));
           g.fillStyle = `rgba(255,255,255,${alpha})`; g.fillText(txt, X(px), Y(pz));
         };
-        const BB = bigBox();
-        put('大禁区', BB.depth - 1.4, -(BB.halfW - 3.2), 1.25, 0.72);
-        put('小禁区', FIELD.boxDepth - 1.0, -(FIELD.boxHalfW - 2.4), 0.9, 0.8);
+        void put;   // the zones are marked by their lines only (no names painted on the grass)
       }
       g.restore();
     }
