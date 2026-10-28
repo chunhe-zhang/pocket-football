@@ -70,7 +70,7 @@ export class Athlete {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.kick = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
-    this.slide = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
+    this.slide = null; this.tm = null; this.dive = null; this.stunT = 0; this.receive = null; this.ignoreBall = 0; this._resetColliders = true;
     this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0; this.holding = null; this._ready = false; this.air = null; this.slipT = 0; if (this.power) { this.power = null; this.char.group.visible = !this.out; }
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
@@ -168,7 +168,7 @@ export class Athlete {
     // ---- slide tackle ------------------------------------------------------------
     const tacklePressed = it.tackle && !this._prevTackle;
     this._prevTackle = it.tackle;
-    if (tacklePressed && !this.frozen && !this.slide && !this.dive && !this.kick && !this.poke && !this.trick && this.stunT <= 0 && g.state === 'play') {
+    if (tacklePressed && !this.frozen && !this.slide && !this.tm && !this.dive && !this.kick && !this.poke && !this.trick && this.stunT <= 0 && g.state === 'play') {
       const b = g.ball, bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
       const holder = g.possessor;
       const mine = holder === this || (this.dribbling && b.lastTouch === this) || (!holder && b.lastTouch === this && bd < 1.4 && b.pos.y < 0.8 && g.time - this.lastTouchTime < 1);
@@ -188,6 +188,7 @@ export class Athlete {
         // 6v6: off the ball the button is the character's skill too, when it's ready and there's someone to use it on
         else if (g.m5 && !mateHas && this.powerCD <= 0 && !this.power && this._offBallSkill()) { /* started */ }
         else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
+        else if (g.m5 && this.charId !== 'frost') this._startTackleMove();      // 6v6: everyone has his own way of winning it (ice still slides)
         else this._startSlide();
       }
     }
@@ -210,7 +211,7 @@ export class Athlete {
       else if (pressedAny) this._queued = want;            // pressed a touch early: it goes the moment it can
       if (this.power) { this.charging = false; this.charge = 0; }
     }
-    else if (this.frozen || this.slide || this.dive || this.poke || this.stunT > 0 || this.holding) { this.charging = false; this.charge = 0; }
+    else if (this.frozen || this.slide || this.tm || this.dive || this.poke || this.stunT > 0 || this.holding) { this.charging = false; this.charge = 0; }
     else if (!this.kick && !this.header) {
       if ((pressedKick || pressedLob || pressedPass) && !this.charging && g.state === 'play' && (this._headerChance() || (pressedLob && this._headerChance(true)))) {
         this._startHeader(pressedLob ? 'lob' : pressedPass ? 'pass' : 'shot');
@@ -276,6 +277,7 @@ export class Athlete {
     else if (this.dive) this._diveMotion(dt);
     else if (this.slide) this._slideMotion(dt);
     else if (this.poke) this._pokeMotion(dt);
+    else if (this.tm) this._tackleMoveMotion(dt);
     else if (this.header && this.header.jumped && (this.header.kind === 'dive' || this.header.kind === 'bicycle')) this._headerBodyMotion(dt);
     else if (this.air) this._airMotion(dt);
     else if (this.stunT > 0) { this.vel.multiplyScalar(Math.max(0, 1 - dt * (this.slipT > 0 ? 1.2 : 5))); this.pos.addScaledVector(this.vel, dt); }
@@ -610,7 +612,7 @@ export class Athlete {
     if (this.frozen) return;
     this.stunT = clamp(0.35 + strength * 0.05, 0.4, 0.75);
     this.vel.copy(dir).multiplyScalar(1 + strength * 0.2);
-    this.kick = null; this.armed = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null; this.dive = null; this.poke = null; this.trick = null; this.header = null;
+    this.kick = null; this.armed = null; this.charging = false; this.charge = 0; this.touch = null; this.receive = null; this.slide = null; this.dive = null; this.poke = null; this.trick = null; this.header = null; this.tm = null;
     this.char.play('stagger', { duration: this.stunT + 0.15 });
     this.char.face('surprised', 0.8); this.faceT = 0.6;
     this.game.rumble(this, 0.8, 140);
@@ -947,6 +949,122 @@ export class Athlete {
       this.char.play('stagger', { duration: this.stunT + 0.1 }); this.char.face('surprised', 1); this.faceT = 0.6;
     } else this.fall(dir, mild ? 5 : 7, 6, o.force);
     this.game.rumble(this, mild ? 0.6 : 1, mild ? 140 : 260);
+  }
+
+  // ---- element tackles (6v6): not everyone slides ------------------------------------------
+  /**
+   * The tackle button away from the ball (skill on cooldown):
+   *  🔥 火 肩撞 — a burst of flame and a shoulder charge into the man on the ball
+   *  🪨 土 踏地 — a stamp: a shockwave in front pops the ball up and rocks everyone in it
+   *  ⚡ 雷 闪电捅 — a lightning-quick lunge, a toe poked at the ball
+   *  🌀 风 旋风扫 — a spin on the spot: the whirl sweeps the ball (and people) in to me
+   *  👻 影 影手 — my shadow stretches out along the grass and drags the ball back to me
+   *  ❄️ 冰 still slides — the long icy slide that freezes
+   */
+  _startTackleMove() {
+    const g = this.game, b = g.ball, kind = this.charId;
+    const p = b.predict(0.2, this._v);
+    const dir = new THREE.Vector3(p.x - this.pos.x, 0, p.z - this.pos.z); if (dir.lengthSq() < 1e-4) dir.copy(this.forward); dir.normalize();
+    const T = { blaze: { dur: 0.5, act: 0.08, end: 0.36, cd: 1.3, g: 'dash' }, cannon: { dur: 0.55, act: 0.2, end: 0.22, cd: 1.5, g: 'roar' },
+      thunder: { dur: 0.42, act: 0.03, end: 0.2, cd: 1.0, g: 'dash' }, gale: { dur: 0.6, act: 0.05, end: 0.55, cd: 1.3, g: 'roar' },
+      phantom: { dur: 0.5, act: 0.12, end: 0.4, cd: 1.3, g: 'pass' } }[kind];
+    if (!T) { this._startSlide(); return; }
+    this.tm = { type: kind, t: 0, dir, ...T, hit: new Set(), won: false, poked: false };
+    this.facing = Math.atan2(dir.x, dir.z);
+    this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.armed = null; this.dribbling = false;
+    this.slideCD = T.cd; this.stamina = Math.max(0, this.stamina - 0.1);
+    this.char.play(T.g, { duration: T.dur + 0.1, amp: kind === 'cannon' ? 0.8 : kind === 'gale' ? 0.6 : 1 });
+    this.char.face('angry', 0.6); this.faceT = 0.5;
+    g.sfx.element?.(kind, 'slide', 0.6);
+  }
+
+  _tackleMoveMotion(dt) {
+    const M = this.tm, g = this.game, b = g.ball, d = M.dir;
+    M.t += dt;
+    const active = M.t >= M.act && M.t <= M.end;
+    const near = (o, r) => Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < r;
+    // a controlled ball: a tackle move gets it about as often as a slide does
+    const takeable = () => { const lt = b.lastTouch; return !(lt && this._isOpp(lt) && (lt.dribbling || lt.power) && lt.stunT <= 0) || Math.random() < 0.5; };
+    const win = (vx, vz, vy = 0.4) => { b.vel.set(vx, vy, vz); b.lastTouch = this; this.lastTouchTime = g.time; this.stats.tackles++; M.won = true; this.ignoreBall = 0.12; };
+    switch (M.type) {
+      case 'blaze': {        // flame-wreathed shoulder charge
+        const sp = M.t < M.end ? 8.5 * (1 - M.t / M.end) + 2 : 0;
+        this.vel.copy(d).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
+        if (Math.random() < dt * 40) g.fx('fire', { x: this.pos.x, y: 0.9, z: this.pos.z }, { x: -d.x, z: -d.z }, 3, 2.5);
+        if (active) for (const o of g.live) {
+          if (!this._isOpp(o) || M.hit.has(o) || o.air) continue;
+          const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, dd = Math.hypot(dx, dz);
+          if (dd < 1.0 && (dx * d.x + dz * d.z) / (dd || 1) > 0.3) {
+            M.hit.add(o); this._foulCheck(o, { dir: d, poked: M.won });
+            if (o._counters('blaze')) { o._shrug('blaze', d); continue; }
+            o.fall(new THREE.Vector3(dx / (dd || 1), 0, dz / (dd || 1)), 8, 5); g.onImpact?.(o, 0xff6a2b); g.sfx.bump(11);
+            g.fx('fire', { x: o.pos.x, y: 0.9, z: o.pos.z }, { x: 0, z: 0 }, 18, 3);
+          }
+        }
+        if (active && !M.won && Math.hypot(b.pos.x - this.pos.x - d.x * 0.6, b.pos.z - this.pos.z - d.z * 0.6) < 0.9 && b.pos.y < 0.9 && takeable()) win(d.x * 3 + this.vel.x * 0.4, d.z * 3 + this.vel.z * 0.4);
+        break;
+      }
+      case 'cannon': {       // stamp: a shockwave in front
+        this.vel.multiplyScalar(Math.max(0, 1 - dt * 10)); this.pos.addScaledVector(this.vel, dt);
+        if (!M.fired && M.t >= M.act) {
+          M.fired = true;
+          g.fx('dust', { x: this.pos.x + d.x * 1.2, y: 0.1, z: this.pos.z + d.z * 1.2 }, { x: d.x, z: d.z }, 30, 5); g.sfx.element?.('cannon', 'hit', 0.7); g.shake = Math.max(g.shake, 0.12);
+          for (const o of g.live) {
+            if (!this._isOpp(o) || o.air) continue;
+            const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, dd = Math.hypot(dx, dz);
+            if (dd < 2.9 && (dx * d.x + dz * d.z) / (dd || 1) > -0.1) {
+              this._foulCheck(o, { dir: d, poked: true });
+              const away = new THREE.Vector3(dx / (dd || 1), 0, dz / (dd || 1));
+              if (o._counters('cannon')) { o._shrug('cannon', away); continue; }
+              o.knock(away, 3); o.stunT = Math.max(o.stunT, 0.45); o.char.play('stagger', { duration: 0.5 });
+            }
+          }
+          const bx = b.pos.x - this.pos.x, bz = b.pos.z - this.pos.z, bd = Math.hypot(bx, bz);
+          if (!b.heldBy && bd < 2.9 && (bx * d.x + bz * d.z) / (bd || 1) > -0.1 && b.pos.y < 1 && takeable()) win(-bx / (bd || 1) * 2.5, -bz / (bd || 1) * 2.5, 3.2);   // popped up, back towards me
+        }
+        break;
+      }
+      case 'thunder': {      // a lightning lunge and a poke
+        const sp = M.t < M.end ? 13 : 0;
+        this.vel.copy(d).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
+        if (Math.random() < dt * 40) g.fx('bolt', { x: this.pos.x, y: 0.6, z: this.pos.z }, { x: -d.x, z: -d.z }, 2, 2);
+        if (!M.won && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 1.0 && b.pos.y < 0.8 && M.t <= M.end + 0.06) {
+          if (takeable()) { const s = (Math.random() - 0.5) * 2; win(d.x * 4 - d.z * s, d.z * 4 + d.x * s, 0.5); }
+          else { M.won = true; b.lastTouch?.flair?.('护住!', true); }
+        }
+        break;
+      }
+      case 'gale': {         // a spin: the whirl sweeps the ball and the people in
+        this.vel.multiplyScalar(Math.max(0, 1 - dt * 8)); this.pos.addScaledVector(this.vel, dt); this.facing += dt * 14;
+        if (Math.random() < dt * 30) g.fx('wind', { x: this.pos.x, y: 0.5, z: this.pos.z }, { x: 0, z: 0 }, 3, 4);
+        if (!M.whirled) { M.whirled = true; this._whirl(this.pos.clone(), 3.4, 0.45, 0.8); M.ok = takeable(); }
+        const bx = this.pos.x - b.pos.x, bz = this.pos.z - b.pos.z, bd = Math.hypot(bx, bz);
+        if (active && !b.heldBy && bd < 3.4 && bd > 0.5 && b.pos.y < 1.4 && M.ok) {
+          b.vel.x += (bx / bd) * 46 * dt; b.vel.z += (bz / bd) * 46 * dt;
+          const lt = b.lastTouch; if (lt && this._isOpp(lt)) { lt.knockFree = Math.max(lt.knockFree || 0, 0.3); lt.dribbling = false; }
+          if (bd < 1.0 && !M.won) win(this.vel.x, this.vel.z, 0.1);
+        }
+        break;
+      }
+      case 'phantom': {      // the shadow hand: reaches along the grass and drags the ball back
+        this.vel.multiplyScalar(Math.max(0, 1 - dt * 10)); this.pos.addScaledVector(this.vel, dt);
+        const bx = this.pos.x - b.pos.x, bz = this.pos.z - b.pos.z, bd = Math.hypot(bx, bz);
+        if (M.t < M.act && Math.random() < dt * 40) { const k = Math.random(); g.fx('ghost', { x: this.pos.x - bx * k, y: 0.15, z: this.pos.z - bz * k }, { x: 0, z: 0 }, 2, 1.2); }
+        if (!M.grabbed && M.t >= M.act) {
+          M.grabbed = true;
+          if (!b.heldBy && bd < 4.0 && b.pos.y < 1.2 && takeable()) {
+            win((bx / (bd || 1)) * Math.min(8, 3 + bd * 1.6), (bz / (bd || 1)) * Math.min(8, 3 + bd * 1.6), 0.3);
+            const lt = g.athletes.find((o) => this._isOpp(o) && o.dribbling); if (lt) { lt.knockFree = 0.35; lt.dribbling = false; }
+            g.fx('ghost', { x: b.pos.x, y: 0.4, z: b.pos.z }, { x: 0, z: 0 }, 16, 2.5); g.sfx.element?.('phantom', 'hit', 0.5);
+          }
+        }
+        break;
+      }
+    }
+    if (M.t >= M.dur) {
+      this.tm = null; this.vel.multiplyScalar(0.3);
+      if (!M.won && !M.hit.size && M.type !== 'cannon') { this.stunT = Math.max(this.stunT, 0.25); }    // a miss costs a moment, not a lie-down
+    }
   }
 
   // ---- standing tackle -----------------------------------------------------------------
