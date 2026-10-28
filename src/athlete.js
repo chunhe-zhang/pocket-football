@@ -966,11 +966,10 @@ export class Athlete {
     const p = b.predict(0.2, this._v);
     const dir = new THREE.Vector3(p.x - this.pos.x, 0, p.z - this.pos.z); if (dir.lengthSq() < 1e-4) dir.copy(this.forward); dir.normalize();
     const T = { blaze: { dur: 0.5, act: 0.08, end: 0.36, cd: 1.3, g: 'dash' }, cannon: { dur: 0.55, act: 0.2, end: 0.22, cd: 1.5, g: 'roar' },
-      thunder: { dur: 0.62, act: 0.32, end: 0.34, cd: 1.4, g: 'roar' }, gale: { dur: 0.6, act: 0.05, end: 0.55, cd: 1.3, g: 'roar' },
+      thunder: { dur: 0.42, act: 0.03, end: 0.2, cd: 1.0, g: 'dash' }, gale: { dur: 0.6, act: 0.05, end: 0.55, cd: 1.3, g: 'roar' },
       phantom: { dur: 0.5, act: 0.12, end: 0.4, cd: 1.3, g: 'pass' } }[kind];
     if (!T) { this._startSlide(); return; }
     this.tm = { type: kind, t: 0, dir, ...T, hit: new Set(), won: false, poked: false };
-    if (kind === 'thunder') { const q = b.predict(T.act, new THREE.Vector3()); this.tm.at = { x: q.x, z: q.z }; }   // where the thunderbolt will land
     this.facing = Math.atan2(dir.x, dir.z);
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.armed = null; this.dribbling = false;
     this.slideCD = T.cd; this.stamina = Math.max(0, this.stamina - 0.1);
@@ -1025,28 +1024,13 @@ export class Athlete {
         }
         break;
       }
-      case 'thunder': {      // 召唤雷霆: an arm to the sky, and a thunderbolt comes down on the ball
-        this.vel.multiplyScalar(Math.max(0, 1 - dt * 10)); this.pos.addScaledVector(this.vel, dt);
-        const A = M.at;
-        if (M.t < M.act && Math.random() < dt * 50) g.fx('spark', { x: A.x + (Math.random() - 0.5) * 1.6, y: 0.08, z: A.z + (Math.random() - 0.5) * 1.6 }, { x: 0, z: 0 }, 1, 1);   // the spot crackles first: you can run out of it
-        if (!M.fired && M.t >= M.act) {
-          M.fired = true;
-          g.powerFx?.bolt?.({ x: A.x + 0.5, y: 10, z: A.z - 0.4 }, { x: A.x, y: 0.05, z: A.z }, 0.35, 0.4, 0xdff9ff);
-          g.powerFx?.bolt?.({ x: A.x - 0.6, y: 9, z: A.z + 0.5 }, { x: A.x, y: 0.05, z: A.z }, 0.25, 0.2);
-          g.fx('bolt', { x: A.x, y: 0.4, z: A.z }, { x: 0, z: 0 }, 30, 5); g.fx('spark', { x: A.x, y: 0.2, z: A.z }, { x: 0, z: 0 }, 20, 4);
-          g.sfx.element?.('thunder', 'hit', 1); g.shake = Math.max(g.shake, 0.16);
-          for (const o of g.live) {
-            if (!this._isOpp(o) || o.air) continue;
-            const od = Math.hypot(o.pos.x - A.x, o.pos.z - A.z);
-            if (od < 1.4) o.elemHit(['thunder'], new THREE.Vector3(o.pos.x - A.x, 0, o.pos.z - A.z).normalize(), { mild: false });
-          }
-          const bd = Math.hypot(b.pos.x - A.x, b.pos.z - A.z);
-          if (!b.heldBy && b.pos.y < 1.4 && (bd < 0.9 || (bd < 1.5 && takeable()))) {
-            // blasted up out of his feet and away, back my way
-            const tx = this.pos.x - A.x, tz = this.pos.z - A.z, tl = Math.hypot(tx, tz) || 1, s = (Math.random() - 0.5) * 2.5;
-            win((tx / tl) * 4.5 - (tz / tl) * s, (tz / tl) * 4.5 + (tx / tl) * s, 4.2);
-            const lt = g.live.find((o) => this._isOpp(o) && o.dribbling); if (lt) { lt.knockFree = 0.4; lt.dribbling = false; }
-          }
+      case 'thunder': {      // 闪电抢断: a lightning lunge to the ball and a toe poked at it (nobody knocked down)
+        const sp = M.t < M.end ? 13 : 0;
+        this.vel.copy(d).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
+        if (Math.random() < dt * 40) g.fx('bolt', { x: this.pos.x, y: 0.6, z: this.pos.z }, { x: -d.x, z: -d.z }, 2, 2);
+        if (!M.won && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 1.0 && b.pos.y < 0.8 && M.t <= M.end + 0.06) {
+          if (takeable()) { const s = (Math.random() - 0.5) * 2; win(d.x * 4 - d.z * s, d.z * 4 + d.x * s, 0.5); }
+          else { M.won = true; b.lastTouch?.flair?.('护住!', true); }
         }
         break;
       }
