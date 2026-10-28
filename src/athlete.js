@@ -1741,6 +1741,18 @@ export class Athlete {
     let type = this.chargeType;
     this.charging = false; this.charge = 0;
     const g = this.game;
+    // a human's pass (I) or chip (K): the receiver is the best-placed team-mate for how hard it's hit —
+    // a tap finds the nearby man, a full charge the one far up the pitch — in the direction held
+    {
+      const ct = g.controllers[this.team]?.type;
+      if ((ct === 'human' || ct === 'remote') && (type === 'pass' || type === 'chip') && !this.passTo) {
+        const aim0 = this.aimDir(new THREE.Vector3()), stick = this.intent.move.lengthSq() > 0.09;
+        const r = this._pickReceiver(aim0, power, type, stick);
+        const goal = type === 'chip' && stick ? this._goalOn(aim0) : null;
+        const chipShot = goal && r && Math.hypot(goal.x - r.pos.x, goal.z - r.pos.z) > goal.d - 2;   // aimed at goal: a 挑射, not a pass
+        if (r && !chipShot) this.intendTo = r;
+      }
+    }
     // the ball isn't there yet: keep the strike ready and go and meet it (first time, as it arrives)
     if (!this._inStrikeReach(type)) {
       const b = g.ball, bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
@@ -2027,6 +2039,38 @@ export class Athlete {
   }
 
   /** the team-mate nearest the line I'm aiming along (within the cone, closer and straighter wins) */
+  /**
+   * The team-mate a pass of this weight is for: the one at the distance this power carries to
+   * (pass ≈ 4.5 m + 21 m × power, chip ≈ 9 m + 20 m × power), in the direction held, with space
+   * round him, a clear lane, onside, and further towards goal all count in his favour.
+   */
+  _pickReceiver(aim, power, type, stick) {
+    const g = this.game, ideal = type === 'chip' ? 9 + 20 * power : 4.5 + 21 * power;
+    const mt = this.goalTarget(), myGd = Math.hypot(mt.x - this.pos.x, mt.z - this.pos.z);
+    let best = null, bs = -Infinity;
+    for (const o of g.live) {
+      if (o === this || o.out || !g.sameSide(o.team, this.team) || o.role === 'gk') continue;
+      const px = o.pos.x + o.vel.x * 0.4, pz = o.pos.z + o.vel.z * 0.4;
+      const dx = px - this.pos.x, dz = pz - this.pos.z, dm = Math.hypot(dx, dz);
+      if (dm < 2 || dm > 38) continue;
+      const c = (dx * aim.x + dz * aim.z) / dm;
+      if (stick && c < 0.35) continue;
+      let free = 5, lane = 0;
+      for (const e of g.live) {
+        if (!this._isOpp(e)) continue;
+        free = Math.min(free, Math.hypot(e.pos.x - px, e.pos.z - pz));
+        if (type === 'pass') {
+          const t = clamp(((e.pos.x - this.pos.x) * dx + (e.pos.z - this.pos.z) * dz) / (dm * dm), 0.05, 0.95);
+          if (Math.hypot(this.pos.x + dx * t - e.pos.x, this.pos.z + dz * t - e.pos.z) < 0.9 + 0.05 * dm * t) lane = 1;
+        }
+      }
+      const gt = o.goalTarget(), gd = Math.hypot(gt.x - px, gt.z - pz);
+      const s = (stick ? c * 3 : c * 0.6) - Math.abs(dm - ideal) * 0.22 + free * 0.35 - lane * 1.5 + (myGd - gd) * 0.05 - (g.offsidePos?.(o) ? 2.5 : 0);
+      if (s > bs) { bs = s; best = o; }
+    }
+    return best;
+  }
+
   _coneMate(aim, minCos, maxD) {
     const g = this.game; let best = null, bestS = -Infinity;
     // a human's pass reads generously: the team-mate he's roughly pointing at (where they're running to)
