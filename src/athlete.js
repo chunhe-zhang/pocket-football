@@ -185,6 +185,8 @@ export class Athlete {
           if (this.isKeeper && bd < 1.9 && Math.hypot(b.vel.x, b.vel.z) < 8 && b.pos.y < 0.8) this._startPoke(); else this._startDive();
         }
         else if (mateHas && bd < 2.5) { /* never tackle my own team-mate */ }
+        // 6v6: off the ball the button is the character's skill too, when it's ready and there's someone to use it on
+        else if (g.m5 && !mateHas && this.powerCD <= 0 && !this.power && this._offBallSkill()) { /* started */ }
         else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
         else this._startSlide();
       }
@@ -203,7 +205,7 @@ export class Athlete {
       const P = this.power;
       // mid-move: strike it there and then, at the sweet power (the move sets the shot up)
       const want = pressedAny ? (pressedPass ? 'pass' : pressedLob ? 'chip' : 'kick') : this._queued;
-      if (P.type === 'gale' && want && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) { this._queued = null; if (want === 'pass') this._galePass(); else this._galeVolley(); }
+      if (P.type === 'gale' && !P.planted && want && P.t > P.dur * 0.15 && P.t < P.dur * 0.85) { this._queued = null; if (want === 'pass') this._galePass(); else this._galeVolley(); }
       else if (want && P.type !== 'gale' && (P.type === 'phantom' ? P.jumped : P.type === 'blaze' || P.type === 'frost' ? P.blasted : P.t > P.dur * 0.2)) { this._queued = null; this._skillStrike(want); }
       else if (pressedAny) this._queued = want;            // pressed a touch early: it goes the moment it can
       if (this.power) { this.charging = false; this.charge = 0; }
@@ -437,7 +439,7 @@ export class Athlete {
         const q = new THREE.Vector3(ball.pos.x - dir.x * 1.0, 0, ball.pos.z - dir.z * 1.0);
         clampToArena(q, 0.5); pushOutOfObstacles(q, PLAYER.radius);
         this.pos.copy(q); this.char.teleported();
-        if (this._caughtByControl(1.3)) return;
+        void 0;
       }
     }
     const v0 = clamp(Math.max(sp, 4) + 2.6, 6.2, 9);
@@ -1140,17 +1142,28 @@ export class Athlete {
     switch (kind) {
       case 'thunder': {          // a Z-shaped lightning dash round the defender
         // a tighter, shorter zigzag that goes where the stick points (it can be steered while it runs)
-        P.dur = 0.36; const end = behind(3.6), r = new THREE.Vector3(-dir.z, 0, dir.x), a = this.pos;
+        P.dur = 0.36; const r = new THREE.Vector3(-dir.z, 0, dir.x), a = this.pos;
+        // off the ball: a tight zigzag straight in at the ball, to nick it
+        const end = this._offBall ? (() => { const q = g.ball.pos.clone().addScaledVector(dir, 0.25); q.y = 0; clampToArena(q, 0.8); return q; })() : behind(3.6), zz = this._offBall ? 0.3 : 1;
         const side = opp && ((opp.pos.x - a.x) * r.x + (opp.pos.z - a.z) * r.z) > 0 ? -1 : 1;
-        P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 0.85 * side), a.clone().lerp(end, 0.66).addScaledVector(r, -0.65 * side), end];
+        P.path = [a.clone(), a.clone().lerp(end, 0.33).addScaledVector(r, 0.85 * side * zz), a.clone().lerp(end, 0.66).addScaledVector(r, -0.65 * side * zz), end];
         for (const q of P.path) { clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); }   // never zig out of the pitch
         this.char.play('dash', { duration: P.dur + 0.1 }); break;
       }
       case 'phantom': {          // vanish and reappear behind them
         P.dur = 0.4; P.to = behind(3.8); P.jumped = false;
+        if (this._offBall) {     // off the ball: reappear right at the ball, on my side of it
+          const b = g.ball, q = new THREE.Vector3(b.pos.x - dir.x * 0.55, 0, b.pos.z - dir.z * 0.55);
+          clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); P.to = q;
+        }
         this.char.play('dash', { duration: 0.3 }); break;
       }
       case 'gale': {             // a whirlwind gathers them in, then he spins up into the air and flies over them
+        if (this._offBall) {     // off the ball: stay planted, the whirlwind round me pulls them (and the ball) in
+          P.dur = 0.7; P.dist = 0; P.planted = true;
+          this._whirl(this.pos.clone(), 3.6, 0.7, 1.0);
+          this.char.play('roar', { duration: 0.8, amp: 0.6 }); break;
+        }
         P.dur = 1.15; P.dist = this._room(dir, 4.4);
         this._whirl(this.pos.clone().addScaledVector(dir, Math.min(2, P.dist * 0.45)), 3.8, 0.75, 1.1);
         this.char.play('galeLeap', { duration: P.dur }); break;
@@ -1172,7 +1185,9 @@ export class Athlete {
     this.power = P; this.trick = null; this.touch = null; this.receive = null;
     this.powerCD = Athlete.POWER_CD; this.skillCD = 0.6;
     this.stats.skills++;
-    g.ball.passThrough = this;
+    P.off = !!this._offBall; this._offBall = false;
+    if (P.off) this.powerCD = Athlete.POWER_CD * 1.5;         // used to win the ball back: a longer wait before the next one
+    if (!P.off) g.ball.passThrough = this;
     g.onPower?.(this, kind);
   }
 
@@ -1185,7 +1200,7 @@ export class Athlete {
     if (P.type === 'thunder') {
       fx('bolt', 4, 2, 0.8);
       // 控制克灵巧: the lightning dash is caught half-way by an ice or wind player it runs past
-      if (P.t > 0.06 && this._caughtByControl(0.8)) return;
+      void 0;
     }
     if (P.type === 'gale') fx('wind', 3, 3, 0.3 + this._galeH(u));
     if (P.type === 'cannon') { fx('smoke', 2, 2, 0.3); this._ram(); }
@@ -1195,12 +1210,34 @@ export class Athlete {
       this.facing = Math.atan2(P.dir.x, P.dir.z); this.char.teleported();
       g.fx('ghost', { x: this.pos.x, y: 0.9, z: this.pos.z }, { x: 0, z: 0 }, 18, 2.5);
       g.sfx.post(4);
-      if (this._caughtByControl(1.3)) return;
+      void 0;
     }
     if (P.type === 'phantom') this.char.group.visible = !(P.t > 0.06 && P.t < 0.26 && Math.sin(P.t * 90) > -0.3);
     if ((P.type === 'blaze' || P.type === 'frost') && !P.blasted && P.t >= 0.25) { P.blasted = true; this._blast(P.type); }
     if (this.power && g.state === 'play') this._keeperClaim();
     if (this.power && P.t >= P.dur) this._endPower();
+  }
+
+  /**
+   * The tackle button off the ball (6v6), skill ready: use it if there's someone in its reach — each
+   * element its own way: fire roars, ice freezes, the earth charges at the carrier, lightning dashes in to
+   * nick the ball, the shadow blinks to it, the wind's whirlwind pulls them and the ball in. Else false
+   * (and it's a normal tackle).
+   */
+  _offBallSkill() {
+    const g = this.game, b = g.ball, kind = this.charId;
+    if (this.isKeeper || b.heldBy) return false;
+    const car = g.possessor && this._isOpp(g.possessor) ? g.possessor : null;
+    const tgt = car ? car.pos : b.pos, d = Math.hypot(tgt.x - this.pos.x, tgt.z - this.pos.z);
+    const near = (r) => g.live.some((o) => this._isOpp(o) && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < r);
+    const reach = { blaze: 3.0, frost: 3.0, gale: 3.8, cannon: 4.0, thunder: 4.0, phantom: 4.5 }[kind] || 0;
+    const ok = kind === 'blaze' || kind === 'frost' ? near(reach) : d < reach && d > 0.8;
+    if (!ok) return false;
+    this.intent.move.set(tgt.x - this.pos.x, tgt.z - this.pos.z).normalize();
+    this._offBall = true;
+    this._startPower();
+    this._offBall = false;
+    return !!this.power;
   }
 
   /** how far I can travel this way before the boards (keeping a metre's margin) */
@@ -1313,8 +1350,8 @@ export class Athlete {
     if (b.passThrough === this) b.passThrough = null;
     if (P.type === 'gale') this.facing = Math.atan2(P.dir.x, P.dir.z);
     this.burstT = Math.max(this.burstT, P.type === 'thunder' ? 0.3 : 0.6);   // lightning comes out of it under control
-    // the ball carries on at my feet
-    b.lastTouch = this; this.lastTouchTime = this.game.time; this.touchCD = 0.15;
+    // the ball carries on at my feet (off the ball: only if I actually got to it)
+    if (!P.off || P.got) { b.lastTouch = this; this.lastTouchTime = this.game.time; this.touchCD = 0.15; }
   }
 
   /** the body during a character move */
@@ -1338,6 +1375,15 @@ export class Athlete {
       if (this.vel.length() > 30) this.vel.setLength(30);
       this.pos.set(nx, 0, nz);
       const d = this.vel; if (d.lengthSq() > 0.5) this.facing = Math.atan2(d.x, d.z);
+    } else if (P.type === 'gale' && P.planted) {
+      this.vel.multiplyScalar(Math.max(0, 1 - dt * 10)); this.pos.addScaledVector(this.vel, dt); this.facing += dt * 12;
+      const b = this.game.ball, dx = this.pos.x - b.pos.x, dz = this.pos.z - b.pos.z, d = Math.hypot(dx, dz);
+      if (!b.heldBy && d < 3.4 && d > 0.6 && b.pos.y < 1.5) {
+        const car = b.lastTouch;
+        if (car && this._isOpp(car) && CAMP[car.charId] !== 'force' && d < 2.4) { car.knockFree = Math.max(car.knockFree || 0, 0.3); car.dribbling = false; }
+        if (!(car && this._isOpp(car) && CAMP[car.charId] === 'force' && d > 1.2)) { b.vel.x += (dx / d) * 18 * dt; b.vel.z += (dz / d) * 18 * dt; }
+      }
+      if (Math.random() < dt * 30) this.game.fx('wind', { x: this.pos.x, y: 0.4, z: this.pos.z }, { x: 0, z: 0 }, 3, 4);
     } else if (P.type === 'gale') {
       const sp = P.dist / P.dur;
       this.vel.copy(dir).multiplyScalar(sp); this.pos.addScaledVector(this.vel, dt);
@@ -1362,11 +1408,12 @@ export class Athlete {
     const P = this.power, b = this.game.ball;
     const dir = P.type === 'gale' || P.type === 'cannon' ? P.dir : this.forward;
     const reach = P.type === 'cannon' ? 0.75 : 0.45;
-    const h = P.type === 'gale' ? this._galeH(Math.min(1, P.t / P.dur)) : 0;
-    b.pos.set(this.pos.x + dir.x * reach, BALL.r + h + (P.type === 'gale' ? 0.35 * Math.sin(Math.PI * Math.min(1, P.t / P.dur)) : 0), this.pos.z + dir.z * reach);
+    const air = P.type === 'gale' && !P.planted;
+    const h = air ? this._galeH(Math.min(1, P.t / P.dur)) : 0;
+    b.pos.set(this.pos.x + dir.x * reach, BALL.r + h + (air ? 0.35 * Math.sin(Math.PI * Math.min(1, P.t / P.dur)) : 0), this.pos.z + dir.z * reach);
     const by = b.pos.y; clampToArena(b.pos, BALL.r + 0.05); b.pos.y = by;     // the ball stays on the pitch too
     b.vel.set(this.vel.x, 0, this.vel.z);
-    if (P.type === 'gale') b.vel.y = 0.001;
+    if (P.type === 'gale' && !P.planted) b.vel.y = 0.001;
     b.spin.set(this.vel.z / BALL.r, 0, -this.vel.x / BALL.r);
     b.lastTouch = this; this.lastTouchTime = this.game.time;
     b.endSpecial?.();
@@ -1487,11 +1534,13 @@ export class Athlete {
   _whirl(c, r, dur, strength = 1) {
     const g = this.game; if (!g.m5) return;
     for (const o of g.live) {
-      if (!this._isOpp(o) || o.air || o.power) continue;
+      if (!this._isOpp(o) || o.air) continue;
+      if (o.power && !(CAMP[o.charId] === 'agile')) continue;   // a whirlwind can drag a lightning dash / a shadow out of its move
       const d = Math.hypot(o.pos.x - c.x, o.pos.z - c.z);
       if (d > r || d < 0.35) continue;
       if (o.isKeeper && o._tough()) continue;
       const heavy = CAMP[o.charId] === 'force';
+      if (o.power) { o._endPower(); o.stunT = Math.max(o.stunT, 0.4); o.flair('被卷住!', true); }
       o.pullT = Math.max(o.pullT || 0, dur); o.pullC = c.clone ? c.clone() : new THREE.Vector3(c.x, 0, c.z); o.pullK = strength * (heavy ? 0.3 : 1);
       if (!heavy && o.dribbling) { o.knockFree = Math.max(o.knockFree || 0, 0.3); o.dribbling = false; }
     }
@@ -2286,8 +2335,24 @@ export class Athlete {
       && g.time - lt0.lastTouchTime < (ltHuman ? 1.8 : 1.2) && (lt0.dribbling || lt0.kick || lt0.charging || (Math.hypot(ball.pos.x - lt0.pos.x, ball.pos.z - lt0.pos.z) < (ltHuman ? 3.6 : 2.6) && ball.speed < 9))) { this.dribbling = false; return false; }
     // someone else has it under close control: only a tackle (or the keeper in his box) wins it
     const db = ball.dribbleGuard > 0 ? ball.dribbleBy : null;
-    if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
-    if (this.power) { this._powerBall(); return true; }             // mid character move: the ball goes where I go
+    if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.power && this.power.off) && !(this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
+    if (this.power) {                                                // mid character move: the ball goes where I go
+      const P = this.power;
+      if (P.off && P.poked) return false;
+      if (P.off && !P.got) {
+        if (!(Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z) < 0.9 && ball.pos.y < 0.9)) return false;
+        // a lightning dash / a shadow's blink onto a ball someone has at his feet: it's poked loose, not won clean
+        const lt = ball.lastTouch, contested = lt && this._isOpp(lt) && g.time - lt.lastTouchTime < 0.6;
+        if (contested && (P.type === 'thunder' || P.type === 'phantom')) {
+          P.poked = true; const d = P.dir, s = (Math.random() - 0.5) * 3;
+          ball.vel.set(d.x * 4.5 - d.z * s, 0.5, d.z * 4.5 + d.x * s); ball.lastTouch = this; this.lastTouchTime = g.time;
+          lt.knockFree = Math.max(lt.knockFree || 0, 0.4); lt.dribbling = false; this.stats.tackles++; g.sfx.kick(0.3);
+          return false;
+        }
+        P.got = true; this.stats.tackles++;
+      }
+      this._powerBall(); return true;
+    }
     if (this.frozen) { this.dribbling = false; return false; }
     if (this.kick && this.kick.t < this.kick.contactT + 0.1) { this.dribbling = false; return false; }
     const f = this.forward, r = this.rightDir;
