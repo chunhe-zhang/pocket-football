@@ -576,7 +576,7 @@ export class Game {
   onWhiff() {}
 
   /** a character's skill move (过人) starts: its effects, here and on guests' screens */
-  onPower(ath, kind) { this.powerFx.start(ath, kind); this.sfx.element(kind, 'move'); this.emit({ e: 'power', i: ath.team, k: kind }); }
+  onPower(ath, kind, off = false) { this.powerFx.start(ath, kind, off ? { off: true } : null); this.sfx.element(kind, 'move'); this.emit({ e: 'power', i: ath.team, k: kind, f: null, o: off ? 1 : 0 }); }
   /** a slide tackle with the character's element (from = where a phantom blinked from) */
   onSlide(ath, kind, from) { this.powerFx.start(ath, 'slide:' + kind, { from }); this.sfx.element(kind, 'slide', 0.6); this.emit({ e: 'power', i: ath.team, k: 'slide:' + kind, f: from ? [from.x, from.z] : null }); }
   /** an impact flash at a player (cannon hits) */
@@ -1457,7 +1457,7 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
-      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : null); break; }
+      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : e.o ? { off: true } : null); break; }
       case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }

@@ -1320,7 +1320,7 @@ export class Athlete {
     P.off = !!this._offBall; this._offBall = false;
     if (P.off) this.powerCD = Athlete.POWER_CD * 1.5;         // used to win the ball back: a longer wait before the next one
     if (!P.off) g.ball.passThrough = this;
-    g.onPower?.(this, kind);
+    g.onPower?.(this, kind, P.off);
   }
 
   _powerTick(dt) {

@@ -383,7 +383,7 @@ export class PowerFx {
           if (Math.random() < 0.7) { const a1 = Math.random() * 6.28; this.bolt({ x: p.x, y: 1.1, z: p.z }, { x: p.x + Math.cos(a1) * 0.9, y: 0.2 + Math.random(), z: p.z + Math.sin(a1) * 0.9 }, 0.08, 0.05, 0xffffff); }
           if (Math.random() < 0.4) this.puff(T.streak, { x: p.x, y: 0.6 + Math.random() * 0.8, z: p.z }, { x: 0, y: 0, z: 0 }, 0.2, 0.9, 0.3, 0x6fd8ff, 0, false, 0.6);
         }
-        if (!f.struck && t >= 0.42) {
+        if (!f.struck && t >= 0.42 && !f.off) {      // (off the ball — 闪电抢断 — no strike from the sky)
           f.struck = true;
           this.bolt({ x: p.x + 0.4, y: 9, z: p.z - 0.6 }, { x: p.x, y: 0.1, z: p.z }, 0.3, 0.35, 0xdff9ff);
           this.bolt({ x: p.x - 0.5, y: 8, z: p.z + 0.3 }, { x: p.x, y: 0.1, z: p.z }, 0.22, 0.18);
