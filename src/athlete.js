@@ -400,10 +400,12 @@ export class Athlete {
       if (this.slide && leg && c.side === 'R') c.active = false;
       if (this.header && (!this.header.hit || this.header.t < this.header.hitT + 0.3) && (c.part === 'head' || c.part === 'chest' || (this.header.jumped && (lower || c.part === 'hand')))) c.active = false;
       // hands only count during a dive (no handball otherwise); a diving keeper is all reach
-      if (c.part === 'hand') c.active = !!this.dive && this.dive.t < 0.75;
+      // (a goalkeeper in his own box may always use his hands: they're gloves, a little bigger)
+      const gloves = this.isKeeper && this._tough();
+      if (c.part === 'hand') c.active = (!!this.dive && this.dive.t < 0.75) || (gloves && !this.holding);
       // a fully stretched keeper covers more than the bare skeleton suggests (gloves, sleeves, body)
       const stretch = this.dive && this.dive.t > 0.05 && this.dive.t < 0.75;
-      c.r = stretch && c.part !== 'head' ? c.r0 * 1.15 : c.r0;
+      c.r = c.r0 * (stretch && c.part !== 'head' ? 1.15 : 1) * (gloves && c.part === 'hand' ? 1.6 : 1);
     });
     this._resetColliders = false;
   }
@@ -521,16 +523,29 @@ export class Athlete {
     let s = 0;
     const m = this.intent.move;
     if (m.lengthSq() > 0.09) s = m.x * right.x + m.y * right.z;
-    if (Math.abs(s) < 0.2) {
-      // towards where the ball will cross in front of me
+    // where the ball will cross my line (and how high): the dive is aimed and weighted to get the gloves there
+    const cross = this._crossing(this._v3 || (this._v3 = new THREE.Vector3()));
+    let need = 1.8, lift = 0;
+    if (cross) {
+      const cs = (cross.x - this.pos.x) * right.x + (cross.z - this.pos.z) * right.z;
+      if (Math.abs(s) < 0.2 || Math.sign(cs) === Math.sign(s)) s = cs;
+      need = Math.abs(cs);
+      lift = clamp((cross.y - 0.45) * 0.8, 0, 0.85);
+    } else if (Math.abs(s) < 0.2) {
       const v = ball.vel, sp = Math.hypot(v.x, v.z);
       const px = sp > 1 ? ball.pos.x + v.x * 0.35 : ball.pos.x, pz = sp > 1 ? ball.pos.z + v.z * 0.35 : ball.pos.z;
       s = (px - this.pos.x) * right.x + (pz - this.pos.z) * right.z;
-      if (Math.abs(s) < 0.05) s = Math.random() - 0.5;
     }
+    if (Math.abs(s) < 0.05) s = Math.random() - 0.5;
     const side = s >= 0 ? 'Right' : 'Left';
-    const dir = right.clone().multiplyScalar(s >= 0 ? 1 : -1);
-    this.dive = { t: 0, dur: 1.15, dir, speed0: this.role === 'gk' ? 9.5 : 5.6, side };
+    // a little forward too, attacking the ball and narrowing the angle
+    const dir = right.clone().multiplyScalar(s >= 0 ? 1 : -1); dir.x += home.inward.x * 0.22; dir.z += home.inward.z * 0.22; dir.y = 0; dir.normalize();
+    // the stretched body and arms cover ~1.15 m beyond where the hips land; the push covers the rest
+    // (the push is spent over 0.36 s: if the ball gets there sooner, push harder to be there in time)
+    const sc = this.char.group.scale.x || 1, travel = clamp(need - 0.6 * sc, 0.35, 2.8);
+    const tArr = cross ? clamp(cross.t, 0.08, 0.36) : 0.36, got = 1 - Math.pow(1 - tArr / 0.36, 2.4);
+    const speed0 = this.role === 'gk' ? clamp((travel * 2.4) / (0.36 * Math.max(got, 0.2)), 4, 17) : 5.6;
+    this.dive = { t: 0, dur: 1.15, dir, speed0, side, lift };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
     this.slideCD = 1.4;
     this.char.play('dive', { side, duration: 1.15 });
@@ -546,6 +561,7 @@ export class Athlete {
     const sp = u < 1 ? dv.speed0 * Math.pow(1 - u, 1.4) : 0;
     this.vel.copy(dv.dir).multiplyScalar(sp);
     this.pos.addScaledVector(this.vel, dt);
+    dv.y = dv.lift ? dv.lift * Math.sin(Math.PI * clamp(dv.t / 0.55, 0, 1)) : 0;    // a high ball: take off for it
     if (dv.t > 0.3 && dv.t < 0.36) this.game.fx('grass', this.pos, dv.dir, 6, 1.2);
     if (dv.t >= dv.dur) { this.dive = null; this.vel.set(0, 0, 0); }
   }
@@ -644,6 +660,7 @@ export class Athlete {
    * catchable, beaten away if not. Fast, wide shots still beat me; combos meant to go through do.
    */
   saveCheck(p0) {
+    if (!this.game.oldSaves) return;      // replaced by gkContact: a save only happens where a glove (or the body) really meets the ball
     const g = this.game, b = g.ball;
     const justIced = this.iceT > 1.3;         // frozen by this very shot: the block still counts
     if (!this.isKeeper || b.heldBy || this.holding || ((this.stunT > 0 || this.frozen) && !justIced) || g.state !== 'play' || b.hidden) return;
@@ -686,13 +703,102 @@ export class Athlete {
     this.flair('神扑!', true);
   }
 
+  /** where (and when) an incoming shot crosses my position along the goal's axis, or null */
+  _crossing(out) {
+    const b = this.game.ball, v = b.vel, inw = this.home.inward, c = this.home.centre;
+    const toward = -(v.x * inw.x + v.z * inw.z);
+    if (toward < 2.5) return null;
+    const dep = (q) => (q.x - c.x) * inw.x + (q.z - c.z) * inw.z;
+    const t = (dep(b.pos) - dep(this.pos)) / toward;
+    if (t < -0.05 || t > 1.4) return null;
+    b.predict(Math.max(0, t), out); out.t = t;
+    return out;
+  }
+
+  /**
+   * The ball has just met part of me (from the ball's own collision test, so it really is touching
+   * a glove, an arm, the body or a leg). Decide what a keeper makes of it:
+   * 'catch' (held), 'parry' (beaten away), 'beat' (a touch, but it squirms on through), or null (plain bounce).
+   */
+  gkContact(b, c, spc) {
+    const g = this.game, lt = b.lastTouch;
+    if (!this.isKeeper || !this._tough() || b.heldBy || this.holding || g.state !== 'play') return null;
+    if (!lt || !this._isOpp(lt)) return null;
+    const justIced = this.iceT > 1.3;
+    if ((this.stunT > 0 || this.frozen) && !justIced) return null;
+    if (this._beatT > g.time) return 'beat';
+    const sp = b.speed; if (sp < 5) return null;
+    const key = lt.team + ':' + lt.lastTouchTime;
+    if (this._saveKey === key) return null;              // already decided for this shot: plain physics
+    this._saveKey = key;
+    const cb = spc && spc.combo, combo = cb && cb.level > 1;
+    const dist = b.shotDist ?? 14, zone = b.shotZone || (dist < 4 ? 'small' : dist < 9 ? 'box' : 'out');
+    const glove = c.part === 'hand', body = c.part === 'chest' || c.part === 'head' || c.part === 'hips';
+    // he's got there: most of the time that's a save. Point blank, a rocket, a combo or a boot to it are less sure
+    let chance = 1.14 - Math.max(0, sp - 22) * 0.012;
+    chance += zone === 'small' ? -0.08 : zone === 'box' ? 0 : 0.16;
+    if (!glove && !body) chance -= 0.05;
+    if (spc) chance -= spc.has?.('phantom') ? 0.08 : 0.02;
+    if (combo) chance -= (cb.level >= 3 ? 0.32 : 0.16) * Math.max(0.15, 1 - (cb.range ?? 0.3));
+    chance -= (1 - this._gkLevel()) * 0.55;
+    if (Math.random() > chance) {
+      // fingertips: it's touched, slowed a little and nudged, but goes on
+      this._beatT = g.time + 0.35;
+      b.vel.multiplyScalar(0.85); b.vel.x += (Math.random() - 0.5) * 1.6; b.vel.z += (Math.random() - 0.5) * 1.6; b.vel.y += 0.5;
+      this.flair('指尖碰到了…', true);
+      return 'beat';
+    }
+    b.endSpecial(); b.passEls = null; b.chain = null;
+    const catchable = !combo && !(b.noCatchT > 0) && (glove || body) && sp < 27 && !justIced;
+    if (catchable) { this.smother(b); g.sfx.body(9); this.flair('稳稳抱住!', true); return 'catch'; }
+    // beaten away off the glove: back out of the goal and wide
+    const inw = this.home.inward;
+    const vin = b.vel.x * inw.x + b.vel.z * inw.z, side = Math.sign((b.pos.z - this.pos.z) * inw.x - (b.pos.x - this.pos.x) * inw.z) || 1;
+    if (vin < 0) { b.vel.x += -1.55 * vin * inw.x; b.vel.z += -1.55 * vin * inw.z; }
+    b.vel.multiplyScalar(0.42); b.vel.x += -inw.z * side * 3; b.vel.z += inw.x * side * 3; b.vel.y = 2.5 + Math.random() * 2;
+    b.lastTouch = this; this.lastTouchTime = g.time; b.noCatchT = 0.3;
+    g.sfx.body(14); g.sfx.ooh(); g.shake = Math.max(g.shake, 0.12); g.squashBall?.({ x: inw.x, y: 0, z: inw.z }, 0.2);
+    g.fx('spark', b.pos, { x: inw.x, z: inw.z }, 14, 4);
+    this.flair('神扑!', true);
+    return 'parry';
+  }
+
+  /**
+   * A keeper's hands go where the ball will be: both gloves behind it when it's coming at the body,
+   * the nearer one stretched out for it otherwise; and they stay on the ball while he holds it.
+   */
+  _gloves(dt) {
+    const ik = this.char.armIK; if (!ik) return;
+    const g = this.game, b = g.ball, T = this._gv || (this._gv = new THREE.Vector3());
+    let wl = 0, wr = 0;
+    const r = this.rightDir;
+    if (this.holding && !this.holding.release) {
+      this.handPos(T);
+      ik.L.target.copy(T).addScaledVector(r, -0.11); ik.R.target.copy(T).addScaledVector(r, 0.11);
+      wl = wr = 0.92;
+    } else if (this.isKeeper && this._tough() && !this.holding && this.stunT <= 0 && g.state === 'play' && b.speed > 4.5 && b.lastTouch && this._isOpp(b.lastTouch) && this._crossing(T)) {
+      const w = clamp((1.15 - T.t) / 0.7, 0, 1);
+      const s = (T.x - this.pos.x) * r.x + (T.z - this.pos.z) * r.z;
+      if (Math.abs(s) < 0.32 && T.y > 0.5 && T.y < 1.75 && !this.dive) {
+        ik.L.target.copy(T).addScaledVector(r, -0.1); ik.R.target.copy(T).addScaledVector(r, 0.1); wl = wr = w;
+      } else {
+        const bn = this.char.bones, aL = bn.armL.getWorldPosition(this._fa || (this._fa = new THREE.Vector3())), aR = bn.armR.getWorldPosition(this._fb || (this._fb = new THREE.Vector3()));
+        if (aR.distanceToSquared(T) <= aL.distanceToSquared(T)) { ik.R.target.copy(T); wr = w; } else { ik.L.target.copy(T); wl = w; }
+      }
+    }
+    const k = Math.min(1, dt * 16);
+    ik.L.w += (wl - ik.L.w) * k; ik.R.w += (wr - ik.R.w) * k;
+  }
+
   /** how good a keeper I am: a CPU keeper follows the difficulty (女友模式's keeper lets plenty in) */
-  _gkLevel() { const ai = this.game.controllers[this.team]?.ai; return ai ? 0.62 + 0.38 * ai.cfg.skill : 0.95; }
+  _gkLevel() { const ai = this.game.controllers[this.team]?.ai; return ai ? 0.8 + 0.2 * ai.cfg.skill : 0.97; }
 
   /** the ball into my hands */
   smother(b) {
+    // the ball stays where the gloves met it, then is gathered in to the chest
+    const off = new THREE.Vector3(b.pos.x - this.pos.x, Math.max(BALL.r, b.pos.y), b.pos.z - this.pos.z);
     b.hold(this);
-    this.holding = { t: 0 };
+    this.holding = { t: 0, off };
     this.char.play('gkHold');
     this.game.sfx.body(6);
   }
@@ -700,7 +806,13 @@ export class Athlete {
   /** where the ball sits while I'm holding it */
   handPos(out) {
     const f = this.forward;
-    return out.set(this.pos.x + f.x * 0.42, this.dive ? 0.45 : 0.98, this.pos.z + f.z * 0.42);
+    out.set(this.pos.x + f.x * 0.42, this.dive ? 0.45 : 0.98, this.pos.z + f.z * 0.42);
+    const h = this.holding;
+    if (h && h.off) {
+      const k = smoothstep(clamp(h.t / (this.dive ? 0.9 : 0.45), 0, 1));
+      out.set(this.pos.x + h.off.x + (out.x - this.pos.x - h.off.x) * k, h.off.y + (out.y - h.off.y) * k, this.pos.z + h.off.z + (out.z - this.pos.z - h.off.z) * k);
+    }
+    return out;
   }
 
   /** throw it out to a team-mate (or launch it up the pitch when there's nobody) */
@@ -715,6 +827,7 @@ export class Athlete {
   _keeperTick(dt) {
     const g = this.game, b = g.ball;
     if (!this.isKeeper) return;
+    this._gloves(dt);
     if (this.holding) {
       const h = this.holding; h.t += dt;
       if (b.heldBy !== this) { this.holding = null; this.char.stopEmotes(); return; }
@@ -1461,7 +1574,7 @@ export class Athlete {
     if (k && !k.hit && k.approach) {
       const u = k.t / k.dur, c = ANIM.kickContact;
       if (u < c + 0.03) {
-        ik.R.w = Math.exp(-(((u - c) / 0.085) ** 2)) * 0.85;
+        ik.R.w = Math.exp(-(((u - c) / 0.095) ** 2)) * 0.97;
         ik.R.target.copy(ball.pos).addScaledVector(k.aim, -(R + 0.06));
         ik.R.target.y = clamp(ball.pos.y - R * 0.3, ankleH, 1.05);
       }
@@ -1501,6 +1614,12 @@ export class Athlete {
       ik.R.target.y = ball.pos.y + R + ankleH * 0.45;
       ik.R.w = Math.max(ik.R.w, sole); ik.R.sole = 0.28 * sole;
     }
+    // a drag-back about-turn: the sole is on the ball while it's rolled back
+    if (this._reverse > 0 && this.dribbling && !this.touch) {
+      const w = clamp(this._reverse / 0.2, 0, 1) * 0.9;
+      ik.R.target.copy(ball.pos); ik.R.target.y = ball.pos.y + R * 0.75 + ankleH * 0.4;
+      ik.R.w = Math.max(ik.R.w, w); ik.R.sole = Math.max(ik.R.sole, 0.3 * w);
+    }
     const sk = this.trick;
     if (sk && (sk.type === 'drag' || sk.type === 'dragback') && sk.t < sk.dur * 0.8) {
       const s = sk.foot === 'Left' ? 'L' : 'R', w = Math.sin(Math.PI * clamp(sk.t / (sk.dur * 0.8), 0, 1)) * 0.95;
@@ -1519,7 +1638,7 @@ export class Athlete {
 
   _sync(dt) {
     if (this.iceT > 0) { this.iceT = Math.max(0, this.iceT - dt); dt = 0; }   // frozen: the pose holds
-    this.char.airY = this.air ? this.air.y : (this.netAir ? this.netAir[0] : 0);
+    this.char.airY = (this.air ? this.air.y : (this.netAir ? this.netAir[0] : 0)) + (this.dive?.y || 0);
     this.char.tumble = this.air ? this.air.rot : (this.netAir ? this.netAir[1] : 0);
     this.char.setGhost?.(!!this.ghost);
     const iced = this.iceT > 0;
@@ -1740,6 +1859,14 @@ export class Athlete {
     const reach = k.armed ? 0.95 : 0.55;          // met on the run (first time): the boot finds it
     if (!footTouched && (d > reach || ball.pos.y > maxH)) { g.onWhiff(this); return; }
     k.hit = true;
+    if (!footTouched) {
+      // the boot didn't quite get there: the ball is met where the boot is (the leg was reaching for it), so
+      // what you see is the boot and the ball together at the strike, not a ball leaving from thin air
+      const a = this.char.anklePos('R', this._fa), tp = this.char.footPos('R', this._fb);
+      const mid = a.lerp(tp, 0.6);
+      const nx = mid.x + k.aim.x * (R + 0.02), nz = mid.z + k.aim.z * (R + 0.02);
+      if (Math.hypot(nx - ball.pos.x, nz - ball.pos.z) < 0.7) { ball.pos.x += (nx - ball.pos.x) * 0.85; ball.pos.z += (nz - ball.pos.z) * 0.85; if (!(ball.pos.y > R + 0.15)) ball.pos.y = Math.max(R, Math.min(ball.pos.y, mid.y + 0.02)); }
+    }
     let quality = footTouched ? Math.max(0.75, 1 - d / reach) : Math.max(k.armed ? 0.7 : 0, 1 - d / reach);
     const p = k.power;
     let speed, elev;
@@ -2131,7 +2258,9 @@ export class Athlete {
     // when a touch is played or the ball has drifted out of reach
     const drift = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
     // between touches the ball rolls on its own (only a light guiding hand, firmer if it drifts away)
-    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? 7 : !wants ? 8 : this.knockT > 0 ? 0.45 : drift > 0.6 ? 4 : 1.1));
+    // (a change of direction is played by the turn touch itself, when the boot gets there — not by a hidden pull)
+    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? (this.touch ? 0.6 : 2.2) : !wants ? 8 : this.knockT > 0 ? 0.45 : drift > 0.6 ? 4 : 1.1));
+    this._reverse = reverse ? 0.2 : Math.max(0, (this._reverse || 0) - dt);
     ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
     ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
     if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);
@@ -2178,6 +2307,10 @@ export class Athlete {
         if (!tt.turn) {
           const pushV = clamp(0.55 + sp * 0.12 + (sprinting ? 0.9 : 0), 0.55, 2.6);
           ball.vel.x = this.vel.x + d.x * pushV; ball.vel.z = this.vel.z + d.z * pushV;
+        } else {
+          // a turn touch: the inside / outside of the boot sends it off the new way from where it was met
+          const pushV = clamp(1.1 + sp * 0.18, 1.1, 2.6);
+          ball.vel.x = this.vel.x * 0.55 + d.x * pushV; ball.vel.z = this.vel.z * 0.55 + d.z * pushV;
         }
         ball.vel.y = Math.max(ball.vel.y, 0.25 + Math.random() * 0.2);
         ball.pos.y = Math.max(ball.pos.y, R + 0.005);

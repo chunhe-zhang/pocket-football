@@ -141,7 +141,7 @@ export class AIController {
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
     // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
     const st = ball.specialType || '', ghost = st.includes('phantom'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
-    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.75 + 0.25 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.9 + 0.1 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
     if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
     // time until the ball reaches my position along the goal's inward axis
@@ -150,7 +150,7 @@ export class AIController {
     const myDepth = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
     const ballDepth = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
     const t = (ballDepth - myDepth) / toward;
-    if (t <= 0 || t > (gk ? 0.75 : 0.45) + 0.1 * this.cfg.skill) return false;
+    if (t <= 0 || t > (gk ? 0.95 : 0.45) + 0.1 * this.cfg.skill) return false;
     let cx = ball.pos.x + v.x * t, cz = ball.pos.z + v.z * t;
     if (this._fooled) { const lx = cx - me.pos.x, lz = cz - me.pos.z, ix = home.inward.x, iz = home.inward.z, dot = lx * ix + lz * iz; cx = me.pos.x - (lx - ix * dot) + ix * dot; cz = me.pos.z - (lz - iz * dot) + iz * dot; }
     // only if it's heading for the goal mouth
@@ -158,8 +158,8 @@ export class AIController {
     const atLine = ball.pos[along] + v[along] * ((ballDepth) / toward);
     if (Math.abs(atLine) > FIELD.goalHalfW + 0.4) return false;
     const off = Math.hypot(cx - me.pos.x, cz - me.pos.z);
-    if (off < (gk ? 0.8 : 0.45) || off > (gk ? 3.6 : 2.4)) return false;   // straight at him: he stands and blocks
-    if (gk && t > 0.5) { it.move.set(cx - me.pos.x, cz - me.pos.z).normalize(); return true; }   // early: shuffle across first, dive late
+    if (off < (gk ? 0.6 : 0.45) || off > (gk ? 4.4 : 2.4)) return false;   // straight at him: he stands and the gloves go to it
+    if (gk && (t > 0.45 || (off < 1.3 && t > 0.2))) { it.move.set(cx - me.pos.x, cz - me.pos.z).normalize(); return true; }   // early: shuffle across first, dive late
     it.move.set(cx - me.pos.x, cz - me.pos.z).normalize();
     it.tackle = true; it.kick = it.lob = false;
     return true;

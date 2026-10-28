@@ -534,6 +534,7 @@ export class Character {
     this.emoteTargets = { sad_pose: 0, headShake: 0, agree: 0 };
     // two-bone leg IK requests, filled by gameplay each frame
     this.ik = { R: { target: new THREE.Vector3(), w: 0 }, L: { target: new THREE.Vector3(), w: 0 } };
+    this.armIK = { R: { target: new THREE.Vector3(), w: 0 }, L: { target: new THREE.Vector3(), w: 0 } };   // hands reach for a point (a keeper's gloves to the ball)
 
     this._qa = new THREE.Quaternion(); this._qp = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._ax = new THREE.Vector3();
     this.forward = new THREE.Vector3(0, 0, 1); this.right = new THREE.Vector3(-1, 0, 0);
@@ -1190,6 +1191,9 @@ export class Character {
     this._legIK(b.upLegL, b.legL, b.footL, this.ik.L.target, this.ik.L.w);
     if (this.ik.R.sole) this._rot(b.footR, r, this.ik.R.sole);
     if (this.ik.L.sole) this._rot(b.footL, r, this.ik.L.sole);
+    // hands reach for the ball (a goalkeeper's gloves): the same two-bone solve, shoulder → elbow → wrist
+    if (this.armIK.R.w > 0.01 && b.foreR && b.handR) this._legIK(b.armR, b.foreR, b.handR, this.armIK.R.target, this.armIK.R.w);
+    if (this.armIK.L.w > 0.01 && b.foreL && b.handL) this._legIK(b.armL, b.foreL, b.handL, this.armIK.L.target, this.armIK.L.w);
 
     // head tracks the ball
     let yaw = 0, pitch = 0;

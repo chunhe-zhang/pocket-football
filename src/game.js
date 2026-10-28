@@ -779,7 +779,7 @@ export class Game {
       const p0 = this._bp0 || (this._bp0 = new THREE.Vector3()); p0.copy(this.ball.pos);
       const events = this.ball.update(dt);
       for (const e of events) this._ballEvent(e);
-      if (this.m5) for (const a of live) if (a.isKeeper) a.saveCheck(p0);
+      void p0;
       this._elemPassTick();
       this._offsideTick();
     } else this.ball.sync(dt);

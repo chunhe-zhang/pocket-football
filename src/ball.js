@@ -230,7 +230,7 @@ export class Ball {
     }
     const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
     const h = dt / steps;
-    for (let i = 0; i < steps; i++) this._step(h, (i + 1) / steps);
+    for (let i = 0; i < steps && !this.heldBy; i++) this._step(h, (i + 1) / steps);
     this.sync(dt);
     return this.events;
   }
@@ -366,6 +366,7 @@ export class Ball {
     const p = this.pos, v = this.vel, A = this._ca || (this._ca = new THREE.Vector3()), B = this._cb || (this._cb = new THREE.Vector3());
     const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
+      if (this.heldBy) return;
       if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
       if (this.hidden) continue;                                         // vanished (mid-teleport)
       if (this.passToT > 0 && this.passTo && c.owner !== this.passTo && this.lastTouch && c.owner !== this.lastTouch && !this.lastTouch._isOpp(c.owner)) continue;   // a pass runs past team-mates it isn't meant for
@@ -385,7 +386,7 @@ export class Ball {
       const d = Math.hypot(dx, dy, dz), min = R + c.r;
       if (d >= min || d < 1e-6) continue;
       const nx = dx / d, ny = dy / d, nz = dz / d;
-      const spc = this.special;
+      const spc = this.special, spc0 = spc;
       if (spc && c.owner !== spc.owner) {
         const who = c.owner, cb = spc.combo, n = [spc.dx, 0, spc.dz];
         const keeper = inOwnBox(who.end, who.pos.x, who.pos.z) && (!who.role || who.role === 'gk');
@@ -413,6 +414,17 @@ export class Ball {
           this.endSpecial();
         }
       } else if (spc && c.owner === spc.owner) continue;
+      // a goalkeeper's touch: he decides (catch / beat it away / fingertips) right where they meet
+      if (c.owner.isKeeper && c.owner.gkContact) {
+        const res = c.owner.gkContact(this, c, spc0);
+        if (res === 'beat') continue;
+        if (res === 'catch') return;
+        if (res === 'parry') {
+          p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
+          this.events.push({ type: 'body', who: c.owner, part: c.part, side: c.side, v: 12, n: [nx, ny, nz] });
+          continue;
+        }
+      }
       p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
       const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
       const vn = rvx * nx + rvy * ny + rvz * nz;
