@@ -1969,6 +1969,10 @@ export class Athlete {
     if (ball.guardT > 0 && ball.guardBy && ball.guardBy.gi !== this.gi && !this.slide && !this.poke) { this.dribbling = false; return false; }
     // a team-mate's pass meant for someone else: let it run through to them
     if (ball.passToT > 0 && ball.passTo && ball.passTo !== this && ball.lastTouch && ball.lastTouch !== this && !this._isOpp(ball.lastTouch) && !ball.passTo.out) { this.dribbling = false; this.receive = null; return false; }
+    // a team-mate's ball is his until he passes it: no taking it off his toes by bumping into it
+    const lt0 = ball.lastTouch;
+    if (lt0 && lt0 !== this && !lt0.out && !this._isOpp(lt0) && lt0.passTarget !== this && ball.passTo !== this
+      && g.time - lt0.lastTouchTime < 0.9 && (lt0.dribbling || lt0.kick || Math.hypot(ball.pos.x - lt0.pos.x, ball.pos.z - lt0.pos.z) < 2.2)) { this.dribbling = false; return false; }
     // someone else has it under close control: only a tackle (or the keeper in his box) wins it
     const db = ball.dribbleGuard > 0 ? ball.dribbleBy : null;
     if (db && db !== this && this._isOpp(db) && !db.stunT && !this.slide && !this.poke && !(this.isKeeper && inOwnBox(this.end, this.pos.x, this.pos.z))) { this.dribbling = false; return false; }
@@ -2126,7 +2130,8 @@ export class Athlete {
     // a loose, rolling ball between touches (not glued to the boot): the spring only really bites
     // when a touch is played or the ball has drifted out of reach
     const drift = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
-    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? 7 : !wants ? 8 : this.knockT > 0 ? 1.6 : drift > 0.45 ? 6 : 3.6));
+    // between touches the ball rolls on its own (only a light guiding hand, firmer if it drifts away)
+    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? 7 : !wants ? 8 : this.knockT > 0 ? 0.45 : drift > 0.6 ? 4 : 1.1));
     ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
     ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
     if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);
@@ -2169,6 +2174,11 @@ export class Athlete {
         tt.done = true;
         this.knockDur = tt.turn ? 0.12 : interval * 0.75;
         this.knockT = this.knockDur;
+        // the touch itself: the boot pushes the ball out ahead into my path, a little further than I'll run
+        if (!tt.turn) {
+          const pushV = clamp(0.55 + sp * 0.12 + (sprinting ? 0.9 : 0), 0.55, 2.6);
+          ball.vel.x = this.vel.x + d.x * pushV; ball.vel.z = this.vel.z + d.z * pushV;
+        }
         ball.vel.y = Math.max(ball.vel.y, 0.25 + Math.random() * 0.2);
         ball.pos.y = Math.max(ball.pos.y, R + 0.005);
         g.sfx.touch();

@@ -1112,6 +1112,20 @@ export class Character {
     this._lean += (lean - this._lean) * Math.min(1, dt * 12);
     this._rot(b.spine, r, -this._lean);
     this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18));
+    // a looser run: shoulders counter-rotate against the hips, the pelvis drops side to side, the body
+    // bobs on each stride and banks into turns, while the head stays steady on the play
+    {
+      const rw = clamp((speed - 1) / 4, 0, 1), ph = this.phase * Math.PI * 2;
+      if (rw > 0.01) {
+        this._rot(b.spine2 || b.spine1, UP, Math.sin(ph) * 0.09 * rw);
+        this._rot(b.hips, UP, -Math.sin(ph) * 0.06 * rw);
+        this._rot(b.hips, f, Math.cos(ph) * 0.035 * rw);
+        this._rot(b.head, UP, -Math.sin(ph) * 0.05 * rw);
+        this.root.position.y += (Math.abs(Math.cos(ph)) - 0.6) * 0.03 * rw;
+      }
+      this._bank = (this._bank || 0) + (clamp(this.turnVel * speed * 0.014, -0.2, 0.2) - (this._bank || 0)) * Math.min(1, dt * 8);
+      this._rot(b.spine1, f, -this._bank);
+    }
 
     const ch = {};
     for (const g of this.gestures) {

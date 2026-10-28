@@ -371,7 +371,7 @@ export class Ball {
       if (this.passToT > 0 && this.passTo && c.owner !== this.passTo && this.lastTouch && c.owner !== this.lastTouch && !this.lastTouch._isOpp(c.owner)) continue;   // a pass runs past team-mates it isn't meant for
       if (this.special && c.owner !== this.special.owner && !this.special.owner._isOpp(c.owner)) continue;   // a shot flies past the shooter's own team
       if (this.guardT > 0 && this.guardBy && c.owner.gi !== this.guardBy.gi && !c.owner.slide && !c.owner.poke) continue;
-      if (this.dribbleGuard > 0 && this.dribbleBy && c.owner !== this.dribbleBy && this.dribbleBy._isOpp(c.owner) && !c.owner.slide && !c.owner.poke && !c.owner.isKeeper) continue;
+      if (this.dribbleGuard > 0 && this.dribbleBy && c.owner !== this.dribbleBy && (!this.dribbleBy._isOpp(c.owner) || (!c.owner.slide && !c.owner.poke && !c.owner.isKeeper))) continue;   // a ball under close control runs past team-mates and anyone not tackling
       A.copy(c.prev).lerp(c.pos, u);
       let s = 0;
       if (c.b) {
