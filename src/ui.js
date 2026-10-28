@@ -242,7 +242,8 @@ export class UI {
   onScore(g) {
     if (g.m5) {
       const gold = g.golden ? ' <span class="gold">金球</span>' : '';
-      $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">${TEAMS[0].cn}</span><span class="n">${g.conceded[1]} : ${g.conceded[0]}</span><span class="t" style="background:${TEAMS[1].css}">${TEAMS[1].cn}</span><span class="hf">${g.golden ? '' : g.half === 2 ? '下半场' : '上半场'}</span><span class="tm">${this._mmss(g.clock)}</span>${gold}</span>`;
+      const cd = (i) => { const c = g.cards?.[i]; return c ? `<span class="cd">${'▮'.repeat(Math.min(3, c.y)).replace(/▮/g, '<i class="y"></i>')}${'<i class="r"></i>'.repeat(Math.min(3, c.r))}</span>` : ''; };
+      $('#clock').innerHTML = `<span class="score5">${cd(0)}<span class="t" style="background:${TEAMS[0].css}">${TEAMS[0].cn}</span><span class="n">${g.conceded[1]} : ${g.conceded[0]}</span><span class="t" style="background:${TEAMS[1].css}">${TEAMS[1].cn}</span>${cd(1)}<span class="hf">${g.golden ? '' : g.half === 2 ? '下半场' : '上半场'}</span><span class="tm">${this._mmss(g.clock)}</span>${gold}</span>`;
       this._clockKey = null;
       return;
     }

@@ -213,3 +213,8 @@ button { font-family: var(--font); cursor: pointer; }
 .score5 .gold { color: #ffd23f; }
 .score5 .hf { font-size: 0.78em; opacity: 0.8; font-weight: 700; }
 #scoreboard.m5 .chips { display: none; }
+
+.score5 .cd { display: inline-flex; gap: 2px; margin: 0 4px; vertical-align: middle; }
+.score5 .cd i { display: inline-block; width: 7px; height: 10px; border-radius: 1.5px; }
+.score5 .cd i.y { background: #ffd23f; }
+.score5 .cd i.r { background: #ff3b3b; }

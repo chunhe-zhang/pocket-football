@@ -169,6 +169,14 @@ export const CHARS = [
     desc: '最快最重，撞谁谁倒（门将站得住）', move: '低头往前猛冲，挡路的人被撞飞', speed: 1.3 },
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
+/**
+ * The counter ring (6v6): each element beats the next one — 火 → 冰 → 风 → 土 → 雷 → 影 → 火.
+ * Not a number bonus: each pairing has its own mechanic (fire melts ice, ice catches the wind in the air,
+ * the wind rides the earth's charge, the earth grounds lightning, lightning shocks a shadow that blinks in
+ * beside it, a shadow lets fire pass straight through it).
+ */
+export const BEATS = { blaze: 'frost', frost: 'gale', gale: 'cannon', cannon: 'thunder', thunder: 'phantom', phantom: 'blaze' };
+export const beats = (a, b) => !!a && BEATS[a] === b;
 
 /**
  * Combo shots: a move where several players hit the ball first time, one after another, ends in a

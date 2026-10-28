@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, OBSTACLES, PLAYER, BALL, inOwnBox, clampToArena, pushOutOfObstacles, route, islandBlocks } from './config.js';
+import { FIELD, OBSTACLES, PLAYER, BALL, inOwnBox, clampToArena, pushOutOfObstacles, route, islandBlocks, beats } from './config.js';
 
 const LEVELS = {
   // 女朋友模式: slow, sleepy, never tackles, rarely saves, shoots softly and wide (and feeds the humans)
@@ -59,6 +59,16 @@ export class AIController {
       return;
     }
     it.kick = false; it.lob = false; it.pass = false;
+    // a penalty to take: a look at the keeper, then a firm one into a corner (now and then down the middle)
+    if (g.state === 'penalty' && g.pen && g.pen.taker === me) {
+      it.move.set(0, 0); it.sprint = false;
+      if (g.pen.t > 0.9 + Math.random() * 0.4 && !me.charging && !me.kick) {
+        const tgt = me.goalTarget(), side = Math.random() < 0.15 ? 0 : Math.random() < 0.5 ? -1 : 1;
+        const aim = new THREE.Vector2(tgt.x - me.pos.x, tgt.z + side * (FIELD.goalHalfW - 0.45) - me.pos.z).normalize();
+        this.shooting = { hold: 0.05 + (0.55 + Math.random() * 0.35) * PLAYER.chargeTime, aim };
+      }
+      return;
+    }
     if (g.state !== 'play') { it.move.set(0, 0); it.sprint = false; return; }
     // the gale leap near goal: volley it from the air at the top of the jump
     if (me.power && me.power.type === 'gale') {
@@ -140,7 +150,7 @@ export class AIController {
     const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
     // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
-    const st = ball.specialType || '', ghost = st.includes('phantom'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
+    const st = ball.specialType || '', ghost = st.includes('phantom') && !(g.m5 && me.charId === 'thunder'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
     if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.9 + 0.1 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
     if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
@@ -651,7 +661,8 @@ export class AIController {
     // who on my side goes for the ball: whoever gets there first (the keeper only in the box)
     const pred = ball.predict(clamp(myDist / 6, 0, 0.8));
     const inBox = inOwnBox(me.end, bp.x, bp.z);
-    const eta = (a) => dist(a, pred) / (a.speedMul || 1) + (a.stunT > 0 ? 3 : 0) + (a.role === 'gk' && !inBox ? 99 : 0);
+    // the one whose element beats the man on the ball goes for him (counter ring) — worth a couple of metres
+    const eta = (a) => dist(a, pred) / (a.speedMul || 1) + (a.stunT > 0 ? 3 : 0) + (a.role === 'gk' && !inBox ? 99 : 0) - (holder && holder.gi !== a.gi && beats(a.charId, holder.charId) ? 2.5 : 0);
     const side = [me, ...mates].sort((a, b) => eta(a) - eta(b));
     const chaser = side[0], second = side[1];
     const car = this._ourCarrier();
@@ -777,6 +788,11 @@ export class AIController {
         this._goTo(q.x, q.z, 0.3, 1.5); return;
       }
       const poke = myDist < 1.6;
+      // fouls cost (6v6): no slides from behind, none in my own box, fewer once I'm on a yellow
+      if (!poke && g.m5) {
+        const hf = holder.forward, fromBehind = ((holder.pos.x - me.pos.x) * hf.x + (holder.pos.z - me.pos.z) * hf.z) > 0.4 * myDist;
+        if (fromBehind || inOwnBox(me.end, me.pos.x, me.pos.z) || ((me.yellows || 0) > 0 && Math.random() < 0.7)) { this._goTo(bp.x, bp.z, 0.4, 3); return; }
+      }
       if (Math.random() < (poke ? 0.22 * this.cfg.skill + 0.08 : 0.04 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // 5v5: patient, fewer lunges
         plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize();
         plan.tackle = true;
@@ -840,6 +856,7 @@ export class AIController {
         if (m === this._lastFrom && g.time - (this._lastFromT ?? -9) < 4 && !(gain > 1.5 && (m.giveGoT || 0) > g.time)) sc -= 4;   // straight back
         if (this._isHuman(m)) sc += this.assist ? 7 : 3;          // the human team-mate gets the ball a lot
         if (Math.hypot(m.vel.x, m.vel.z) > 4 && m.vel.x * d > 2.5) sc += 2;   // a runner: play them in
+        if (opps.some((o) => beats(o.charId, m.charId) && Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z) < 3)) sc -= 1.5;   // marked by his counter: not him
         if (sc > bestS) { bestS = sc; best = m; }
       }
       // with room to run, keep it and go (a pass has to be clearly better than carrying it)

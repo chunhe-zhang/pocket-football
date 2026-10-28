@@ -231,6 +231,7 @@ export class Game {
         case 'mid': x = s === kick ? -2.6 : -HX * 0.36; z = s === kick ? -0.6 : 0; break;
         default: x = s === kick ? -0.45 : -HX * 0.22; z = s === kick ? 0.12 : HZ * 0.22;
       }
+      if (a.out) { a.place(60 + a.team * 3, 60, 0); continue; }     // sent off: waiting by the side of the pitch
       a.place(x * d, z * d, Math.atan2(d, 0));
     }
   }
@@ -366,9 +367,10 @@ export class Game {
       const cur = A[c.idx], it = cur.intent;
       const swapPressed = !!it.swap && !c.prevSwap; c.prevSwap = !!it.swap;
       if (this.state !== 'play' && this.state !== 'kickoff' && this.state !== 'freekick') continue;
+      if (cur.out) { const m = A.filter((a) => a.gi === c.side && !a.out && a.role !== 'gk').sort((p, q) => dist(p) - dist(q))[0]; if (m) { c.idx = m.team; changed = true; } continue; }
       if (cur.charging || cur.armed || cur.kick || cur.header || cur.slide || cur.trick || cur.dive) continue;
       // the goalkeeper always stays with the computer
-      const mates = A.filter((a) => a.gi === c.side && a !== cur && a.role !== 'gk' && !this.cursors.some((o) => o !== c && o.idx === a.team));
+      const mates = A.filter((a) => a.gi === c.side && a !== cur && !a.out && a.role !== 'gk' && !this.cursors.some((o) => o !== c && o.idx === a.team));
       let to = null;
       if (holder && holder.gi === c.side && holder !== cur && mates.includes(holder)) to = holder;    // my pass arrived
       else if (swapPressed) to = mates.reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null);
@@ -683,6 +685,138 @@ export class Game {
     this.emit({ e: 'kickoff' });
   }
 
+  // ------------------------------------------------------------------ fouls (6v6) --
+  /**
+   * A slide went through a man (athlete.js decides what kind of foul it was). Play waits a moment for
+   * advantage: if the fouled side still has the ball it goes on (the card is shown anyway); otherwise a
+   * free kick where it happened, or a penalty if it was in the defending side's 小禁区.
+   */
+  onFoul(fouler, victim, card) {
+    if (!this.m5 || this.state !== 'play' || this._pendFoul) return;
+    this.fouls = (this.fouls || 0) + 1;
+    fouler.stats.fouls = (fouler.stats.fouls || 0) + 1;
+    this.sfx.whistle([0.18]);
+    this._pendFoul = { t: this.time, fouler, victim, x: victim.pos.x, z: victim.pos.z, side: victim.gi };
+    if (card) this._card(fouler, card);
+    else { fouler.flair('犯规!', true); this.ui.toast?.(`犯规 · ${fouler.label}`); }
+  }
+
+  _card(a, card) {
+    a.yellows = a.yellows || 0;
+    if (card === 'yellow') { a.yellows++; if (a.yellows >= 2) card = 'red'; }
+    this.cards = this.cards || [{ y: 0, r: 0 }, { y: 0, r: 0 }];
+    if (card === 'yellow') { this.cards[a.gi].y++; a.flair('🟨 黄牌', true); this.ui.toast?.(`黄牌 · ${a.label}`); }
+    else {
+      this.cards[a.gi].r++; a.flair('🟥 红牌', true); this.ui.toast?.(`红牌 · ${a.label} 罚下 60 秒`);
+      a.sentT = 60; a.yellows = 0;
+      this._sendOffAt = a;       // he leaves once play stops (or at once if it goes on)
+    }
+    this.ui.onScore(this);
+  }
+
+  /** red card: off the pitch for 60 s of play (a keeper is replaced in goal by a team-mate meanwhile) */
+  _sendOff(a) {
+    a.out = true; a.char.group.visible = false; a.place(60 + a.team * 3, 60, 0);
+    if (this.ball.lastTouch === a) this.ball.lastTouch = null;
+    if (a.role === 'gk') {
+      const sub = this.live.filter((m) => m.gi === a.gi).sort((p, q) => Math.hypot(p.pos.x - p.home.centre.x, p.pos.z - p.home.centre.z) - Math.hypot(q.pos.x - q.home.centre.x, q.pos.z - q.home.centre.z))[0];
+      if (sub) { a._gkSub = sub; sub._roleWas = sub.role; sub.role = 'gk'; a.role = sub._roleWas; a._wasGk = true; }
+    }
+    this._roles = {};
+  }
+
+  _cardsTick(dt) {
+    if (this._sendOffAt && !this._pendFoul) { this._sendOff(this._sendOffAt); this._sendOffAt = null; }
+    if (this.state !== 'play') return;
+    for (const a of this.athletes) {
+      if (!a.out || !(a.sentT > 0)) continue;
+      a.sentT -= dt;
+      if (a.sentT <= 0) {
+        // back on, from the halfway line on his own side
+        const d = a.end === 0 ? -1 : 1;
+        a.out = false; a.char.group.visible = true; a.place(d * 1.5, (a.team % 2 ? 1 : -1) * (FIELD.hz - 1.5), Math.atan2(-d, 0));
+        if (a._wasGk && a._gkSub) { const s = a._gkSub; a.role = 'gk'; s.role = s._roleWas; a._wasGk = false; a._gkSub = null; }
+        a.flair('回场', true); this._roles = {};
+      }
+    }
+  }
+
+  _foulTick() {
+    const F = this._pendFoul; if (!F) return;
+    if (this.state !== 'play') { this._pendFoul = null; return; }
+    const lt = this.ball.lastTouch;
+    // advantage: the fouled side has played on with it
+    if (lt && lt.gi === F.side && lt !== F.victim && lt.lastTouchTime > F.t + 0.05 && this.time - F.t < 1.2) {
+      if (this.time - F.t > 0.9) { this._pendFoul = null; this.ui.toast?.('有利 · 继续比赛'); }
+      return;
+    }
+    if (this.time - F.t < 0.45) return;
+    this._pendFoul = null;
+    const fouler = F.fouler, inBox = inOwnBox(fouler.end, F.x, F.z);
+    if (this._sendOffAt) { this._sendOff(this._sendOffAt); this._sendOffAt = null; }
+    if (inBox) this._penalty(F.side, fouler.end, F.victim);
+    else this._freeKick(F.side, F.x, F.z);
+  }
+
+  /**
+   * 点球: from 6 m, everyone else outside the big box. The taker picks the corner and the power; the
+   * keeper is held on his line until the kick, then guesses (a CPU keeper guesses left / middle / right).
+   */
+  _penalty(side, goalEnd, victim) {
+    const g = GOALS[goalEnd];
+    const cx = g.centre.x, ix = Math.sign(g.inward?.x || -g.centre.x) || 1;      // into the pitch from that goal (along x)
+    const sx = cx + ix * 6, sz = 0;
+    const b = this.ball; b.endSpecial?.(); b.reset(sx, sz);
+    this.possessor = null; this.idleT = 0;
+    const team = this.live.filter((a) => a.gi === side), defs = this.live.filter((a) => a.gi !== side);
+    const human = this.cursors.find((c) => c.kind === 'local' && c.side === side);
+    let taker = human ? this.athletes[human.idx] : null;
+    if (!taker || taker.out || taker.role === 'gk') taker = (victim && !victim.out && victim.role !== 'gk' ? victim : null) || team.filter((a) => a.role !== 'gk').sort((p, q) => (q.role === 'fwd') - (p.role === 'fwd'))[0];
+    const keeper = defs.find((a) => a.role === 'gk');
+    const bigD = FIELD.hx / 2 + 1.2;
+    let k = 0;
+    for (const a of this.live) {
+      if (a === taker) { a.place(sx + ix * 1.2, sz, Math.atan2(-ix, 0)); a.frozen = false; continue; }
+      if (a === keeper) { a.place(cx + ix * 0.6, 0, Math.atan2(ix, 0)); a.frozen = true; continue; }
+      const z = clamp(a.pos.z, -FIELD.hz + 1.5, FIELD.hz - 1.5) || (k % 2 ? 3 : -3);
+      a.place(cx + ix * (bigD + (k++ % 3) * 1.2), z, Math.atan2(-ix, 0)); a.frozen = true;
+    }
+    // a human defending: he takes the keeper for the kick
+    const hk = this.cursors.find((c) => c.kind === 'local' && c.side !== side);
+    if (hk && keeper) { this._penCursor = { c: hk, was: hk.idx }; hk.idx = keeper.team; this._applyCursors(); }
+    this.pen = { taker, keeper, side, t: 0, ix, struck: false };
+    this.state = 'penalty'; this.timer = 0;
+    this.sfx.whistle([0.35]);
+    this.ui.toast?.(`点球 · ${taker ? taker.label : ''}`);
+    this.emit({ e: 'kickoff' });
+  }
+
+  _penaltyTick(dt) {
+    const P = this.pen; if (!P) { this.state = 'play'; return; }
+    P.t += dt;
+    const b = this.ball, kp = P.keeper;
+    if (!P.struck && b.lastTouch === P.taker && b.speed > 4) {
+      P.struck = true;
+      for (const a of this.athletes) a.frozen = false;
+      // the CPU keeper's guess: one of left / middle / right. Wrong, and he's gone the other way
+      const human = kp && (this.controllers[kp.team]?.type === 'human' || this.controllers[kp.team]?.type === 'remote');
+      if (kp && !human) {
+        const t = Math.abs(b.vel.x) > 0.1 ? (kp.pos.x - b.pos.x) / b.vel.x : 0.3, lz = b.pos.z + b.vel.z * Math.max(0, t);
+        const actual = Math.abs(lz) < 0.8 ? 0 : Math.sign(lz), guess = [-1, 0, 1].at(Math.floor(Math.random() * 3));
+        if (guess !== actual) {
+          const ai = this.ais[kp.team]; if (ai) { ai._shotKey = `${b.lastTouch?.team}:${b.lastTouch?.lastTouchTime}`; ai._willDive = false; }
+          if (guess === 0) { kp.stunT = 0.35; kp.flair('站着没动…', true); }
+          else { kp.intent.move.set(0, guess); kp._startDive(); }
+        }
+      }
+      this.state = 'play';
+      if (this._penCursor) { const pc = this._penCursor; this._penCursor = null; setTimeout(() => { if (this.state !== 'penalty' && pc.c.idx === kp?.team) { pc.c.idx = pc.was; this._applyCursors(); } }, 1500); }
+      this.pen = null;
+      return;
+    }
+    if (P.t > 12) { for (const a of this.athletes) a.frozen = false; this.state = 'play'; this.pen = null; }
+  }
+
   /** released a shot in the sweet window */
   onPerfect(ath) { this.emit({ e: 'perfect', i: ath.team }); this.sfx.touch(); }
 
@@ -691,7 +825,7 @@ export class Game {
     const input = this.input;
     if (input.wasPressed('KeyC')) this.cycleCamera();
     if (input.wasPressed('KeyM')) this.ui.toggleMute();
-    if (this.role === 'local' && (input.wasPressed('Escape') || input.wasPressed('KeyP')) && ['play', 'kickoff', 'freekick', 'goal', 'halftime', 'paused'].includes(this.state)) this.ui.togglePause();
+    if (this.role === 'local' && (input.wasPressed('Escape') || input.wasPressed('KeyP')) && ['play', 'kickoff', 'freekick', 'penalty', 'goal', 'halftime', 'paused'].includes(this.state)) this.ui.togglePause();
     if (this.role === 'guest') { this._guestUpdate(rawDt); return; }
     if (this.state === 'paused') { this._updateCamera(rawDt); return; }
 
@@ -710,7 +844,9 @@ export class Game {
     if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = a.intent.pass = false; }
     this._updateCursors();
 
-    if (this.state === 'kickoff' || this.state === 'freekick') {
+    if (this.m5) this._cardsTick(dt);
+    if (this.state === 'penalty') this._penaltyTick(rawDt);
+    else if (this.state === 'kickoff' || this.state === 'freekick') {
       this.timer -= rawDt;
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
@@ -782,6 +918,7 @@ export class Game {
       void p0;
       this._elemPassTick();
       this._offsideTick();
+      this._foulTick();
     } else this.ball.sync(dt);
 
     this._updatePossession(dt);
@@ -820,6 +957,7 @@ export class Game {
     if (host && this.state === 'play') {
       for (const p of this.patches) for (const o of this.live) {
         if (!p.owner._isOpp(o) || o.air) continue;
+        if (o._counters?.(p.kind === 'ice' ? 'frost' : 'blaze')) continue;   // fire doesn't slip on ice, a shadow doesn't burn
         const dx = o.pos.x - p.x, dz = o.pos.z - p.z, d = Math.hypot(dx, dz);
         if (d > 0.6) continue;
         if (p.kind === 'ice') o.slipT = 0.4;

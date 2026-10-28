@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone } from './config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const smoothstep = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
@@ -426,6 +426,7 @@ export class Athlete {
         const q = new THREE.Vector3(ball.pos.x - dir.x * 1.0, 0, ball.pos.z - dir.z * 1.0);
         clampToArena(q, 0.5); pushOutOfObstacles(q, PLAYER.radius);
         this.pos.copy(q); this.char.teleported();
+        if (this._shockedBlink()) return;
       }
     }
     const v0 = clamp(Math.max(sp, 4) + 2.6, 6.2, 9);
@@ -434,6 +435,7 @@ export class Athlete {
     if (kind === 'thunder') { this.slide.speed0 = Math.min(12.5, v0 * 1.4); this.slide.dur = 0.5; }
     if (kind === 'frost') { this.slide.dur = 0.75; this.slide.total = 0.95; this.slide.decay = 0.8; }
     if (kind === 'cannon') { this.slide.reach = Athlete.SLIDE_REACH.cannon; }
+    if (kind === 'gale') { this.slide.reach = Athlete.SLIDE_REACH.gale; this.slide.dur = 0.68; }
     g.onSlide?.(this, kind, from);
     this.facing = Math.atan2(dir.x, dir.z);
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null;
@@ -450,9 +452,18 @@ export class Athlete {
     const u = sl.t / sl.dur;
     const sp = u < 1 ? sl.speed0 * Math.pow(1 - u, sl.decay || 1.25) : 0;
     // cyclone: the whirlwind drags a loose ball in towards me
-    if (sl.kind === 'gale' && u < 0.85 && !ball.heldBy && ball.pos.y < 1.2) {
+    if (sl.kind === 'gale' && u < 0.85 && !ball.heldBy && ball.pos.y < 1.4) {
       const bx = this.pos.x + sl.dir.x * 0.6 - ball.pos.x, bz = this.pos.z + sl.dir.z * 0.6 - ball.pos.z, bd = Math.hypot(bx, bz);
-      if (bd < 2.8 && bd > 0.2) { ball.vel.x += (bx / bd) * 22 * dt; ball.vel.z += (bz / bd) * 22 * dt; }
+      if (bd < 3.4 && bd > 0.2) {
+        ball.vel.x += (bx / bd) * 30 * dt; ball.vel.z += (bz / bd) * 30 * dt;
+        // the whirlwind tears it off a dribbler's feet (even mid-charge: 风克土)
+        const car = ball.lastTouch;
+        if (car && car !== this && this._isOpp(car) && bd < 2.4) {
+          car.knockFree = Math.max(car.knockFree || 0, 0.35); car.dribbling = false;
+          if (car.power && (car.power.type === 'cannon' || bd < 1.6)) car._endPower();
+        }
+        if (Math.random() < dt * 20) g.fx('wind', ball.pos, { x: bx / bd, z: bz / bd }, 2, 2);
+      }
     }
     this.vel.copy(sl.dir).multiplyScalar(sp);
     this.pos.addScaledVector(this.vel, dt);
@@ -484,12 +495,17 @@ export class Athlete {
       }
       // and through anyone standing in the way
       for (const o of g.athletes) {
-        if (o === this || sl.hit.has(o) || o.slide || o.power || g.sameSide(this.team, o.team)) continue;
+        // (a skill move carries you clear of slides — except ice, which catches the wind in the air: 冰克风)
+        const caught = o.power && o.power.type === 'gale' && sl.kind === 'frost' && g.m5;
+        if (o === this || sl.hit.has(o) || o.slide || (o.power && !caught) || g.sameSide(this.team, o.team)) continue;
         const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         const ahead = (dx * sl.dir.x + dz * sl.dir.z) / (d || 1);
         if (d < (sl.reach || 0.85) && ahead > 0.2) {
           sl.hit.add(o);
           g.onImpact?.(o, this.charDef.color);
+          if (!caught) this._foulCheck(o, sl);       // ice catching the wind out of the sky is the counter, not a foul
+          if (o._counters(sl.kind)) { o._shrug(sl.kind, sl.dir); g.sfx.bump(sp); continue; }
+          if (caught) { o._endPower(); o.freeze(1.2); o.flair('被冻落!', true); g.ball.vel.set(sl.dir.x * 2, 0.5, sl.dir.z * 2); }
           // the character's element hits them too
           if (sl.kind === 'thunder') { o.zap('thunder', sl.dir); g.fx('bolt', { x: o.pos.x, y: 1, z: o.pos.z }, { x: 0, z: 0 }, 16, 3); }
           else if (sl.kind === 'frost') o.freeze(1.4);
@@ -621,6 +637,7 @@ export class Athlete {
       const f = this.forward, ahead = (dx * f.x + dz * f.z) / (d || 1);
       if (d < 0.85 && ahead > 0.4) {
         o.bargeHit = g.time + 1.5;
+        if (o._counters('cannon')) { o._shrug('cannon', new THREE.Vector3(dx / d, 0, dz / d)); continue; }
         o.fall(new THREE.Vector3(dx / d, 0, dz / d), 10, 6);
         g.onImpact?.(o, 0xffd23f); g.sfx.bump(12); g.shake = Math.max(g.shake, 0.12);
         this.vel.multiplyScalar(0.85);
@@ -738,7 +755,7 @@ export class Athlete {
     let chance = 1.14 - Math.max(0, sp - 22) * 0.012;
     chance += zone === 'small' ? -0.08 : zone === 'box' ? 0 : 0.16;
     if (!glove && !body) chance -= 0.05;
-    if (spc) chance -= spc.has?.('phantom') ? 0.08 : 0.02;
+    if (spc) chance -= spc.has?.('phantom') && !this._counters('phantom') ? 0.08 : 0.02;   // a lightning keeper sees through the shadow
     if (combo) chance -= (cb.level >= 3 ? 0.32 : 0.16) * Math.max(0.15, 1 - (cb.range ?? 0.3));
     chance -= (1 - this._gkLevel()) * 0.55;
     if (Math.random() > chance) {
@@ -880,6 +897,12 @@ export class Athlete {
    */
   elemHit(els, dir, o = {}) {
     if (this.frozen) return;
+    // the counter ring: an element I beat does nothing to me (a combo still carries the rest)
+    if (this.game.m5 && els.some((e) => beats(this.charId, e))) {
+      const left = els.filter((e) => !beats(this.charId, e));
+      if (!left.length) { this._shrug(els[0], dir); return; }
+      els = left;
+    }
     const has = (id) => els.includes(id), lv = o.level || 1, mild = !!o.mild;
     if (!o.force && this._tough()) {
       if (has('frost')) this.freeze(mild ? 0.9 : 1.5); else this._stagger(dir);
@@ -1077,7 +1100,7 @@ export class Athlete {
 
   // ---- character moves (each character beats a defender their own way) -------------------
   static POWER_CD = 4;
-  static SLIDE_REACH = { def: 1.15, cannon: 1.5 };
+  static SLIDE_REACH = { def: 1.15, cannon: 1.5, gale: 1.35 };
 
   _nearestOpp(maxD = 6, ahead = -1) {
     const g = this.game, f = this.forward;
@@ -1145,7 +1168,20 @@ export class Athlete {
     if (g.state !== 'play' || this.stunT > 0 || this.frozen) { this._endPower(); return; }
     const u = Math.min(1, P.t / P.dur);
     const fx = (k, n, sp, y = 0.4) => g.fx(k, { x: this.pos.x, y, z: this.pos.z }, { x: -P.dir.x, z: -P.dir.z }, n, sp);
-    if (P.type === 'thunder') fx('bolt', 4, 2, 0.8);
+    if (P.type === 'thunder') {
+      fx('bolt', 4, 2, 0.8);
+      // 土克雷: the lightning dash is grounded by an earth player in its path — it stops dead, the ball runs loose
+      if (g.m5) for (const o of g.live) {
+        if (!this._isOpp(o) || o.charId !== 'cannon' || o.stunT > 0 || o.air) continue;
+        if (Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 0.75) {
+          const away = new THREE.Vector3(this.pos.x - o.pos.x, 0, this.pos.z - o.pos.z).normalize();
+          this._endPower(); this.knock(away, 3); this.stunT = 0.45;
+          g.ball.vel.set(-away.x * 2.5, 0.4, -away.z * 2.5); g.ball.lastTouch = o; o.lastTouchTime = g.time;
+          o.flair('接地!', true); g.fx('dust', { x: o.pos.x, y: 0.2, z: o.pos.z }, { x: 0, z: 0 }, 18, 3); g.sfx.bump(10);
+          return;
+        }
+      }
+    }
     if (P.type === 'gale') fx('wind', 3, 3, 0.3 + this._galeH(u));
     if (P.type === 'cannon') { fx('smoke', 2, 2, 0.3); this._ram(); }
     if (P.type === 'phantom' && !P.jumped && P.t >= 0.16) {
@@ -1154,11 +1190,27 @@ export class Athlete {
       this.facing = Math.atan2(P.dir.x, P.dir.z); this.char.teleported();
       g.fx('ghost', { x: this.pos.x, y: 0.9, z: this.pos.z }, { x: 0, z: 0 }, 18, 2.5);
       g.sfx.post(4);
+      if (this._shockedBlink()) return;
     }
     if (P.type === 'phantom') this.char.group.visible = !(P.t > 0.06 && P.t < 0.26 && Math.sin(P.t * 90) > -0.3);
     if ((P.type === 'blaze' || P.type === 'frost') && !P.blasted && P.t >= 0.25) { P.blasted = true; this._blast(P.type); }
     if (this.power && g.state === 'play') this._keeperClaim();
     if (this.power && P.t >= P.dur) this._endPower();
+  }
+
+  /** 雷克影: a shadow that blinks in right beside a lightning player is shocked as it arrives (true = it was) */
+  _shockedBlink() {
+    const g = this.game;
+    if (!g.m5 || this.charId !== 'phantom') return false;
+    const t = g.live.find((o) => this._isOpp(o) && o.charId === 'thunder' && o.stunT <= 0 && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < 2.2);
+    if (!t) return false;
+    if (this.power) this._endPower();
+    const dir = new THREE.Vector3(this.pos.x - t.pos.x, 0, this.pos.z - t.pos.z).normalize();
+    this.knock(dir, 1); this.vel.multiplyScalar(0.3); this.stunT = 0.6; this.slideCD = Math.max(this.slideCD || 0, 1.3);
+    this.char.play('stagger', { duration: 0.7 }); this.flair('被电了!', true); t.flair('看穿!', true);
+    g.fx('bolt', { x: this.pos.x, y: 1, z: this.pos.z }, { x: 0, z: 0 }, 18, 3); g.sfx.element('thunder', 'hit', 0.6);
+    const b = g.ball; if (b.lastTouch === this && !b.heldBy && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 1.8) { b.passThrough = null; b.vel.set(dir.x * 2, 0.3, dir.z * 2); }
+    return true;
   }
 
   /** how far I can travel this way before the boards (keeping a metre's margin) */
@@ -1339,6 +1391,7 @@ export class Athlete {
       const ahead = dx * P.dir.x + dz * P.dir.z, side = Math.abs(-dx * P.dir.z + dz * P.dir.x);
       if (ahead > -0.2 && ahead < 1.1 && side < 0.85) {
         P.hit.add(o);
+        if (o._counters('cannon')) { o._shrug('cannon', P.dir); g.sfx.bump(8); continue; }
         const away = new THREE.Vector3(P.dir.x + (dx - P.dir.x * ahead) * 0.8, 0, P.dir.z + (dz - P.dir.z * ahead) * 0.8).normalize();
         o.launch(away, 6.5, 9.5);                       // sent sky-high
         g.onImpact?.(o, 0xffd23f);
@@ -1356,18 +1409,67 @@ export class Athlete {
     g.sfx.element(kind, 'hit', 1);
     g.shake = Math.max(g.shake, 0.18);
     for (const o of g.live) {
+      // 火融冰: the roar thaws any team-mate frozen nearby
+      if (kind === 'blaze' && g.m5 && !this._isOpp(o) && o !== this && o.iceT > 0 && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < R0) { o.iceT = 0; o.stunT = Math.min(o.stunT, 0.1); o.flair('解冻!', true); g.fx('smoke', { x: o.pos.x, y: 1, z: o.pos.z }, { x: 0, z: 0 }, 12, 2); }
       if (!this._isOpp(o)) continue;
       const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
       if (d > R0) continue;
+      if (o._counters(kind)) { o._shrug(kind, new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1))); continue; }
       const away = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
       if (kind === 'blaze') { if (d < 3.0) o.launch(away, 11 - d * 1.5, 4.5); else o.knock(away, 7); }   // blown far away
       else { o.freeze(2.2); }
     }
   }
 
+  /**
+   * 6v6 fouls: a slide that takes the man before the ball, comes in from behind, or takes someone who
+   * hasn't got it. From behind / off the ball = a yellow; the last man stopping a clear run on goal = a red.
+   */
+  _foulCheck(o, sl) {
+    const g = this.game, b = g.ball;
+    if (!g.m5 || g.state !== 'play' || !this._isOpp(o)) return;
+    const had = b.lastTouch === o && g.time - o.lastTouchTime < 1.2 && Math.hypot(b.pos.x - o.pos.x, b.pos.z - o.pos.z) < 2.5;
+    const f = o.forward, behind = sl.dir.x * f.x + sl.dir.z * f.z > 0.7 && Math.hypot(o.vel.x, o.vel.z) > 1;
+    const ballFirst = sl.poked;
+    if (ballFirst && had && !behind) return;                  // a clean tackle: ball first, from the front or side
+    if (ballFirst && !behind && !had) return;                 // won the ball, then caught him on the follow-through
+    let card = behind || !had ? 'yellow' : null;
+    // the last man: he was through on goal (within 15 m, nobody else of mine between him and it but the keeper)
+    if (had) {
+      const tg = o.goalTarget(), gd = Math.hypot(tg.x - o.pos.x, tg.z - o.pos.z);
+      const cover = g.live.some((m) => m.gi === this.gi && m !== this && m.role !== 'gk' && Math.hypot(tg.x - m.pos.x, tg.z - m.pos.z) < gd - 0.5);
+      if (gd < 15 && !cover) card = 'red';
+    }
+    g.onFoul?.(this, o, card);
+  }
+
+  /** does my element beat this one (6v6 counter ring)? */
+  _counters(kind) { return this.game.m5 && beats(this.charId, kind); }
+
+  /**
+   * An element I beat has hit me: it comes off me the way that pairing says —
+   * fire melts ice (steam), the wind rides the earth's blow (pushed aside, still on my feet),
+   * the earth grounds lightning, a shadow lets fire pass straight through.
+   */
+  _shrug(kind, dir) {
+    const g = this.game, p = { x: this.pos.x, y: 0.9, z: this.pos.z };
+    if (this.charId === 'blaze') { g.fx('smoke', p, { x: 0, z: 0 }, 16, 2.5); this.flair('融化!', true); this.stunT = Math.max(this.stunT, 0.12); }
+    else if (this.charId === 'gale') {
+      g.fx('wind', p, { x: dir.x, z: dir.z }, 16, 3); this.flair('乘风!', true);
+      const sx = -dir.z, sz = dir.x, s = Math.random() < 0.5 ? 1 : -1;   // carried aside on the blast, not knocked down
+      this.vel.x += (dir.x * 1.5 + sx * s * 3); this.vel.z += (dir.z * 1.5 + sz * s * 3);
+    } else if (this.charId === 'cannon') { g.fx('dust', { x: this.pos.x, y: 0.1, z: this.pos.z }, { x: 0, z: 0 }, 14, 2); this.flair('接地!', true); }
+    else if (this.charId === 'phantom') { g.fx('ghost', p, { x: 0, z: 0 }, 14, 2); this.flair('穿影!', true); }
+    else if (this.charId === 'thunder') this.flair('看穿!', true);
+    else this.flair('不怕风!', true);
+    g.emit?.({ e: 'flair', i: this.team, s: this.flairText, q: 1 });
+    void kind;
+  }
+
   /** frozen solid into an ice statue for a while */
   freeze(t) {
     if (this.frozen) return;
+    if (this.game.m5 && this.charId === 'blaze') { this._shrug('frost', this.forward); return; }   // 火克冰: the ice just melts off
     this.knock(this.forward, 0); this.vel.set(0, 0, 0);
     this.stunT = Math.max(this.stunT, t); this.iceT = Math.max(this.iceT, t);
     this.char.face('surprised', 1); this.faceT = t;
