@@ -150,7 +150,7 @@ export class AIController {
     const shotKey = `${ball.lastTouch?.team}:${ball.lastTouch?.lastTouchTime}`;
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
     // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
-    const st = ball.specialType || '', ghost = st.includes('phantom') && !(g.m5 && me.charId === 'thunder'), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
+    const st = ball.specialType || '', ghost = st.includes('phantom') && !(g.m5 && beats(me.charId, 'phantom')), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
     if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.9 + 0.1 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
     if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;

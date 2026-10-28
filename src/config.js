@@ -170,13 +170,16 @@ export const CHARS = [
 ];
 export const CHAR = Object.fromEntries(CHARS.map((c) => [c.id, c]));
 /**
- * The counter ring (6v6): each element beats the next one — 火 → 冰 → 风 → 土 → 雷 → 影 → 火.
- * Not a number bonus: each pairing has its own mechanic (fire melts ice, ice catches the wind in the air,
- * the wind rides the earth's charge, the earth grounds lightning, lightning shocks a shadow that blinks in
- * beside it, a shadow lets fire pass straight through it).
+ * Three camps (6v6): 力量 force (火 土) · 控制 control (冰 风) · 灵巧 agile (雷 影), and
+ * 力量 > 控制 > 灵巧 > 力量. Each counter is a mechanic, and it softens rather than cancels:
+ *  - force shrugs off control: frozen / caught in the whirlwind, a force player breaks free quickly
+ *  - control catches agile: a dash or a blink that comes near an ice or wind player is caught half-way
+ *  - agile slips force: a blast, a charge or a barge only pushes an agile player aside, he stays up
  */
-export const BEATS = { blaze: 'frost', frost: 'gale', gale: 'cannon', cannon: 'thunder', thunder: 'phantom', phantom: 'blaze' };
-export const beats = (a, b) => !!a && BEATS[a] === b;
+export const CAMP = { blaze: 'force', cannon: 'force', frost: 'ctrl', gale: 'ctrl', thunder: 'agile', phantom: 'agile' };
+export const CAMP_NAME = { force: '力量', ctrl: '控制', agile: '灵巧' };
+const CAMP_BEATS = { force: 'ctrl', ctrl: 'agile', agile: 'force' };
+export const beats = (a, b) => !!a && !!b && CAMP_BEATS[CAMP[a]] === CAMP[b];
 
 /**
  * Combo shots: a move where several players hit the ball first time, one after another, ends in a

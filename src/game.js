@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -373,7 +373,8 @@ export class Game {
       const mates = A.filter((a) => a.gi === c.side && a !== cur && !a.out && a.role !== 'gk' && !this.cursors.some((o) => o !== c && o.idx === a.team));
       let to = null;
       if (holder && holder.gi === c.side && holder !== cur && mates.includes(holder)) to = holder;    // my pass arrived
-      else if (swapPressed) to = mates.reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null);
+      // the swap key: the nearest team-mate — or, when they have it, the one whose camp beats the man on the ball
+      else if (swapPressed) { const ctr = holder && holder.gi !== c.side ? mates.filter((m) => beats(m.charId, holder.charId) && dist(m) < 14) : []; to = (ctr.length ? ctr : mates).reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null); }
       else if (this.state === 'play' && this.time - c.lastSwitch > 0.8 && !(holder && holder.gi === c.side) && this.time - cur.lastTouchTime > 0.6) {
         const best = mates.reduce((x, y) => (!x || dist(y) < dist(x) ? y : x), null);
         if (best && dist(best) < dist(cur) - 2.2) to = best;
