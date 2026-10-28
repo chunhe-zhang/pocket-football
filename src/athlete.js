@@ -1913,7 +1913,7 @@ export class Athlete {
       const c = (dx * aim.x + dz * aim.z) / d;
       if (c < minCos) continue;
       let free = 4; for (const e of g.live) if (this._isOpp(e)) free = Math.min(free, Math.hypot(e.pos.x - o.pos.x, e.pos.z - o.pos.z));
-      const s = c * 3 - d * 0.035 + free * 0.12;
+      const s = c * 3 - d * 0.035 + free * 0.12 - (g.offsidePos?.(o) ? 1.6 : 0);   // rather an onside team-mate
       if (s > bestS) { bestS = s; best = o; }
     }
     return best;

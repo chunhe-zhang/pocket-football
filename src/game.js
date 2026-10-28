@@ -12,7 +12,7 @@ import { PowerFx } from './powerfx.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const CAM_MODES = ['broadcast', 'high'];
+const CAM_MODES = ['broadcast', 'high', 'fp'];
 const SFX_EVENTS = new Set(['kick', 'pass', 'touch', 'head', 'body', 'slide', 'bump', 'bounce', 'board', 'post', 'net', 'whistle', 'cheer', 'ooh', 'crowd', 'element', 'combo', 'device', 'shatter']);
 const PART_OF = { thunder: 'bolt', blaze: 'fire', frost: 'ice', gale: 'wind', phantom: 'ghost', cannon: 'smoke' };
 const SNAP_INTERVAL = 0.05; // host sends 20 snapshots a second
@@ -365,7 +365,7 @@ export class Game {
     for (const c of this.cursors) {
       const cur = A[c.idx], it = cur.intent;
       const swapPressed = !!it.swap && !c.prevSwap; c.prevSwap = !!it.swap;
-      if (this.state !== 'play' && this.state !== 'kickoff') continue;
+      if (this.state !== 'play' && this.state !== 'kickoff' && this.state !== 'freekick') continue;
       if (cur.charging || cur.armed || cur.kick || cur.header || cur.slide || cur.trick || cur.dive) continue;
       // the goalkeeper always stays with the computer
       const mates = A.filter((a) => a.gi === c.side && a !== cur && a.role !== 'gk' && !this.cursors.some((o) => o !== c && o.idx === a.team));
@@ -618,6 +618,71 @@ export class Game {
   }
 
 
+  /**
+   * 越位 (6v6): standing in the opponents' half, ahead of the ball and of the second-last opponent
+   * (level counts as onside, with a little leeway). Goalkeepers are never offside.
+   */
+  offsidePos(a) {
+    if (!this.m5 || !a || a.isKeeper || a.out) return false;
+    const s = -GOALS[a.end].sign, f = a.pos.x * s, tol = 0.35;     // s: the way this side attacks along x
+    if (f <= tol || f <= this.ball.pos.x * s + tol) return false;
+    let l1 = -Infinity, l2 = -Infinity;
+    for (const o of this.live) { if (o.gi === a.gi) continue; const v = o.pos.x * s; if (v > l1) { l2 = l1; l1 = v; } else if (v > l2) l2 = v; }
+    return f > l2 + tol;
+  }
+
+  /**
+   * Every time the ball is played, note which of the player's team-mates are offside at that moment;
+   * if the next touch is one of them, it's offside and the defending side gets an indirect free kick.
+   */
+  _offsideTick() {
+    if (!this.m5 || this.state !== 'play') { this._offT = null; return; }
+    const lt = this.ball.lastTouch; if (!lt) return;
+    const prev = this._offT, t = lt.lastTouchTime;
+    if (prev && prev.by === lt && prev.t === t) return;            // nothing new
+    if (prev && lt !== prev.by && lt.gi === prev.by.gi && prev.set.has(lt)) { this._offside(lt); return; }
+    const set = new Set();
+    for (const m of this.live) if (m !== lt && m.gi === lt.gi && this.offsidePos(m)) set.add(m);
+    this._offT = { by: lt, t, set };
+  }
+
+  _offside(q) {
+    this._offT = null;
+    this.offsides = (this.offsides || 0) + 1;
+    q.stats.offsides = (q.stats.offsides || 0) + 1;
+    this.sfx.whistle([0.22, 0.22]);
+    q.flair('越位!', true);
+    this.ui.toast?.(`越位 · ${q.label}`);
+    this._freeKick(1 - q.gi, q.pos.x, q.pos.z);
+  }
+
+  /** an indirect free kick where the foul was: the nearest defender on the ball, the other side 4 m off */
+  _freeKick(side, x, z) {
+    const HX = FIELD.hx, HZ = FIELD.hz;
+    x = clamp(x, -HX + 1.2, HX - 1.2); z = clamp(z, -HZ + 1.2, HZ - 1.2);
+    const b = this.ball; b.endSpecial?.(); b.reset(x, z);
+    this.possessor = null; this.idleT = 0;
+    const takers = this.live.filter((a) => a.gi === side);
+    const inBox = takers.find((a) => a.isKeeper && inOwnBox(a.end, x, z));
+    let taker = inBox || null, bd = Infinity;
+    if (!taker) for (const a of takers) { if (a.isKeeper) continue; const d = Math.hypot(a.pos.x - x, a.pos.z - z); if (d < bd) { bd = d; taker = a; } }
+    for (const a of this.live) {
+      let px = a.pos.x, pz = a.pos.z;
+      if (a === taker) {
+        const d = -GOALS[a.end].sign;                          // stand behind the ball, facing up the pitch
+        px = x - d * 0.9; pz = z;
+      } else if (a.gi !== side) {
+        const dx = px - x, dz = pz - z, dd = Math.hypot(dx, dz);
+        if (dd < 4) { const k = dd > 0.01 ? 4 / dd : 0; px = dd > 0.01 ? x + dx * k : x + (GOALS[a.end].sign > 0 ? 4 : -4); pz = dd > 0.01 ? z + dz * k : z; }
+      }
+      px = clamp(px, -HX + 0.8, HX - 0.8); pz = clamp(pz, -HZ + 0.8, HZ - 0.8);
+      a.place(px, pz, a === taker ? Math.atan2(-GOALS[a.end].sign, 0) : a.facing);
+      a.frozen = true; a.dribbling = false;
+    }
+    this.state = 'freekick'; this.timer = 1.1;
+    this.emit({ e: 'kickoff' });
+  }
+
   /** released a shot in the sweet window */
   onPerfect(ath) { this.emit({ e: 'perfect', i: ath.team }); this.sfx.touch(); }
 
@@ -626,7 +691,7 @@ export class Game {
     const input = this.input;
     if (input.wasPressed('KeyC')) this.cycleCamera();
     if (input.wasPressed('KeyM')) this.ui.toggleMute();
-    if (this.role === 'local' && (input.wasPressed('Escape') || input.wasPressed('KeyP')) && ['play', 'kickoff', 'goal', 'halftime', 'paused'].includes(this.state)) this.ui.togglePause();
+    if (this.role === 'local' && (input.wasPressed('Escape') || input.wasPressed('KeyP')) && ['play', 'kickoff', 'freekick', 'goal', 'halftime', 'paused'].includes(this.state)) this.ui.togglePause();
     if (this.role === 'guest') { this._guestUpdate(rawDt); return; }
     if (this.state === 'paused') { this._updateCamera(rawDt); return; }
 
@@ -638,14 +703,14 @@ export class Game {
     this.controllers.forEach((c, i) => {
       const a = this.athletes[i];
       if (a.out) return;
-      if (c.type === 'human') input.intent(c.scheme, a.intent);
+      if (c.type === 'human') { input.intent(c.scheme, a.intent); this._fpMove(a); }
       else if (c.type === 'ai') c.ai.update(dt);
       // remote intents are written by the network handler
     });
     if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = a.intent.pass = false; }
     this._updateCursors();
 
-    if (this.state === 'kickoff') {
+    if (this.state === 'kickoff' || this.state === 'freekick') {
       this.timer -= rawDt;
       if (this.timer <= 0) { this.state = 'play'; for (const a of this.athletes) a.frozen = false; this.sfx.whistle([0.45]); }
     } else if (this.state === 'play') {
@@ -706,7 +771,7 @@ export class Game {
     for (const a of live) a.update(dt);
     this._separatePlayers();
 
-    if (this.state !== 'kickoff') {
+    if (this.state !== 'kickoff' && this.state !== 'freekick') {
       const order = [...live].sort((p, q) => this._distBall(q) - this._distBall(p));
       for (const a of order) a.handleBall(dt);
       this._passAssist(dt);
@@ -716,6 +781,7 @@ export class Game {
       for (const e of events) this._ballEvent(e);
       if (this.m5) for (const a of live) if (a.isKeeper) a.saveCheck(p0);
       this._elemPassTick();
+      this._offsideTick();
     } else this.ball.sync(dt);
 
     this._updatePossession(dt);
@@ -896,7 +962,23 @@ export class Game {
     this.sfx.crowd(0.04 + near * 0.05, 1.2);
   }
 
-  cycleCamera() { this.camMode = (this.camMode + 1) % CAM_MODES.length; this.ui.toast?.(`视角：${['斜视全景', '正上方俯视'][this.camMode]}`); }
+  cycleCamera() { this.camMode = (this.camMode + 1) % CAM_MODES.length; this.ui.toast?.(`视角：${['斜视全景', '正上方俯视', '第一人称'][this.camMode]}`); }
+
+  /** the player I'm controlling (for the first-person view) */
+  _myAthlete() {
+    if (this.m5) { const c = (this.cursors || []).find((q) => q.kind === 'local'); if (c && this.athletes[c.idx]) return this.athletes[c.idx]; }
+    const i = this.controllers.findIndex((c) => c.type === 'human' || c.type === 'self');
+    return i >= 0 ? this.athletes[i] : null;
+  }
+
+  /** first person: stick directions are relative to where I'm looking */
+  _fpMove(a) {
+    if (this.fpAth !== a || this._fpYaw == null) return;
+    const m = a.intent.move; if (m.lengthSq() < 1e-4) return;
+    const fx = Math.sin(this._fpYaw), fz = Math.cos(this._fpYaw);
+    const wx = fx * -m.y - fz * m.x, wz = fz * -m.y + fx * m.x;
+    m.set(wx, wz);
+  }
 
   /**
    * The camera stays still during play so nobody gets dizzy: a fixed view that
@@ -908,7 +990,27 @@ export class Game {
     const cam = this.camera;
     const aspect = cam.aspect;
     const pos = this._v, look = new THREE.Vector3();
-    if (this.state === 'menu') {
+    // first person (C cycles to it): from my player's eyes; everything else is a fixed camera
+    const fpA = CAM_MODES[this.camMode] === 'fp' && this.state !== 'menu' ? this._myAthlete() : null;
+    const fp = fpA && !fpA.out ? fpA : null;
+    if (this._fpHidden && this._fpHidden !== fp) { this._fpHidden.char.group.visible = !this._fpHidden.out; this._fpHidden = null; }
+    this.fpAth = fp;
+    const fov = fp ? 78 : 38, near = fp ? 0.05 : 0.1;
+    if (cam.fov !== fov || cam.near !== near) { cam.fov = fov; cam.near = near; cam.updateProjectionMatrix(); }
+    if (!fp) this._fpYaw = null;
+    if (fp) {
+      const a = fp, sy = a.char.group.scale.y || 1;
+      fp.char.group.visible = false; this._fpHidden = fp;      // my own body would sit right in front of the lens
+      if (this._fpYaw == null || this._fpLast !== a) { this._fpYaw = a.facing; this._fpLast = a; }
+      // the view turns after my body, eased, so a quick turn doesn't whip it round
+      const dyaw = Math.atan2(Math.sin(a.facing - this._fpYaw), Math.cos(a.facing - this._fpYaw));
+      this._fpYaw += dyaw * (1 - Math.exp(-dt * 3.2));
+      const fx = Math.sin(this._fpYaw), fz = Math.cos(this._fpYaw);
+      const eye = 1.55 * sy + Math.max(0, a.char.group.position.y);
+      pos.set(a.pos.x + fx * 0.1, eye, a.pos.z + fz * 0.1);
+      look.set(pos.x + fx * 10, eye - 3.1, pos.z + fz * 10);       // tipped ~17° down so the ball at my feet is in view
+      this.camPos.copy(pos); this.camLook.copy(look);
+    } else if (this.state === 'menu') {
       const t = this.time * 0.05;
       const S = (this.bigMap ? FIELD.hx * 0.8 : FIELD.half) / 9;
       pos.set(Math.sin(t) * 19 * S, 8.5 * S, Math.cos(t) * 19 * S);

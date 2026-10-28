@@ -288,10 +288,13 @@ export class UI {
     const w = innerWidth, h = innerHeight;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];
-      this._v.set(a.pos.x, 2.0, a.pos.z).project(this.camera);
-      if (this._v.z > 1 || a.out) { t.el.style.display = 'none'; return; }
-      t.el.style.display = '';
-      t.el.style.transform = `translate(${(this._v.x * 0.5 + 0.5) * w}px, ${(-this._v.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
+      if (g.fpAth === a) { t.el.style.display = ''; t.el.style.transform = `translate(${w / 2}px, ${h * 0.93}px) translate(-50%, -100%)`; }   // first person: my own tag (and charge meter) sits at the bottom
+      else {
+        this._v.set(a.pos.x, 2.0, a.pos.z).project(this.camera);
+        if (this._v.z > 1 || a.out) { t.el.style.display = 'none'; return; }
+        t.el.style.display = '';
+        t.el.style.transform = `translate(${(this._v.x * 0.5 + 0.5) * w}px, ${(-this._v.y * 0.5 + 0.5) * h}px) translate(-50%, -100%)`;
+      }
       const ctl = g.controllers[i];
       const s = g.side && !g.m5 ? SIDES[g.side[i]] : null, d = a.charDef;
       const nm = g.m5 ? (ctl?.cursor?.name || ctl?.cursorName || (ctl?.type === 'self' ? '我' : '') || `${a.no} ${a.label}`) : a.label;
@@ -328,12 +331,12 @@ export class UI {
     else ni.textContent = '';
   }
 
-  onMapChange(g) { $('#minimap').classList.toggle('hidden', !(g.bigMap && g.state !== 'menu')); }
+  onMapChange(g) { $('#minimap').classList.toggle('hidden', !((g.bigMap || g.fpAth) && g.state !== 'menu')); }
 
   /** big map: a little overview of the whole arena */
   _drawMinimap(g) {
     const cv = $('#minimap');
-    const show = g.bigMap && g.state !== 'menu';
+    const show = (g.bigMap || !!g.fpAth) && g.state !== 'menu';
     cv.classList.toggle('hidden', !show);
     if (!show) return;
     const ctx = cv.getContext('2d'), W = cv.width, Hh = cv.height, pad = 8;
@@ -346,20 +349,20 @@ export class UI {
     ctx.fillStyle = 'rgba(90, 190, 95, 0.75)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.5; ctx.stroke();
     // flower beds
     ctx.lineCap = 'round';
-    for (const c of FIELD.islands) {
+    for (const c of FIELD.islands || []) {
       ctx.fillStyle = ctx.strokeStyle = '#ff9ecb';
       if (Math.hypot(c.bx - c.ax, c.bz - c.az) < 0.01) { ctx.beginPath(); ctx.arc(X(c.ax), Y(c.az), c.r * s, 0, Math.PI * 2); ctx.fill(); }
       else { ctx.lineWidth = c.r * 2 * s; ctx.beginPath(); ctx.moveTo(X(c.ax), Y(c.az)); ctx.lineTo(X(c.bx), Y(c.bz)); ctx.stroke(); }
     }
     const dot = (o, col, k = 1) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(o.x), Y(o.z), Math.max(2.2, o.r * s * k), 0, Math.PI * 2); ctx.fill(); };
-    for (const o of FIELD.portals) dot(o, o.idx % 2 ? '#ff6ad5' : '#b45cff');
-    for (const o of FIELD.boosts) dot(o, '#ff8a2a');
-    for (const o of FIELD.vortices) dot(o, '#3b9bff');
-    for (const o of FIELD.wheels) dot(o, '#ffffff');
+    for (const o of FIELD.portals || []) dot(o, o.idx % 2 ? '#ff6ad5' : '#b45cff');
+    for (const o of FIELD.boosts || []) dot(o, '#ff8a2a');
+    for (const o of FIELD.vortices || []) dot(o, '#3b9bff');
+    for (const o of FIELD.wheels || []) dot(o, '#ffffff');
     ctx.lineCap = 'butt';
-    for (const p of FIELD.pads) { ctx.fillStyle = 'rgba(80,220,255,0.7)'; ctx.save(); ctx.translate(X(p.x), Y(p.z)); ctx.rotate(Math.atan2(p.dz, p.dx)); ctx.fillRect(-p.len * s / 2, -p.wid * s / 2, p.len * s, p.wid * s); ctx.restore(); }
-    for (const b of FIELD.bumpers) { ctx.fillStyle = '#ff4f7b'; ctx.beginPath(); ctx.arc(X(b.x), Y(b.z), Math.max(2, b.r * s * 1.4), 0, Math.PI * 2); ctx.fill(); }
-    for (const sp of FIELD.springs) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(X(sp.x), Y(sp.z), Math.max(2, sp.r * s), 0, Math.PI * 2); ctx.fill(); }
+    for (const p of FIELD.pads || []) { ctx.fillStyle = 'rgba(80,220,255,0.7)'; ctx.save(); ctx.translate(X(p.x), Y(p.z)); ctx.rotate(Math.atan2(p.dz, p.dx)); ctx.fillRect(-p.len * s / 2, -p.wid * s / 2, p.len * s, p.wid * s); ctx.restore(); }
+    for (const b of FIELD.bumpers || []) { ctx.fillStyle = '#ff4f7b'; ctx.beginPath(); ctx.arc(X(b.x), Y(b.z), Math.max(2, b.r * s * 1.4), 0, Math.PI * 2); ctx.fill(); }
+    for (const sp of FIELD.springs || []) { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(X(sp.x), Y(sp.z), Math.max(2, sp.r * s), 0, Math.PI * 2); ctx.fill(); }
     // goals
     for (const go of GOALS) {
       const open = g.m5 || (g.alive ? g.alive[go.team] : true);
@@ -374,7 +377,7 @@ export class UI {
     g.athletes.forEach((a, i) => {
       if (a.out) return;
       const type = g.controllers[i]?.type, me = type === 'self' || (type === 'human' && g.role !== 'guest');
-      ctx.fillStyle = a.css || TEAMS[i].css; ctx.beginPath(); ctx.arc(X(a.pos.x), Y(a.pos.z), me ? 5 : 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = a.css || TEAMS[g.m5 ? a.gi : i]?.css || '#fff'; ctx.beginPath(); ctx.arc(X(a.pos.x), Y(a.pos.z), me ? 5 : 4, 0, Math.PI * 2); ctx.fill();
       if (me) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
       if (g.side && !g.m5) { ctx.fillStyle = SIDES[g.side[i]].css; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(SIDES[g.side[i]].icon, X(a.pos.x), Y(a.pos.z) - 7); }
     });

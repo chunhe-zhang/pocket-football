@@ -498,6 +498,12 @@ export class AIController {
       Z = lane * HZ + bz * 0.3;
     }
     X = clamp(X, -HX + 3, HX - 1.5); Z = clamp(Z, -HZ + 1, HZ - 1);
+    // stay onside: no further up than the ball or the second-last opponent
+    if (attacking && r !== 'gk') {
+      let l1 = -Infinity, l2 = -Infinity;
+      for (const o of g.live) { if (o.gi === me.gi) continue; const v = o.pos.x * d; if (v > l1) { l2 = l1; l1 = v; } else if (v > l2) l2 = v; }
+      X = Math.min(X, Math.max(0, bx, l2) - 0.6);
+    }
     return legal(X * d, Z * d, 0.8).clone();
   }
 
@@ -587,6 +593,7 @@ export class AIController {
    * shoot (a volley if it's in the air), lay it straight back to a runner (撞墙), or move it on.
    */
   _firstTime(passer, mates, opps) {
+    mates = mates.filter((m) => !this.game.offsidePos?.(m));
     const me = this.me, g = this.game, ball = g.ball;
     const key = passer.lastTouchTime;
     if (this._ftKey === key) return false;
@@ -621,6 +628,7 @@ export class AIController {
 
   /** ball in my hands: have a look, then throw it to a free team-mate (or launch it) */
   _gkDistribute(mates, opps) {
+    mates = mates.filter((m) => !this.game.offsidePos?.(m));
     const me = this.me;
     this.plan.move.set(0, 0); this.plan.sprint = false;
     if (!me.holding || me.holding.release || me.holding.t < 0.9 + Math.random() * 0.3) return;
@@ -682,6 +690,7 @@ export class AIController {
 
   /** on the ball in 5v5: shoot, pass or run with it */
   _carry5(mates, opps) {
+    mates = mates.filter((m) => !this.game.offsidePos?.(m));
     const me = this.me, g = this.game, plan = this.plan;
     const tgt = me.goalTarget();
     const to = new THREE.Vector2(tgt.x - me.pos.x, tgt.z - me.pos.z), gd = to.length();
