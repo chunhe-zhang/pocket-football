@@ -545,6 +545,9 @@ export class Character {
     this._restQ = new Map();
     for (const bn of ['head', 'neck', 'spine2', 'spine1', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR', 'footL', 'footR'].map((k) => this.bones[k]).filter(Boolean)) this._restQ.set(bn, gq.clone().multiply(bn.getWorldQuaternion(new THREE.Quaternion())));
     // eyes and fingers aren't animated by the clips: keep their rest pose and pose them by hand each frame
+    // the limbs' bind pose: a sprint pushes the running clip's swing further from it
+    this._bindQ = ['upLegL', 'upLegR', 'legL', 'legR', 'armL', 'armR', 'foreL', 'foreR'].map((k) => this.bones[k]).filter(Boolean).map((bn) => ({ bn, q: bn.quaternion.clone() }));
+    this._sprintW = 0;
     this._eyes = ['eyeL', 'eyeR'].map((k) => this.bones[k]).filter(Boolean).map((bn) => ({ bn, rest: bn.quaternion.clone() }));
     this._fingers = [];
     const fwdW = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.getWorldQuaternion(new THREE.Quaternion()));
@@ -1098,6 +1101,21 @@ export class Character {
     }
     this.mixer.update(dt);
     this.root.position.y = 0;
+    // sprinting is not just running faster: higher knees, a longer stride, arms pumping hard, body further over
+    // the ball — the run clip's limb swing is exaggerated away from the bind pose by up to ~35%
+    this._sprintW += (clamp((speed - 4.4) / 1.3, 0, 1) - this._sprintW) * Math.min(1, dt * 6);
+    if (this._sprintW > 0.01) {
+      const k = 1 + 0.35 * this._sprintW, qi = this._qp, qr = this._qa;
+      for (const { bn, q } of this._bindQ) {
+        qi.copy(q).invert(); qr.copy(qi).multiply(bn.quaternion);          // the clip's rotation relative to bind
+        const w = clamp(qr.w, -1, 1), ang = 2 * Math.acos(Math.abs(w)), sgn = w < 0 ? -1 : 1;
+        if (ang < 1e-4) continue;
+        const sn = Math.sin(ang / 2), na = Math.min(ang * k, 2.6);
+        const ns = Math.sin(na / 2) / sn;
+        qr.set(qr.x * sgn * ns, qr.y * sgn * ns, qr.z * sgn * ns, Math.cos(na / 2));
+        bn.quaternion.copy(q).multiply(qr);
+      }
+    }
     this.group.updateMatrixWorld(true);
 
     // --- procedural layers ----------------------------------------------------
@@ -1109,7 +1127,7 @@ export class Character {
       this.accel += (clamp(acc, -30, 30) - this.accel) * Math.min(1, dt * 10);
     }
     this._prevSpeed = speed;
-    const lean = clamp(speed / 7, 0, 1) * 0.16 + clamp(this.accel * 0.012, -0.16, 0.12);
+    const lean = clamp(speed / 7, 0, 1) * 0.16 + clamp(this.accel * 0.012, -0.16, 0.12) + 0.1 * (this._sprintW || 0);
     this._lean += (lean - this._lean) * Math.min(1, dt * 12);
     this._rot(b.spine, r, -this._lean);
     this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18));
