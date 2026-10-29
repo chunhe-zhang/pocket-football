@@ -597,12 +597,18 @@ export class Character {
   _buildLoco(cache) {
     const C = this.allClips, has = (n) => C[n] && C[n].tracks.length;
     if (!cache.loco) {
-      const m = (n) => ({ n, po: this._contactPhase(C[n]), v: this._stanceVel(C[n]) });
+      const m = (n) => ({ n, po: this._contactPhase(C[n]), v: this._stanceVel(C[n]), cy: this._cycles(C[n]) });
       cache.loco = {
         fwd: has('run_std') ? ['walk', 'run_std', 'run_fast', 'sprint_std'].filter(has).map(m) : [m('walk'), m('run')],
         dir: {},
       };
       for (const k of ['FL', 'FR', 'L', 'R', 'BL', 'BR', 'B']) if (has('jog_' + k)) cache.loco.dir[k] = m('jog_' + k);
+      if (has('dribble_jog')) cache.loco.drib = m('dribble_jog');
+      // the keeper's side-shuffle: one clip each way (the mirror is the other way)
+      if (has('goalkeeper_sidestep')) {
+        const a = m('goalkeeper_sidestep'), b = { ...m('goalkeeper_sidestep@M'), n: 'goalkeeper_sidestep@M' };
+        cache.loco.gk = a.v.r > 0 ? { R: a, L: b } : { R: b, L: a };
+      }
       let ymin = Infinity; const p = new THREE.Vector3();
       this._sampleClip(C[cache.loco.fwd[1].n], () => { ymin = Math.min(ymin, this.bones.footL.getWorldPosition(p).y); }, 40);
       cache.loco.ankle = ymin;
@@ -613,8 +619,13 @@ export class Character {
     const anchor = { walk: 1.6, run: 3.6, run_std: 3.6, run_fast: 4.9, sprint_std: 6.0 };
     this.loco = {
       fwd: L.fwd.map((e) => ({ ...e, a: e.n === 'walk' || e.n === 'run' ? this.actions[e.n] : act(e.n), d: C[e.n].duration, s: anchor[e.n], len: Math.max(0.6, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration })),
-      dir: Object.fromEntries(Object.entries(L.dir).map(([k, e]) => [k, { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.5, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration }])),
+      dir: Object.fromEntries(Object.entries(L.dir).map(([k, e]) => [k, { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.5, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration / e.cy }])),
     };
+    for (const e of this.loco.fwd) e.len /= e.cy;
+    const ent = (e) => e && { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.4, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration / e.cy };
+    this.loco.drib = ent(L.drib);
+    this.loco.gk = L.gk && { L: ent(L.gk.L), R: ent(L.gk.R) };
+    this.cycN = 0; this.dribbling = false; this.keeper = false; this._dribW = 0; this._gkW = 0;
     if (!L.fwd.some((e) => e.n === 'run')) this.actions.run.setEffectiveWeight(0);
     this.locoW = {};
     this.ankle0 = L.ankle;
@@ -637,6 +648,23 @@ export class Character {
         this._legIK(up, low, foot, this._lt, lk.w);
       }
     }
+  }
+
+  /** how many strides (left-foot plants) a looping clip holds */
+  _cycles(clip) {
+    const N = 120, ys = [], p = new THREE.Vector3();
+    this._sampleClip(clip, () => { ys.push(this.bones.footL.getWorldPosition(p).y); }, N);
+    const lo = Math.min(...ys), hi = Math.max(...ys), th = lo + Math.max(0.02, (hi - lo) * 0.25);
+    let n = 0; for (let i = 0; i < N; i++) if (ys[i] < th && ys[(i + N - 1) % N] >= th) n++;
+    return Math.max(1, Math.min(4, n));
+  }
+
+  /** the stretch of a turn clip where the body actually comes round (from its yaw curve), with a lead-in and a settle */
+  turnWin(name, lead = 0.15, settle = 0.2) {
+    const c = this.allClips[name], y = c?.userData?.yaw; if (!y) return { from: 0, to: c ? c.duration : 0, turn: 0 };
+    const v0 = y.v[0], tot = y.v[y.v.length - 1] - v0; let t1 = 0, t2 = c.duration;
+    for (let i = 0; i < y.v.length; i++) { const f = Math.abs(y.v[i] - v0) / (Math.abs(tot) || 1); if (f > 0.08 && !t1) t1 = y.t[i]; if (f > 0.92) { t2 = y.t[i]; break; } }
+    return { from: Math.max(0, t1 - lead), to: Math.min(c.duration, t2 + settle), turn: tot };
   }
 
   /** the body's velocity while a foot is planted (forward f, right r), from the planted foot sliding back */
@@ -1061,29 +1089,61 @@ export class Character {
    */
   _autoMocap(name, o, g) {
     const C = this.allClips; if (!C.strike_foward_jog) return false;
-    const R = (o.side || 'Right') !== 'Left', d = g.duration, c = o.contact ?? ANIM.kickContact;
+    const R = (o.side || 'Right') !== 'Left', d = g.duration, c = o.contact ?? ANIM.kickContact, sp = this.speed || 0;
+    const P = (n, x) => !!C[n] && !!this.playMocap(n, x);
     switch (name) {
-      case 'kick': return !!this.playMocap('strike_foward_jog', { from: 0.12, to: 1.15, align: 0.42, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
-      case 'pass': return !!this.playMocap('kick_soccerball_2', { from: 0, to: 0.47, align: 0.2, at: d * c, fadeIn: 0.05, fadeOut: 0.16 });
-      case 'chip': return !!this.playMocap('kick_soccerball', { mirror: true, from: 0, to: 0.53, align: 0.24, at: d * c, fadeIn: 0.05, fadeOut: 0.18 });
-      case 'header': return !!this.playMocap('header_soccerball', { from: 0.4, to: 1.45, align: 0.92, at: d * (o.contact ?? 0.42), fadeIn: 0.06, fadeOut: 0.18 });
+      case 'kick':
+        if (o.volley) return false;
+        if (sp < 0.7 && C.soccer_penalty_kick) return P('soccer_penalty_kick', { from: 0.4, to: 1.4, align: 0.73, at: d * c, fadeIn: 0.06, fadeOut: 0.25 });
+        if (sp > 3.6 && C.jog_kick && Math.random() < 0.5) return P('jog_kick', { from: 0.12, to: 1.05, align: 0.43, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
+        return P('strike_foward_jog', { from: 0.12, to: 1.15, align: 0.42, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
+      case 'pass':
+        if (sp > 3.6 && C.jog_kick) return P('jog_kick', { from: 0.15, to: 0.95, align: 0.43, at: d * c, fadeIn: 0.05, fadeOut: 0.2 });
+        return P('kick_soccerball_2', { from: 0, to: 0.47, align: 0.2, at: d * c, fadeIn: 0.05, fadeOut: 0.16 });
+      case 'chip':
+        if (sp > 2.4 && C.chip_jog) return P('chip_jog', { from: 0.2, to: 1.25, align: 0.48, at: d * c, fadeIn: 0.05, fadeOut: 0.22 });
+        return P('kick_soccerball', { mirror: true, from: 0, to: 0.53, align: 0.24, at: d * c, fadeIn: 0.05, fadeOut: 0.18 });
+      case 'bicycle': return P('scissor_kick', { from: 0.4, to: 2.3, align: 0.8, at: d * (o.contact ?? 0.3), fadeIn: 0.05, fadeOut: 0.3 });
+      case 'header': return P('header_soccerball', { from: 0.4, to: 1.45, align: 0.92, at: d * (o.contact ?? 0.42), fadeIn: 0.06, fadeOut: 0.18 });
+      case 'jumpHeader':
+        if (sp < 1.6) return P('header_inplace', { from: 0.55, to: 1.85, align: 1.13, at: d * (o.contact ?? 0.42), fadeIn: 0.05, fadeOut: 0.2 });
+        return false;
+      case 'trapChest': return P('chest_receive', { from: 0.1, to: 1.3, align: 0.45, at: d * c, fadeIn: 0.06, fadeOut: 0.2 });
+      case 'trapFoot':
+        if (sp < 1.2) return P('receive_soccerball', { mirror: !R, from: 0, to: 1.0, align: 0.3, at: d * c, fadeIn: 0.06, fadeOut: 0.2 });
+        return false;
       case 'slide':
-        if (o.kind === 'thunder' || o.kind === 'gale') return !!this.playMocap('soccer_tackle_2', { mirror: !R, from: 0.08, to: 1.25, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
-        return !!this.playMocap('soccer_tackle', { mirror: !R, from: 0.8, to: 2.15, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
+        if (o.kind === 'thunder' || o.kind === 'gale') return P('soccer_tackle_2', { mirror: !R, from: 0.08, to: 1.25, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
+        return P('soccer_tackle', { mirror: !R, from: 0.8, to: 2.15, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
+      case 'sidestep':
+        // the 闪身步: a Marseille-turn spin round the man when asked for, else the quick hop
+        if (o.spin && C.spin360) return P('spin360', { mirror: !R, from: 0.08, to: 1.12, dur: d + 0.12, fadeIn: 0.04, fadeOut: 0.16, over: 0.95 });
+        return false;
       case 'dive':
         // the clips dive to the keeper's left (diving_save, body_block) or right (diving_save_2)
-        if (o.low) return !!this.playMocap('goalkeeper_body_block', { mirror: R, from: 0.35, to: 1.95, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
-        return !!this.playMocap(R ? 'goalkeeper_diving_save_2' : 'goalkeeper_diving_save', { from: R ? 0.85 : 0.88, to: 2.6, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
+        if (o.low) return P('goalkeeper_body_block', { mirror: R, from: 0.35, to: 1.95, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
+        return P(R ? 'goalkeeper_diving_save_2' : 'goalkeeper_diving_save', { from: R ? 0.85 : 0.88, to: 2.6, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
       case 'fallF': case 'fallB':
         if (!o.trip) return false;
-        return !!this.playMocap('soccer_trip', { mirror: !!o.mirror, from: 0.15, to: 1.05, dur: d * 0.42, fadeIn: 0.05,
+        return P('soccer_trip', { mirror: !!o.mirror, from: 0.15, to: 1.05, dur: d * 0.42, fadeIn: 0.05,
           next: { name: 'standing_up', mirror: !!o.mirror, from: 0.3, to: 1.63, dur: d * 0.58, fadeOut: 0.2 } });
       case 'gkThrow':
-        if (o.punt) return !!this.playMocap('goalkeeper_drop_kick', { from: 1.55, to: 2.85, align: 2.08, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
-        return !!this.playMocap('goalkeeper_overhand_throw', { from: 0.95, to: 2.1, align: 1.45, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
+        if (o.punt) return P('goalkeeper_drop_kick', { from: 1.55, to: 2.85, align: 2.08, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
+        if (o.roll && C.goalkeeper_pass) return P('goalkeeper_pass', { from: 0.55, to: 2.0, align: 1.1, at: 0.3, fadeIn: 0.08, fadeOut: 0.3 });
+        return P('goalkeeper_overhand_throw', { from: 0.95, to: 2.1, align: 1.45, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
+      case 'deject':
+        if (o.keeper && C.goalkeeper_miss) return P('goalkeeper_miss', { from: 0.3, to: 2.8, fadeIn: 0.1, fadeOut: 0.5 });
+        return false;
       case 'gkReady': if (this.setIdlePose('goalkeeper_idle')) g.silent = true; return false;
     }
     return false;
+  }
+
+  /** a turn on the spot (or out of a run) from motion capture, timed by its own yaw curve; `right` picks the way round */
+  playTurn(name, right, opts = {}) {
+    const w = this.turnWin(name, opts.lead, opts.settle);
+    if (!w.to) return null;
+    return this.playMocap(name, { mirror: (w.turn < 0) !== right, from: w.from, to: w.to, dur: opts.dur ?? (w.to - w.from) / (opts.speed ?? 1.4), fadeIn: 0.06, fadeOut: 0.18, over: opts.over ?? 0.9 });
   }
 
   /** swap the standing loop for another clip (null → back to the normal idle) */
@@ -1288,9 +1348,33 @@ export class Character {
       stride += w * fwdShare * e.len * (e === F[F.length - 1] ? 1 + 0.18 * clamp((speed - e.s) / 2, 0, 1) : 1);
     }
     for (const k in LO.dir) { const w = (secW[k] || 0); LW[LO.dir[k].n] = w * move; stride += w * LO.dir[k].len; }
+    // carrying the ball at a jog: the dribbling jog takes over the forward gaits
+    const DR = LO.drib;
+    if (DR) {
+      const want = this.dribbling ? clamp((speed - 1.1) / 0.8, 0, 1) * clamp((4.3 - speed) / 0.8, 0, 1) : 0;
+      this._dribW += (want - this._dribW) * Math.min(1, dt * 6);
+      const w = this._dribW * fwdShare;
+      if (w > 0.001) {
+        for (const e of F) { stride -= (LW[e.n] / Math.max(move, 1e-4)) * (this._dribW) * e.len; LW[e.n] *= 1 - this._dribW; }
+        LW[DR.n] = w * move; stride += w * DR.len;
+      } else LW[DR.n] = 0;
+    }
+    // a keeper shuffles sideways in his crouch instead of jogging
+    const GK = LO.gk;
+    if (GK) {
+      this._gkW += ((this.keeper ? 1 : 0) - this._gkW) * Math.min(1, dt * 5);
+      for (const k of ['L', 'R']) {
+        const d = LO.dir[k], e = GK[k], w = (secW[k] || 0) * this._gkW;
+        if (!e) continue;
+        if (d) { LW[d.n] *= 1 - this._gkW; stride -= w * d.len; }
+        LW[e.n] = w * move; stride += w * e.len * clamp(speed / 2.2, 0.6, 1.6);
+      }
+    }
     // the jog clips are a jog: run them quicker (more steps), not longer, when the player goes faster sideways
-    stride = Math.max(0.4, stride);
-    this.phase = (this.phase + (dt * Math.max(speed, 0)) / stride) % 1;
+    stride = Math.max(0.35, stride);
+    const ph = this.phase + (dt * Math.max(speed, 0)) / stride;
+    if (ph >= 1) this.cycN++;
+    this.phase = ph % 1;
     // motion capture one-shot: its envelope weight takes over from the locomotion clips
     let MW = 0, rootYaw = 0;
     if (this.mocap) {
@@ -1330,9 +1414,10 @@ export class Character {
     }
     const iw = i2 ? 1 - this._i2w : 1;
     this.actions.idle.setEffectiveWeight(wIdle * iw * (1 - MW));
-    for (const e of [...LO.fwd, ...Object.values(LO.dir)]) {
+    for (const e of [...LO.fwd, ...Object.values(LO.dir), LO.drib, LO.gk?.L, LO.gk?.R]) {
+      if (!e) continue;
       e.a.setEffectiveWeight((LW[e.n] || 0) * (1 - MW));
-      e.a.time = ((this.phase + e.po) % 1) * e.d;
+      e.a.time = (((((this.cycN % e.cy) + this.phase) / e.cy) + e.po) % 1) * e.d;
     }
     for (const k in this.emoteWeights) {
       this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * Math.min(1, dt * 4);

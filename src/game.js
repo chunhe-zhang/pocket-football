@@ -479,7 +479,7 @@ export class Game {
     this.focus = toucher || null;
     for (const a of this.athletes) {
       a.frozen = true; a.charging = false;
-      if (a.gi === side && (a === toucher || Math.random() < 0.5)) a.char.play(this._celebration()); else if (a.gi === team && a.role === 'gk') a.char.play('deject');
+      if (a.gi === side && (a === toucher || Math.random() < 0.5)) a.char.play(this._celebration()); else if (a.gi === team && a.role === 'gk') a.char.play('deject', { keeper: true });
     }
     const sc = `${TEAMS[0].cn} ${this.conceded[1]} : ${this.conceded[0]} ${TEAMS[1].cn}`;
     const who = own ? `${toucher ? toucher.label : ''} 乌龙球` : `${toucher.label} 为${TEAMS[side].cn}队进球`;

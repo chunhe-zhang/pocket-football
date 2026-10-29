@@ -363,6 +363,15 @@ export class Athlete {
         const dx = ballPos.x - this.pos.x, dz = ballPos.z - this.pos.z;
         if (dx * dx + dz * dz > 0.3) want = Math.atan2(dx, dz);
       }
+      // turning on the spot: a proper step-round from motion capture rather than spinning on the heels
+      if (want !== null && this.vel.length() < 0.4 && !this.char.mocap && !this.trick && !this.charging && !this.holding && !this.isKeeper && !((this._trT || 0) > 0) && g.state === 'play') {
+        const d = wrapAngle(want - this.facing);
+        if (Math.abs(d) > 1.25) {
+          const big = Math.abs(d) > 2.3;
+          this.char.playTurn(big ? (Math.random() < 0.5 ? 'turn180_quick_R' : 'turn180_stand_R') : 'turn90_quick_R', d < 0, { dur: big ? 0.55 : 0.42, over: 0.85 });
+          this._trT = 0.5;
+        }
+      }
       this._turnTo(want, dt, this.trick ? 16 : this.charging ? 9 : PLAYER.turnRate);
       this.pos.addScaledVector(this.vel, dt);
     }
@@ -846,7 +855,10 @@ export class Athlete {
     this.char.play('gkHold');
     // the gather, from motion capture: arms up for a high ball, scooped off the turf for a low one
     if (!this.dive) {
-      if (off.y > 1.15) this.char.playMocap('goalkeeper_catch_2', { from: 0.22, to: 0.93, fadeIn: 0.05, fadeOut: 0.25 });
+      const run = Math.hypot(this.vel.x, this.vel.z) > 2.5;
+      if (off.y > 1.7 && run && this.char.allClips.gk_run_jump_catch) this.char.playMocap('gk_run_jump_catch', { from: 1.45, to: 2.6, fadeIn: 0.04, fadeOut: 0.3 });
+      else if (off.y > 1.7 && this.char.allClips.gk_jump_catch) this.char.playMocap('gk_jump_catch', { from: 0.72, to: 2.05, fadeIn: 0.04, fadeOut: 0.3 });
+      else if (off.y > 1.15) this.char.playMocap('goalkeeper_catch_2', { from: 0.22, to: 0.93, fadeIn: 0.05, fadeOut: 0.25 });
       else if (off.y < 0.35) this.char.playMocap('goalkeeper_scoop', { from: 0.62, to: 1.75, dur: 0.8, fadeIn: 0.06, fadeOut: 0.25 });
       else this.char.playMocap('goalkeeper_catch', { from: 0.62, to: 1.75, dur: 0.85, fadeIn: 0.06, fadeOut: 0.25 });
     }
@@ -870,7 +882,7 @@ export class Athlete {
     const g = this.game, b = g.ball;
     if (!this.holding || b.heldBy !== this) return;
     this.char.stopEmotes();
-    this.char.play('gkThrow', { duration: 0.7, punt: !to });
+    this.char.play('gkThrow', { duration: 0.7, punt: !to, roll: !!to && Math.hypot(to.pos.x - this.pos.x, to.pos.z - this.pos.z) < 13 });
     this.holding.release = { t: 0, to };
   }
 
@@ -1198,8 +1210,15 @@ export class Athlete {
       for (const o of g.live) { if (o === this || g.sameSide(o.team, this.team)) continue; const d = Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z); if (d < nd) { nd = d; near = o; } }
       side = near ? (((near.pos.x - this.pos.x) * r.x + (near.pos.z - this.pos.z) * r.z) > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
     }
-    const dur = 0.32;
-    this.trick = { type, t: 0, dur, side, f, r, done: false };
+    // a man right in front of me: spin round him (马赛回旋) instead of the quick hop
+    let spin = false;
+    for (const o of g.live) {
+      if (o === this || g.sameSide(o.team, this.team)) continue;
+      const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, dd = Math.hypot(dx, dz);
+      if (dd < 2.1 && (dx * f.x + dz * f.z) / (dd || 1) > 0.55) { spin = true; break; }
+    }
+    const dur = spin ? 0.5 : 0.32;
+    this.trick = { type, t: 0, dur, side, f, r, done: false, spin };
     this.skillCD = 0.7;
     this.stamina = Math.max(0, this.stamina - 0.05);
     this.touch = null; this.stats.skills++;
@@ -1217,7 +1236,7 @@ export class Athlete {
       this.char.play('touch', { side: foot, amp: 1.25, duration: 0.3 });
       g.sfx.kick(0.25);
     } else {
-      this.char.play('sidestep', { side: side > 0 ? 'Right' : 'Left', duration: dur + 0.08 });
+      this.char.play('sidestep', { side: side > 0 ? 'Right' : 'Left', duration: dur + 0.08, spin });
       g.sfx.touch();
     }
     if (type === 'feint') {
@@ -1236,7 +1255,7 @@ export class Athlete {
   _skillMove(desired, target) {
     const s = this.trick;
     if (s.type === 'feint') desired.copy(s.f).multiplyScalar(Math.min(target, 1.6));
-    else if (s.type === 'drag') desired.copy(s.r).multiplyScalar(s.side * 5.6).addScaledVector(s.f, Math.min(target, 2.2));
+    else if (s.type === 'drag') desired.copy(s.r).multiplyScalar(s.side * (s.spin ? 3.7 : 5.6)).addScaledVector(s.f, Math.min(target, s.spin ? 2.8 : 2.2));
     else if (s.type === 'dragback') desired.copy(s.f).multiplyScalar(s.t < 0.2 ? 0 : -2.6);
   }
   _skillFacing() {
@@ -2005,16 +2024,20 @@ export class Athlete {
     if (vs < 0.7 && ds > 4.2) {
       const cs = (desired.x * fx + desired.z * fz) / ds;
       if (cs > 0.5) { c.playMocap('start_sprint', { from: 0.12, to: 0.78, dur: 0.46, fadeIn: 0.05, fadeOut: 0.2, over: 0.85 }); this._trT = 0.5; return; }
+      // away to the side or behind: turn and go
+      const right = (-desired.x * fz + desired.z * fx) > 0;
+      if (c.playTurn('turn_run_R', right, { dur: 0.55, settle: 0.25, over: 0.85 })) { this._trT = 0.6; return; }
     }
     if (vs > 3.4 && ds > 2.5) {
       const cs = (desired.x * this.vel.x + desired.z * this.vel.z) / (ds * vs);
       const toRight = (-desired.x * this.vel.z + desired.z * this.vel.x) > 0;   // desired on the right of travel
       if (cs < -0.65) {                                                  // reversing: plant and pivot
-        c.playMocap('turn180_run', { mirror: !toRight, from: 0.0, to: 0.67, dur: 0.42, fadeIn: 0.05, fadeOut: 0.16, over: 0.9 });
+        const pick = vs > 5.2 ? 'turn180_fast' : Math.random() < 0.5 ? 'turn180_run_b' : 'turn180_run';
+        if (!c.playTurn(pick, toRight, { dur: pick === 'turn180_run' ? 0.42 : 0.5 })) c.playMocap('turn180_run', { mirror: !toRight, from: 0.0, to: 0.67, dur: 0.42, fadeIn: 0.05, fadeOut: 0.16, over: 0.9 });
         this._trT = 0.55; return;
       }
       if (cs < 0.45 && vs > 4.2) {                                       // a hard cut off the outside foot
-        c.playMocap('cut_R', { mirror: !toRight, from: 0.1, to: 0.7, dur: 0.38, fadeIn: 0.06, fadeOut: 0.16, over: 0.75 });
+        if (!(vs > 5.4 && c.playTurn('cut_sprint_R', toRight, { dur: 0.42, over: 0.75 }))) c.playMocap('cut_R', { mirror: !toRight, from: 0.1, to: 0.7, dur: 0.38, fadeIn: 0.06, fadeOut: 0.16, over: 0.75 });
         this._trT = 0.45;
       }
     }
@@ -2038,6 +2061,14 @@ export class Athlete {
     this.char.group.position.copy(this.pos);
     this.char.setFacing(this.facing);
     const hs = Math.hypot(this.vel.x, this.vel.z);
+    this.char.dribbling = !!this.dribbling;
+    this.char.keeper = this.isKeeper;
+    // outfield players in play stand like footballers (on their toes, ready), not the menu idle
+    if (!this.isKeeper) {
+      const st = this.game.state;
+      if ((st === 'play' || st === 'kickoff') && !this.char._i2on) this.char.setIdlePose('offensive_idle');
+      else if (!(st === 'play' || st === 'kickoff') && this.char._i2on) this.char.setIdlePose(null);
+    }
     const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
     const vf = this.vel.x * fx + this.vel.z * fz, vr = -this.vel.x * fz + this.vel.z * fx;
     this.char.update(dt, { speed: hs, vf, vr, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });
@@ -2214,7 +2245,7 @@ export class Athlete {
     // a soft 爆射 (a pass, really) is side-footed; anything firmer is a full swing
     const volley = g.ball.pos.y > 0.5 && type !== 'chip';
     if (type === 'kick' && power < 0.3 && !volley) this.char.play('pass', { duration: dur, side: 'Right', amp: 0.8 + 0.6 * power });
-    else this.char.play(volley ? 'kick' : type, { duration: dur, side: 'Right', amp: (0.85 + 0.3 * power) * (volley ? 1.25 : 1) });
+    else this.char.play(volley ? 'kick' : type, { duration: dur, side: 'Right', volley, amp: (0.85 + 0.3 * power) * (volley ? 1.25 : 1) });
   }
 
   _approachTarget(timeLeft, aim) {
