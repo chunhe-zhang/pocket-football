@@ -179,7 +179,7 @@ export class AvatarTemplate {
       springs: this.springData ? new SpringBones(this.springData, node) : null,
       expressions: new Expressions(this.expressions, node),
     };
-    styleAvatar(root, kit);
+    styleAvatar(root, kit, this.authoredThunder);
     return avatar;
   }
 }
@@ -439,7 +439,7 @@ function celMaterial(t, kind) {
   return t;
 }
 
-function styleAvatar(root, kit) {
+function styleAvatar(root, kit, authoredThunder = false) {
   // outlines: drawn per material in a darker shade of what they outline (warm brown round the skin,
   // the kit colour deepened round the clothes), the way illustrated characters are inked
   const inked = (hex) => { const c = new THREE.Color(hex); c.multiplyScalar(0.32); return c; };
@@ -459,9 +459,13 @@ function styleAvatar(root, kit) {
     const olMats = [];
     const next = mats.map((m) => {
       const n = (m.name || '').toUpperCase();
+      if (authoredThunder && n.startsWith('RAI /')) {
+        const metal = m.clone(); // keep the authored metal, enamel and glow
+        olMats.push(OL.dark); return metal;
+      }
       if (/EYE|FACE(MOUTH|EYELINE|BROW)|HIGHLIGHT/.test(n)) { const b = m.clone(); b.toneMapped = false; olMats.push(OL.dark); return b; } // eyes and face parts stay unlit
       let map = m.map;
-      if (/TOPS/.test(n) && map) map = tintedTexture(map, kit.shirt, (g, w, h) => {
+      if (/TOPS/.test(n) && map && !authoredThunder) map = tintedTexture(map, kit.shirt, (g, w, h) => {
         // squad number on the back panel of the shirt texture
         g.fillStyle = kit.number;
         g.font = `bold ${Math.round(h * 0.13)}px "Barlow Condensed", Impact, sans-serif`;
@@ -469,8 +473,8 @@ function styleAvatar(root, kit) {
         g.fillText(kit.no, w * 0.5, h * 0.73);
         g.fillRect(w * 0.08, h * 0.37, w * 0.84, h * 0.012); // chest stripe on the front panel
       });
-      if (/BOTTOMS/.test(n) && map) map = tintedTexture(map, kit.shorts);
-      if (/HAIR/.test(n) && map && kit.hair) map = tintedTexture(map, kit.hair, null, kit.hairMode || 'multiply');
+      if (/BOTTOMS/.test(n) && map && !authoredThunder) map = tintedTexture(map, kit.shorts);
+      if (/HAIR/.test(n) && map && kit.hair && !authoredThunder) map = tintedTexture(map, kit.hair, null, kit.hairMode || 'multiply');
       const isSkin = /SKIN|BODY/.test(n) && !/TOPS|BOTTOMS/.test(n), isHair = /HAIR/.test(n);
       const t = new THREE.MeshToonMaterial({
         name: m.name, map, color: m.color, gradientMap: gradient(),

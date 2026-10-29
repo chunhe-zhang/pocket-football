@@ -9,6 +9,7 @@ import { ChargeFx } from './chargefx.js';
 import { Particles } from './fx.js';
 import { SpecialFx } from './specials.js';
 import { PowerFx } from './powerfx.js';
+import { GameLightningFx } from './game-lightning.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -40,6 +41,8 @@ export class Game {
     this.particles = new Particles(scene);
     this.specialFx = new SpecialFx(scene, this.particles);
     this.powerFx = new PowerFx(scene);
+    this.lightningFx = new GameLightningFx(scene, camera);
+    this.powerFx.refinedLightning = this.specialFx.refinedLightning = true;
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
@@ -290,7 +293,7 @@ export class Game {
     if (this.role === 'host') this.net.broadcast({ k: 'start', settings: { level, duration, mode, map }, side: this.side, slots: slots.map(({ kind, name, id }) => ({ kind: kind === 'local' ? 'host' : kind, name, id })), chars: this.athletes.map((a) => a.charId) });
   }
 
-  _setChar(a, id) { a.charId = CHAR[id] ? id : 'thunder'; a.char.setHair(a.charDef.hair); a.char.setStyle(a.charId); }
+  _setChar(a, id) { a.charId = CHAR[id] ? id : 'thunder'; a.char.setStyle(a.charId); a.char.setHair(a.charDef.hair); }
 
   /**
    * 5v5: humans each take a cursor on one side ('humans' pairing: all on blue; 'vs': alternate),
@@ -931,8 +934,9 @@ export class Game {
       this._passAssist(dt);
       this.ball.colliders = live.flatMap((a) => (a.colliders || []).filter((c) => c.active));
       const p0 = this._bp0 || (this._bp0 = new THREE.Vector3()); p0.copy(this.ball.pos);
+      const thunderShot = this.lightningFx.hasThunder(this.ball);
       const events = this.ball.update(dt);
-      for (const e of events) this._ballEvent(e);
+      for (const e of events) this._ballEvent(e, thunderShot);
       void p0;
       this._elemPassTick();
       this._offsideTick();
@@ -946,6 +950,7 @@ export class Game {
     this.chargeFx.update(rawDt, this.athletes, this.time, this);
     this.specialFx.update(rawDt, this);
     this.powerFx.update(rawDt, this.camera.position);
+    this.lightningFx.update(rawDt, this);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -993,7 +998,12 @@ export class Game {
 
   _distBall(a) { return Math.hypot(this.ball.pos.x - a.pos.x, this.ball.pos.z - a.pos.z); }
 
-  _ballEvent(e) {
+  _ballEvent(e, thunderShot = false) {
+    // Physics may end the special before returning its goal/catch events.
+    if ((thunderShot || this.lightningFx.hasThunder(this.ball)) && ['board', 'post', 'net', 'goal', 'zap'].includes(e.type)) {
+      const pos = e.type === 'zap' ? e.who.pos.clone().add(new THREE.Vector3(0, 0.8, 0)) : this.ball.pos.clone();
+      if (this.lightningFx.hit(pos, e.type === 'goal' || e.type === 'net')) this.emit({ e: 'lightningHit', p: pos.toArray(), big: e.type === 'goal' || e.type === 'net' });
+    }
     switch (e.type) {
       case 'bounce': this.sfx.bounce(e.v); break;
       case 'board': this.sfx.board(e.v); if (e.v > 9) this.shake = Math.max(this.shake, 0.05); break;
@@ -1440,6 +1450,7 @@ export class Game {
     this.specialFx.update(dt, this);
     this._trails(dt, false);
     this.powerFx.update(dt, this.camera.position);
+    this.lightningFx.update(dt, this);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -1459,6 +1470,7 @@ export class Game {
       case 'shield': this.pitch.breakShield(e.t); break;
       case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : e.o ? { off: true } : null); break; }
       case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
+      case 'lightningHit': this.lightningFx.hit(new THREE.Vector3().fromArray(e.p), e.big); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'flair': { const a = this.athletes[e.i]; if (a) { a.flairText = e.s; a.flairT = this.time; } break; }

@@ -35,7 +35,7 @@ export class Showroom {
     let m = this.models.get(id);
     if (m) return m;
     const def = CHARS.find((c) => c.id === id);
-    const kit = { shirt: def.css, shorts: '#262236', number: '#ffffff', no: String(CHARS.indexOf(def) + 1), hair: null, outline: 0x1b1630 };
+    const kit = { shirt: def.css, shorts: '#262236', number: '#ffffff', no: String(CHARS.indexOf(def) + 1), hair: null, outline: 0x1b1630, characterId: id };
     const ch = new Character(this.template, kit);
     ch.setHair(def.hair); ch.setStyle(id);
     const x = this.models.size * 6;             // each on its own spot, far enough apart to never overlap a view

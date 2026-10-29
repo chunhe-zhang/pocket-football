@@ -210,6 +210,7 @@ export class PowerFx {
       if (!on) continue;
       const p = a.pos, v = a.vel, vl = Math.hypot(v.x, v.z) || 1, bx = -v.x / vl, bz = -v.z / vl;
       if (a.charId === 'thunder') {
+        if (this.refinedLightning) continue;
         if (Math.random() < dt * 14) this.bolt({ x: p.x + bx * 0.3, y: 0.3 + Math.random() * 1.2, z: p.z + bz * 0.3 }, { x: p.x + bx * (1 + Math.random()), y: Math.random() * 1.3, z: p.z + bz * (1 + Math.random()) + (Math.random() - 0.5) }, 0.1, 0.05);
         if (Math.random() < dt * 12) this.puff(T.glow, { x: p.x, y: 0.9, z: p.z }, { x: 0, y: 0, z: 0 }, 0.15, 0.8, 0.3, 0x3fb8ff, 0, false, 0.5);
       } else if (a.charId === 'blaze') {
@@ -286,6 +287,7 @@ export class PowerFx {
   }
 
   start(a, kind, extra = null) {
+    if (this.refinedLightning && kind === 'thunder') return;
     this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
   }
 

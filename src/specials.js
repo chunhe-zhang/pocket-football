@@ -99,7 +99,7 @@ export class SpecialFx {
     ball.root.scale.setScalar(big ? (pair && pair.big || ids.length >= 3 ? 1.6 : 1.35) : 1);
     // ---- the lightning bolt ----
     this.hist.unshift(ball.pos.clone()); if (this.hist.length > 18) this.hist.length = 18;
-    const bolting = on && ids.includes('thunder') && ballVisible;
+    const bolting = on && ids.includes('thunder') && ballVisible && !this.refinedLightning;
     this.bolt.visible = this.bolt2.visible = bolting;
     if (bolting) {
       for (const [line, j] of [[this.bolt, 0.22], [this.bolt2, 0.35]]) {

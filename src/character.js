@@ -497,6 +497,11 @@ export class Character {
    * @param {object} kit team colours for the shirt / shorts / hair
    */
   constructor(template, kit) {
+    this._baseTemplate = template;
+    this._kit = { ...kit };
+    template = template.variants?.get(kit.characterId) || template;
+    this._modelTemplate = template;
+    this.authoredThunder = !!template.authoredThunder;
     this.group = new THREE.Group();
     const av = template.instantiate(kit);
     this.root = av.root;
@@ -610,6 +615,25 @@ export class Character {
    * circling them. Built in world space against the current pose and attached to the bones.
    */
   setStyle(id) {
+    const wanted = this._baseTemplate.variants?.get(id) || this._baseTemplate;
+    if (this._modelTemplate !== wanted) {
+      // Keep the Character and its world group stable: network wrappers,
+      // gameplay references, position, visibility and squad scale stay valid.
+      const group = this.group, oldRoot = this.root;
+      this.mixer.stopAllAction(); this.mixer.uncacheRoot(oldRoot);
+      for (const o of this._acc || []) o.parent?.remove(o);
+      group.remove(oldRoot);
+      const materials = new Set();
+      oldRoot.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) materials.add(m); });
+      materials.forEach((m) => m.dispose());
+      const next = new Character(this._baseTemplate, { ...this._kit, characterId: id });
+      const wrapped = {};
+      for (const name of ['play', 'face', 'emote', 'stopEmotes']) if (Object.hasOwn(this, name)) wrapped[name] = this[name];
+      for (const key of Object.keys(this)) delete this[key];
+      Object.assign(this, next, wrapped);
+      this.group = group;
+      group.add(this.root);
+    }
     if (this._style === id) return;
     this._style = id;
     for (const o of this._acc || []) o.parent?.remove(o);
@@ -629,6 +653,7 @@ export class Character {
     const Fz = 0.07;  // and well in front of it
     switch (id) {
       case 'thunder': {
+        if (this.authoredThunder) break; // jewellery is already fitted in the VRM
         // a golden headband and a pair of lightning-bolt hairpins
         const band = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.016, 8, 32), glow(0xffd23f, 0.5)); band.rotation.x = Math.PI / 2 + 0.35;
         put(band, b.head, 0, Y + 0.1, -0.01);
@@ -720,10 +745,10 @@ export class Character {
         break;
       }
     }
-    this._outfit(id, put, glow, solid);
+    if (!this.authoredThunder) this._outfit(id, put, glow, solid);
     // everyone: two little element orbs circling at waist height
     const col = { thunder: 0x5fe1ff, blaze: 0xff6a2b, frost: 0x9fe6ff, gale: 0x6dff9a, phantom: 0xb58cff, cannon: 0xffd23f }[id] || 0xffffff;
-    if (id !== 'phantom') for (let k = 0; k < 2; k++) {
+    if (id !== 'phantom' && !this.authoredThunder) for (let k = 0; k < 2; k++) {
       const orb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
       const halo = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })); orb.add(halo);
       this.group.add(orb); this._acc.push(orb); this._orbit.push({ m: orb, r: 0.48, h: 0.95, sp: 2.4, ph: k * Math.PI });
@@ -835,7 +860,7 @@ export class Character {
   }
 
   /** characters each have their own hair colour */
-  setHair(color) { dyeHair(this.root, color); }
+  setHair(color) { if (!this.authoredThunder) dyeHair(this.root, color); }
 
   _sampleClip(clip, fn, N = 60) {
     const m = new THREE.AnimationMixer(this.root);
