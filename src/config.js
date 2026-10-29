@@ -50,8 +50,8 @@ export const PLAYER = {
   accel: 20,
   decel: 26,
   turnRate: 11,
-  chargeTime: 0.55,      // seconds to reach full power
-  chargeAutoRelease: 0.35,
+  chargeTime: 0.3,       // seconds to reach full power (quick: a shot is a snap, not a wind-up)
+  chargeAutoRelease: 0.25,
   passChargeTime: 0.42,  // a pass fills its bar a lot quicker
   staminaDrain: 0.32,
   staminaRegen: 0.38,

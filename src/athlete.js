@@ -1982,7 +1982,7 @@ export class Athlete {
 
   // ---------------------------------------------------------------------------
   /** the charge window that gives a pin-point strike */
-  static SWEET = [0.62, 0.86];
+  static SWEET = [0.56, 0.9];      // (wider, now the bar fills in 0.3 s)
   /** highest ball each strike can meet (a 射门 at waist height is a volley) */
   static MAXH = { kick: 1.2, pass: 0.9, chip: 0.6 };
 
