@@ -90,7 +90,7 @@ function textures() {
   return TEX;
 }
 
-const N = 200;
+const N = 320;
 const SLIDE_COL = { thunder: 0x5fe1ff, blaze: 0xff6a2b, frost: 0x9fe6ff, gale: 0x6dff9a, phantom: 0xb58cff, cannon: 0xffd23f };
 
 export class PowerFx {
@@ -143,7 +143,7 @@ export class PowerFx {
     }
     // slide tackles: the area the slide covers, drawn on the grass in the element's colour
     this.boxes = []; for (let i = 0; i < 6; i++) { const m = flat(T.hitbox, 0xffffff); m.material.blending = THREE.AdditiveBlending; this.boxes.push(m); }
-    this.bolts = []; for (let i = 0; i < 8; i++) {
+    this.bolts = []; for (let i = 0; i < 24; i++) {
       const n = 12, g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
       const idx = []; for (let k = 0; k < n - 1; k++) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } g.setIndex(idx);
@@ -193,7 +193,6 @@ export class PowerFx {
     for (let i = n; i < this._iceDecals.length; i++) this._iceDecals[i].visible = false;
     // the sprint itself
     for (const a of athletes) {
-      if (this.refinedElements && a.charId !== 'thunder') continue;
       const w = a.charId === 'gale' ? this._wingsFor(a) : null;
       const on = a.sprinting && !a.out;
       if (w) {
@@ -240,7 +239,8 @@ export class PowerFx {
   }
   /** a jagged lightning bolt between two points (re-jittered every frame while it lives) */
   bolt(a, b, life = 0.2, w = 0.12, color = 0xaef4ff) {
-    const B = this.bolts.find((q) => q.life <= 0) || this.bolts[0];
+    let B = this.bolts.find(q => q.life <= 0);
+    if (!B) { B = this.bolts.reduce((a, b) => a.w * a.life < b.w * b.life ? a : b); if (B.w * B.life > w * life) return; }
     B.a.set(a.x, a.y, a.z); B.b.set(b.x, b.y, b.z); B.life = B.max = life; B.w = w; B.m.material.color.set(color);
   }
   _updatePools(dt, cam) {
@@ -289,10 +289,10 @@ export class PowerFx {
   }
 
   start(a, kind, extra = null) {
+    if (kind === 'element-hit') { const old = this.fx.find(f => f.kind === kind && f.a === a && f.element === extra?.element); if (old) { old.t = 0; return; } }
     this._wave(a, kind, extra);
     if (!extra?.off && typeof kind === 'string' && !kind.includes(':') && kind !== 'hit') this.skill?.burst(a, kind);
-    if (this.refinedLightning && kind === 'thunder') return;
-    if (this.refinedElements && ['blaze', 'frost', 'gale', 'phantom', 'cannon'].includes(kind)) return;
+    // Refined particles complement the move's silhouette; they do not replace it.
     this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
   }
 
@@ -322,11 +322,35 @@ export class PowerFx {
       P.s.material.opacity = P.a0 * Math.min(1, (1 - u) * 1.6) * Math.min(1, u * 12 + 0.2);
       P.s.material.rotation += P.spin * dt;
     }
-    let ringOn = false, spikesOn = false, twistOn = false, wingsOn = false, cloakOn = false;
+    this.templates ||= Object.fromEntries(['ringA', 'ringB', 'spikes', 'twister', 'wings', 'cloak'].map(k => [k, this[k]]));
     for (const f of this.fx) {
+      // Concurrent skills own their meshes, so a second player cannot hide the first one's burst.
+      if (!f.visual && ['blaze', 'frost', 'gale', 'slide:gale'].includes(f.kind)) {
+        f.visual = {};
+        for (const [k, template] of Object.entries(this.templates)) {
+          const o = template.clone(true); o.visible = false;
+          o.traverse(n => { if (n.material) n.material = Array.isArray(n.material) ? n.material.map(m => m.clone()) : n.material.clone(); });
+          this.scene.add(o); f.visual[k] = o;
+        }
+      }
+      Object.assign(this, f.visual || this.templates);
+      this.wingR = this.wings.children[0]; this.wingL = this.wings.children[1];
+      let ringOn = false, spikesOn = false, twistOn = false, wingsOn = false, cloakOn = false;
       f.t += dt;
       const a = f.a, p = a.pos, t = f.t;
-      if (f.kind === 'blaze') {
+      if (f.kind === 'element-hit') {
+        if (!f.go) { f.go = true; this.shock(p.x, p.z, f.color, 2.2, .65, true); }
+        f.clock = (f.clock || 0) - dt;
+        if (f.clock <= 0 && !a.out) {
+          const y = .6 + (a.char?.airY || 0), fire = f.element === 'blaze';
+          for (let k = 0; k < 3; k++) this.puff(fire ? T.flame : T.glow,
+            { x: p.x + (Math.random() - .5) * .6, y: y + Math.random() * .7, z: p.z + (Math.random() - .5) * .6 },
+            { x: -(a.vel?.x || 0) * .15, y: fire ? 1.8 : .8, z: -(a.vel?.z || 0) * .15 },
+            .55, fire ? .8 : .5, .12, fire ? 0xffffff : f.color, -1, true, .95);
+          f.clock = .055;
+        }
+        f.done = t > (f.element === 'frost' ? 1.5 : 1.0);
+      } else if (f.kind === 'blaze') {
         // gathering flames round the body, then the roar: a ring of fire bursting outwards
         cloakOn = t < 0.55;
         if (t < 0.55) { this.cloak.position.set(p.x, 0, p.z); this.cloak.rotation.y += dt * 9; this.cloak.material.color.set(0xff3a08); this.cloak.material.opacity = 0.6 * Math.min(1, t * 5) * (t > 0.4 ? (0.55 - t) / 0.15 : 1); this.cloak.material.map.offset.y -= dt * 2; this.cloak.scale.set(1 + t, 1 + t * 0.5, 1 + t); }
@@ -383,7 +407,9 @@ export class PowerFx {
         this.wingR.rotation.set(0, -0.35 - flap * 0.5, 0.15 + flap);
         this.wingL.rotation.set(0, 0.35 + flap * 0.5, -0.15 - flap);
         this.wings.translateZ(-0.18);
-        const fade = Math.min(1, t * 6) * (t > 0.75 ? Math.max(0, (0.95 - t) / 0.2) : 1);
+        if (on) f.lastOn = t;
+        const fade = Math.min(1, t * 6) * Math.max(0, 1 - Math.max(0, t - (f.lastOn ?? .75)) / .35);
+        wingsOn = twistOn = fade > .01;
         this.wingR.material.opacity = 0.95 * fade;
         this.twister.position.set(p.x, 0, p.z); this.twister.rotation.y -= dt * 14; this.twister.material.map.offset.x += dt * 1.5;
         this.twister.scale.set(1, 0.6 + a.char.root.position.y * 0.9, 1); this.twister.material.opacity = 0.9 * fade;
@@ -391,7 +417,7 @@ export class PowerFx {
           const ang = Math.random() * 6.28, r = 0.6 + Math.random() * 0.4;
           this.puff(T.wind, { x: p.x + Math.cos(ang) * r, y: 0.3 + Math.random() * 1.6, z: p.z + Math.sin(ang) * r }, { x: -Math.sin(ang) * 4, y: 1.2, z: Math.cos(ang) * 4 }, 0.35, 0.35, 0.6, 0x9fffc0, 0, false, 0.7);
         }
-        f.done = t > 1;
+        f.done = !on && t > (f.lastOn ?? .75) + .35;
       } else if (f.kind === 'thunder') {
         // crackling body, bolts arcing along the zigzag, a strike from the sky where I land
         if (t < 0.48) {
@@ -465,10 +491,14 @@ export class PowerFx {
         f.done = t > 0.95;
         if (f.done) f.box.userData.busy = false, f.box.visible = false;
       }
+      if (!ringOn) { this.ringA.visible = false; this.ringB.visible = false; }
+      this.spikes.visible = spikesOn; this.twister.visible = twistOn; this.wings.visible = wingsOn; this.cloak.visible = cloakOn;
+      if (f.done && f.visual) for (const o of Object.values(f.visual)) {
+        this.scene.remove(o); o.traverse(n => { if (n.material) for (const m of [].concat(n.material)) m.dispose(); });
+      }
     }
+    Object.assign(this, this.templates); this.wingR = this.wings.children[0]; this.wingL = this.wings.children[1];
     this.fx = this.fx.filter((f) => !f.done);
-    if (!ringOn) { this.ringA.visible = false; this.ringB.visible = false; }
-    this.spikes.visible = spikesOn; this.twister.visible = twistOn; this.wings.visible = wingsOn; this.cloak.visible = cloakOn;
   }
 
   _ring(m, x, z, u, R1, color) {

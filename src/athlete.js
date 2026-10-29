@@ -964,6 +964,7 @@ export class Athlete {
       els = left;
     }
     const has = (id) => els.includes(id), lv = o.level || 1, mild = !!o.mild;
+    for (const id of els) this.game.onElementContact?.(this, id);
     if (!o.force && this._tough()) {
       if (has('frost')) this.freeze(mild ? 0.9 : 1.5); else this._stagger(dir);
       return;
@@ -1641,6 +1642,7 @@ export class Athlete {
       if (d > R0) continue;
       if (o._counters(kind)) { o._shrug(kind, new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1))); continue; }
       const away = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
+      g.onElementContact?.(o, kind);
       if (kind === 'blaze') { if (d < 3.0) o.launch(away, 11 - d * 1.5, 4.5); else o.knock(away, 7); }   // blown far away
       else { o.freeze(2.2); }
     }

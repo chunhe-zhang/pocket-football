@@ -597,6 +597,14 @@ export class Game {
   /** an impact flash at a player (cannon hits) */
   onImpact(ath, color) { this.powerFx.start({ pos: ath.pos.clone() }, 'hit', { color }); this.emit({ e: 'hit', p: [ath.pos.x, ath.pos.z], c: color }); }
 
+  /** Follow the actual struck player, including the airborne part of a launch. */
+  onElementContact(ath, kind) {
+    const color = { blaze: 0xff5418, frost: 0x65cfff, gale: 0x38d995, thunder: 0x9861ff, phantom: 0x9955ff, cannon: 0xd89a34 }[kind];
+    if (!color) return;
+    this.powerFx.start(ath, 'element-hit', { element: kind, color });
+    this.emit({ e: 'elementContact', i: ath.team, k: kind });
+  }
+
   /** an element shot leaves the boot (c: comboOf(the move's elements) — or a character for old callers) */
   onSpecial(ath, c) {
     const ids = c.ids || [c.id], lv = c.level || 1;
@@ -1490,6 +1498,7 @@ export class Game {
       case 'power': { const a = this.athletes[e.i]; if (a) { this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : e.o ? { off: true } : null); this.elementFx.start(a, e.k); } break; }
       case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
       case 'lightningHit': this.lightningFx.hit(new THREE.Vector3().fromArray(e.p), e.big); break;
+      case 'elementContact': { const a = this.athletes[e.i]; if (a) this.onElementContact(a, e.k); break; }
       case 'elementHit': this.elementFx.hit(e.id, new THREE.Vector3().fromArray(e.p), e.big); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
