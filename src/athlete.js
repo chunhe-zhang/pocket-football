@@ -2604,8 +2604,8 @@ export class Athlete {
     // how far ahead: the ball comes back to within a stride of the boots before each
     // touch, and a touch sends it out ahead again (further when running / sprinting)
     const sprinting = it.sprint && sp > PLAYER.runSpeed * 0.9;
-    const near = 0.25 + R + Math.min(sp, PLAYER.runSpeed) * 0.016;   // within a boot's reach
-    const push = 0.2 + Math.min(sp, PLAYER.runSpeed) * 0.05 + (sprinting ? 0.45 : 0);
+    const near = 0.2 + R + Math.min(sp, PLAYER.runSpeed) * 0.012;    // within a boot's reach
+    const push = 0.12 + Math.min(sp, PLAYER.runSpeed) * 0.03 + (sprinting ? 0.2 : 0);   // close control: the ball never runs far ahead
     const kd = this.knockDur || 0.3;
     let ahead = near + push * Math.pow(clamp(this.knockT / kd, 0, 1), 0.7);
     if (!wants) ahead = 0.3 + R + Math.min(sp, 4) * 0.025;   // stick released: the sole stops it at the boot
@@ -2667,7 +2667,7 @@ export class Athlete {
     const drift = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
     // between touches the ball rolls on its own (only a light guiding hand, firmer if it drifts away)
     // (a change of direction is played by the turn touch itself, when the boot gets there — not by a hidden pull)
-    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? (this.touch ? 0.6 : 2.2) : !wants ? 8 : this.knockT > 0 ? 0.45 : drift > 0.6 ? 4 : 1.1));
+    const kv = 1 - Math.exp(-dt * (sk ? 16 : reverse ? 10 : turning ? (this.touch ? 0.6 : 2.2) : !wants ? 8 : this.knockT > 0 ? 1.0 : drift > 0.4 ? 5 : 2.2));
     this._reverse = reverse ? 0.2 : Math.max(0, (this._reverse || 0) - dt);
     ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
     ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
@@ -2680,7 +2680,7 @@ export class Athlete {
 
     // visible touches, in step with the run: each boot plays the ball as it swings
     // through (late swing, just before it plants), or a turn touch when changing direction
-    const interval = sprinting ? 0.5 : sp > 3 ? 0.42 : 0.55;
+    const interval = sprinting ? 0.4 : sp > 3 ? 0.34 : 0.5;   // short, frequent touches
     const fwdNow = bx * d.x + bz * d.z;
     const latNow = bx * this.rightDir.x + bz * this.rightDir.z;
     if (!this.touch && !this.charging && !this.kick && !this.trick) {
@@ -2714,7 +2714,7 @@ export class Athlete {
         this.knockT = this.knockDur;
         // the touch itself: the boot pushes the ball out ahead into my path, a little further than I'll run
         if (!tt.turn) {
-          const pushV = clamp(0.55 + sp * 0.12 + (sprinting ? 0.9 : 0), 0.55, 2.6);
+          const pushV = clamp(0.35 + sp * 0.07 + (sprinting ? 0.4 : 0), 0.35, 1.4);
           ball.vel.x = this.vel.x + d.x * pushV; ball.vel.z = this.vel.z + d.z * pushV;
         } else {
           // a turn touch: the inside / outside of the boot sends it off the new way from where it was met
