@@ -1,5 +1,7 @@
 # Pocket Football
 
+操作与控球修正：J 射门、U 挑射均为约 0.24 秒短蓄力；I 平传、K 挑传即按即出。元素技能中/结束后的 J，以及接元素传球后的 J，保留免蓄力出球。门将统一从脚部开大脚，接球队员优先缓冲停球；无人干扰的连续带球有控球保护，真实铲抢、受击和主动出球仍会结束控球。队伍在宽度与纵深上进一步拉开。
+
 Anderson Rohr's native 60 FPS football captures now supply close-control dribbling, side-foot passes, three strikes and high/mid/low keeper reaches. Captured reaches anticipate the actual ball while existing glove/body collisions decide the save. The original 21-action, three-skeleton pack stays in the owner's local archive; see [source and license](assets/anim/anderson.README.md).
 
 Football realism update: supplemental Rokoko passing/penalty captures are retargeted with measured contact frames; strikes plant the support boot and retain follow-through. Ordinary ball anticipation shares the live drag/spin/turf integrator, while glancing impacts transfer friction into spin using thin-shell inertia. Actual body and glove contacts produce a damped torso response. Players have attached lace/sole/stud geometry and subtle cloth weave. Source and licensing details: [precision mocap](assets/anim/precision.README.md).
@@ -174,8 +176,8 @@ Football realism update: supplemental Rokoko passing/penalty captures are retarg
 - **三种出脚**：
   - **射门**：蓄满是重炮。瞄到球门附近会自动修正进门框（离球门越偏修正越少，故意打偏还是能打偏）；什么方向都不按就直接打向球门。
   - **平传**：贴地传给你大致指着的那个队友（真人传球 60° 左右的范围都算，按队友正在跑去的位置判断，同方向有几个人时优先没人盯的那个），传给队友的球几乎没有偏差，路上还会轻轻追着他拐过去，会算好提前量传到他跑动的路线上；轻点传脚下，蓄力越多越往前送、打身后。不按方向就传给位置最好的队友。队友传给你的球更准：给真人的提前量更小（更多传到脚下），球在路上还会轻轻追着你现在的位置拐过去，你中途改了跑动方向也接得到。传球刚出脚的一小会儿，紧贴着的防守人碰不到球（除非他正在抢断或铲球），没那么容易被断。
-  - **传球立刻出脚**（平传 I、挑传 K 都是）：按下就传，不用蓄力，力度自动选成最合适的：队友往前跑就传到他身前的跑动路线上，站着就传到脚下；挑传在禁区附近落到他的头球高度，远一点落到凌空高度。接球的人自动修正成位置最好的队友：按着方向键就在那个方向（大致 70° 以内）找，不按就全场找——身边没人、传球路线上没人、更靠前、不越位的优先，挑传更喜欢禁区附近能头球的人。现在只有普通射门（J）需要蓄力。挑传朝着球门、又没有更靠近球门的队友时，还是挑射。
-  - **挑传 / 挑射**：朝队友是高空传中，球会落在他的头球高度（在禁区附近）或凌空高度（离门远时）；朝着球门、而且没有更靠近球门的队友，就是挑射吊门。
+  - **按键明确分开**：J 射门、U 挑射短蓄力；I 平传、K 挑传即按即出。K 只用于挑传，不会自动变为吊门。
+  - **挑传与挑射**：K 找队友，便于接稳；U 瞄准球门，短蓄力后吊门。
 - **精细瞄准**：蓄力时第一下的方向定大方向，之后按住方向键准星会慢慢转过去（约每秒 110°，点一下转两三度），所以用键盘也能打出任意角度；手柄和手机摇杆直接指哪打哪。地上的小点和门上的圈显示球会飞的路线。蓄力条上的金色框里松手是“完美”出脚，几乎没有偏差；蓄满再松手力量最大但会偏、会往上飘。
 - **头球**：球在空中时按爆射键，球员会跑到落点，按球的高度自动选择：齐胸的球鱼跃冲顶（整个人飞出去，最有力），高球起跳头球（跳得更高、往下砸），刚好在头部的球站着顶。头球速度最高 25 米/秒左右，带震屏和火花。高过头顶的球按挑射键是倒钩：背对球门翻身凌空一脚，最高 29 米/秒；够不到倒钩的球按挑射键是轻轻往上顶。电脑也会争顶，传中过来的球队友会迎上去头球攻门。
 - **一脚出球（配合奖励）**：队友的球还在路上（甚至队友还在蓄力准备传给你）就按下键——按住不放也行，球一到脚边就自动打出去；先按后松也行。球员会自动跑到接球点，不停球直接打：地滚球是一脚射门/一脚传，空中球会等它落到腰部高度来一脚**凌空抽射**，更高的球就自动变成头球。一脚出球的射门更准（误差只剩三成）、更快，触球判定也更宽松；回传给刚传你球的人会显示“撞墙配合”。头顶会飘出“凌空抽射! / 一脚射门! / 撞墙配合! / 鱼跃冲顶!”之类的字。自己带球射门和以前一样，没有这些加成。
@@ -207,7 +209,8 @@ Football realism update: supplemental Rokoko passing/penalty captures are retarg
 | 移动 | WASD / 方向键 | WASD | 方向键 | 左摇杆 |
 | 射门（按住蓄力；球在空中＝头球攻门） | Space / J | F | Enter | A |
 | 平传（贴地传给指着的队友；空中＝头球摆渡） | I / Q | R | , | Y |
-| 挑传 / 挑射（朝队友＝高空传中，朝球门＝吊门；空中＝倒钩或轻顶） | K | G | / | B |
+| 挑传（即按即出） | K | G | / | B |
+| 挑射（短蓄力） | U | T | Num3 / 右引号 | LB |
 | 冲刺 | Shift | 左 Shift | 右 Shift | RB |
 | 抢断 / 铲球 / 扑救；带球时＝闪身步 | L / E | H | . | X |
 

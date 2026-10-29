@@ -234,9 +234,9 @@ export class Game {
       switch (a.role) {
         case 'gk': x = -HX + 1.0; z = 0; break;
         case 'back': x = -HX * 0.6; z = 0; break;
-        case 'wingL': x = -HX * 0.3; z = -HZ * 0.4; break;
-        case 'wingR': x = -HX * 0.3; z = HZ * 0.4; break;
-        case 'mid': x = s === kick ? -2.6 : -HX * 0.36; z = s === kick ? -0.6 : 0; break;
+        case 'wingL': x = -HX * 0.3; z = -HZ * 0.78; break;
+        case 'wingR': x = -HX * 0.3; z = HZ * 0.78; break;
+        case 'mid': x = s === kick ? -6 : -HX * 0.4; z = s === kick ? -HZ * 0.22 : -HZ * 0.28; break;
         default: x = s === kick ? -0.45 : -HX * 0.22; z = s === kick ? 0.12 : HZ * 0.22;
       }
       if (a.out) { a.place(60 + a.team * 3, 60, 0); continue; }     // sent off: waiting by the side of the pitch
@@ -407,7 +407,7 @@ export class Game {
       if (to) {
         c.idx = to.team; c.lastSwitch = this.time; changed = true;
         this.ais[to.team].shooting = null;
-        to.intent.kick = to.intent.lob = to.intent.pass = false; to._prevKick = to._prevLob = to._prevPass = true;
+        to.intent.kick = to.intent.lob = to.intent.chipShot = to.intent.pass = false; to._prevKick = to._prevLob = to._prevChipShot = to._prevPass = true;
         if (swapPressed) this.sfx.touch();
       }
     }
@@ -874,7 +874,7 @@ export class Game {
       else if (c.type === 'ai') c.ai.update(dt);
       // remote intents are written by the network handler
     });
-    if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.sprint = a.intent.pass = false; }
+    if (this.state === 'menu' || this.state === 'ended') for (const a of this.athletes) { a.intent.move.set(0, 0); a.intent.kick = a.intent.lob = a.intent.chipShot = a.intent.sprint = a.intent.pass = false; }
     this._updateCursors();
 
     if (this.m5) this._cardsTick(dt);
@@ -1295,7 +1295,7 @@ export class Game {
     const i = this.controllers.findIndex((c) => c.type === 'remote' && c.id === id);
     if (i < 0) return;
     const it = this.athletes[i].intent;
-    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = !!d.pa; it.analog = !!d.an; it.swap = false;
+    it.move.set(d.m[0], d.m[1]); it.kick = !!d.kk; it.lob = !!d.l; it.chipShot = !!d.cs; it.sprint = !!d.s; it.tackle = !!d.t; it.pass = !!d.pa; it.analog = !!d.an; it.swap = false;
   }
 
   /** host: a remote player left mid-game — a CPU takes over their goal */
@@ -1319,10 +1319,10 @@ export class Game {
       a: this.athletes.map((a) => [
         r(a.pos.x, 1000), r(a.pos.z, 1000), r(a.vel.x), r(a.vel.z), r(a.facing, 1000),
         a.charging ? r(a.charge) : a.armed ? r(a.armed.power) : -1, r(a.stamina), a.exhausted ? 1 : 0,
-        a.kick ? [r(a.kick.t, 1000), r(a.kick.dur, 1000), r(a.kick.aim.x, 1000), r(a.kick.aim.z, 1000), a.kick.hit ? 1 : 0, a.kick.approach ? 1 : 0, a.kick.type === 'chip' ? 1 : a.kick.type === 'pass' ? 2 : 0] : 0,
+        a.kick ? [r(a.kick.t, 1000), r(a.kick.dur, 1000), r(a.kick.aim.x, 1000), r(a.kick.aim.z, 1000), a.kick.hit ? 1 : 0, a.kick.approach ? 1 : 0, a.kick.type === 'chip' ? (a.kick.lobShot ? 3 : 1) : a.kick.type === 'pass' ? 2 : 0] : 0,
         a.touch ? [r(a.touch.t, 1000), r(a.touch.dur, 1000), a.touch.side === 'Left' ? 1 : 0] : 0,
         r(a.trapT, 1000), r(a.holdW), r(a.turnRate),
-        (a.armed ? a.armed.type : a.chargeType) === 'pass' ? 2 : (a.armed ? a.armed.type : a.chargeType) === 'chip' ? 1 : 0,
+        (a.armed ? a.armed.type : a.chargeType) === 'pass' ? 2 : (a.armed ? a.armed.type : a.chargeType) === 'chip' ? ((a.armed ? a.armed.lobShot : a.chargeLobShot) ? 3 : 1) : 0,
         r(a.energy), a.sprinting ? 1 : 0, a.air ? [r(a.air.y), r(a.air.rot)] : 0,
       ]),
       ev: this.events,
@@ -1379,10 +1379,10 @@ export class Game {
     if (me) {
       this.input.intent('solo', me.intent);
       this.inputT -= dt;
-      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog},${it.pass}`;
+      const it = me.intent, sig = `${it.move.x.toFixed(2)},${it.move.y.toFixed(2)},${it.kick},${it.lob},${it.sprint},${it.tackle},${it.analog},${it.pass},${it.chipShot}`;
       if (this.inputT <= 0 || sig !== this._lastSig) {
         this.inputT = 0.05; this._lastSig = sig;
-        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0, pa: it.pass ? 1 : 0 });
+        this.net.toHost({ k: 'in', m: [+it.move.x.toFixed(2), +it.move.y.toFixed(2)], kk: it.kick ? 1 : 0, cs: it.chipShot ? 1 : 0, l: it.lob ? 1 : 0, s: it.sprint ? 1 : 0, t: it.tackle ? 1 : 0, an: it.analog ? 1 : 0, pa: it.pass ? 1 : 0 });
       }
     }
     const S = this.snaps;
@@ -1444,13 +1444,13 @@ export class Game {
       let df = A1[4] - A0[4]; while (df > Math.PI) df -= Math.PI * 2; while (df < -Math.PI) df += Math.PI * 2;
       a.facing = A0[4] + df * u;
       a.charging = A1[5] >= 0; a.charge = Math.max(0, A1[5]);
-      a.chargeType = A1[13] === 2 ? 'pass' : A1[13] === 1 ? 'chip' : 'kick';
+      a.chargeType = A1[13] === 2 ? 'pass' : A1[13] === 1 || A1[13] === 3 ? 'chip' : 'kick'; a.chargeLobShot = A1[13] === 3;
       a.char.windup = a.charging ? a.charge : 0;
       a.stamina = A1[6]; a.exhausted = !!A1[7];
       const K = A1[8];
       if (K) {
         if (!a.kick) a.kick = { aim: new THREE.Vector3(), resolved: true };
-        Object.assign(a.kick, { t: K[0], dur: K[1], contactT: K[1] * 0.33, hit: !!K[4], approach: K[5] ? true : null, type: K[6] === 1 ? 'chip' : K[6] === 2 ? 'pass' : 'kick' });
+        Object.assign(a.kick, { t: K[0], dur: K[1], contactT: K[1] * 0.33, hit: !!K[4], approach: K[5] ? true : null, lobShot: K[6] === 3, type: K[6] === 1 || K[6] === 3 ? 'chip' : K[6] === 2 ? 'pass' : 'kick' });
         a.kick.aim.set(K[2], 0, K[3]);
       } else a.kick = null;
       const T = A1[9];

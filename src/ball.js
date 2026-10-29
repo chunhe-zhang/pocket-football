@@ -334,6 +334,7 @@ export class Ball {
     const Q = this._cq || (this._cq = new THREE.Vector3()), CV = this._cv || (this._cv = new THREE.Vector3());
     for (const c of this.colliders) {
       if (this.heldBy) return;
+      if (c.owner === this.carryBy && this.carryGuard > 0 && (c.owner.gather || c.owner.dribbling) && !c.owner.kick) continue;
       if (this.passThrough && c.owner !== this.passThrough) continue;   // a character move carries the ball through people
       if (this.hidden) continue;                                         // vanished (mid-teleport)
       if (this.passToT > 0 && this.passTo && c.owner !== this.passTo && this.lastTouch && c.owner !== this.lastTouch && !this.lastTouch._isOpp(c.owner)) continue;   // a pass runs past team-mates it isn't meant for

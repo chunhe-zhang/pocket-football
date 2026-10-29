@@ -223,3 +223,5 @@ button { font-family: var(--font); cursor: pointer; }
 #tags .lbl .rel.lose { background: #e8453c; color: #fff; }
 #tags .lbl .rel.me { background: rgba(255,255,255,0.9); color: #14101e; }
 .seg button.dis { opacity: 0.35; pointer-events: none; }
+
+#btn-chip-shot { grid-column: 1; grid-row: 1; width: 64px; height: 64px; font-size: 16px !important; }

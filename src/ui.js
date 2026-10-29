@@ -11,12 +11,13 @@ const HELP = {
   1: `<div class="grid">
     <b>移动</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键</span>
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚，蓄满是重炮。瞄到球门附近会自动修正到门框以内</span>
-    <b>平传</b><span>按住 <kbd>I</kbd> 或 <kbd>Q</kbd>：贴地传给你指着的那个队友（大致方向就行），轻点传到脚下，蓄力越多越往前送、打身后</span>
+    <b>平传</b><span>轻按 <kbd>I</kbd> 或 <kbd>Q</kbd> 立即传到队友脚下，不用蓄力</span>
     <b>瞄准</b><span>蓄力时第一下的方向定大方向，之后按住方向键准星会慢慢转过去，点一下转一点，想打多细的角度都行（手柄、手机摇杆直接指哪打哪）。地上的小点和门上的圈是球会飞的路线</span>
     <b>完美射门</b><span>在蓄力条的金色框里松手：没有偏差；蓄满再松手力量最大但会偏、会往上飘</span>
-    <b>挑传 / 挑射</b><span>按住 <kbd>K</kbd>：朝队友是高空传中，球会落到他头顶或胸腿高度，方便头球、凌空；朝着球门就是挑射吊门</span>
+    <b>挑射</b><span>按住 <kbd>U</kbd> 短蓄力，松开吊门；J 和 U 约 0.24 秒蓄满</span>
+    <b>挑传</b><span>轻按 <kbd>K</kbd> 立即挑传给队友，不用蓄力，落点便于停球</span>
     <b>一脚出球</b><span>队友的球还在路上就按键：跑过去不停球直接打——地滚球一脚射门/一脚传，空中球就是凌空抽射或头球。配合打出来的射门更准更狠，回传给刚传你的人就是撞墙配合</span>
-    <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：起跳头球攻门（会自动修正到门框里）；按 <kbd>I</kbd> 是头球摆渡给队友；按 <kbd>K</kbd> 是轻轻往上顶或倒钩</span>
+    <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：起跳头球攻门（会自动修正到门框里）；按 <kbd>I</kbd> 是头球摆渡给队友；按 <kbd>U</kbd> 是挑射；未主动出脚时先停稳来球</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲（范围大、威力强，但铲空了会躺地、扣体力）；在自己的禁区里是扑救</span>
     <b>过人</b><span>带球时按 <kbd>L</kbd>：放出角色专属过人（雷 Z 字闪电冲刺、影瞬移、风高高腾空飞越（空中还能凌空射门）、火怒吼震飞、冰把人冻成冰雕、土低头冲撞），4 秒一次；冷却中按是普通闪身步。技能放到一半或刚放完时按射门/传球，立刻以最舒服的力度出脚（技能射门）</span>
@@ -25,12 +26,12 @@ const HELP = {
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
-    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门/头球 · <kbd>R</kbd> 平传 · <kbd>G</kbd> 挑传/挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
-    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门/头球 · <kbd>,</kbd> 平传 · <kbd>/</kbd> 挑传/挑射 · <kbd>.</kbd> 抢断/闪身步 · <kbd>右Shift</kbd> 冲刺</span></div>`,
+    <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门/头球 · <kbd>R</kbd> 平传 · <kbd>G</kbd> 挑传 · <kbd>T</kbd> 挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
+    <b>P2</b><span>方向键 移动 · <kbd>Enter</kbd> 射门/头球 · <kbd>,</kbd> 平传 · <kbd>/</kbd> 挑传 · <kbd>Num3</kbd> 挑射 · <kbd>.</kbd> 抢断/闪身步 · <kbd>右Shift</kbd> 冲刺</span></div>`,
   pads: `<div class="grid">
-    <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 射门/头球 · Y 平传 · B 挑传/挑射 · X 抢断/闪身步 · RB 冲刺</span>
+    <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 射门/头球 · Y 平传 · B 挑传 · LB 挑射 · X 抢断/闪身步 · RB 冲刺</span>
     <b>P4</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>传球</b><span>贴地传给指着的队友</span><b>挑传</b><span>朝队友是高空传中，朝球门是挑射</span><b>抢断 / 冲刺</b><span>带球时“抢断”键是闪身步</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>传球</b><span>贴地传给指着的队友</span><b>挑传</b><span>即按即出，传给队友</span><b>挑射</b><span>短蓄力后吊门</span><b>抢断 / 冲刺</b><span>带球时“抢断”键是闪身步</span></div>',
 };
 
 export class UI {
@@ -216,7 +217,7 @@ export class UI {
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传/挑射　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
+      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传（即按即出）　·　<b>U</b> 挑射（短蓄力）　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
       : `P1：WASD + F 射门 / R 平传 / G 挑传 / H 抢断　·　P2：方向键 + Enter / , / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -338,7 +339,7 @@ export class UI {
       t.meter.style.display = showing ? '' : 'none';
       t.fill.style.width = `${Math.round(cv * 100)}%`;
       const isPass = a.chargeType === 'pass';
-      t.pct.textContent = showing ? `${isPass ? '传球 ' : ''}${Math.round(cv * 100)}%` : '';
+      t.pct.textContent = showing ? `${a.chargeLobShot ? '挑射 ' : isPass ? '传球 ' : '射门 '}${Math.round(cv * 100)}%` : '';
       t.meter.classList.toggle('full', showing && cv >= 1);
       t.meter.classList.toggle('pass', isPass);
       const fl = g.time - (a.flairT ?? -9) < 1.1, pf = g.time - (a.lastPerfectT ?? -9) < 0.7;

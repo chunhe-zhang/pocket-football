@@ -48,17 +48,23 @@ export class AIController {
   update(dt) {
     const me = this.me, g = this.game, ball = g.ball, it = me.intent;
     it.analog = true;                       // a CPU aims exactly where it means to
+    if (me.gather) {
+      this.shooting = null;
+      it.kick = it.lob = it.chipShot = it.pass = false;
+      it.move.set(0, 0); it.sprint = false;
+      return;
+    }
     if (this.shooting) {
       const s = this.shooting;
       s.hold -= dt;
       const bd = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z);
-      if (!s.header && !s.oneTouch && me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.intendTo = null; this.shooting = null; it.kick = it.lob = it.pass = false; return; }
+      if (!s.header && !s.oneTouch && me.charging && (bd > 1.6 || ball.pos.y > 0.8)) { me.charging = false; me.charge = 0; me.intendTo = null; this.shooting = null; it.kick = it.lob = it.chipShot = it.pass = false; return; }
       it.move.copy(s.aim);
-      it.kick = !s.lob && !s.pass && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = !!s.pass && s.hold > 0; it.sprint = false;
+      it.chipShot = !!s.chipShot && s.hold > 0; it.kick = !s.lob && !s.chipShot && !s.pass && s.hold > 0; it.lob = !!s.lob && s.hold > 0; it.pass = !!s.pass && s.hold > 0; it.sprint = false;
       if (s.hold <= 0 && !me.charging) this.shooting = null;
       return;
     }
-    it.kick = false; it.lob = false; it.pass = false;
+    it.kick = false; it.lob = false; it.chipShot = false; it.pass = false;
     // a penalty to take: a look at the keeper, then a firm one into a corner (now and then down the middle)
     if (g.state === 'penalty' && g.pen && g.pen.taker === me) {
       it.move.set(0, 0); it.sprint = false;
@@ -78,7 +84,7 @@ export class AIController {
     }
     this.headCD = Math.max(0, (this.headCD || 0) - dt);
     // a ball in the air near me: go up for it (at goal if it's on, else away from my own goal)
-    if (!me.header && this.headCD <= 0 && ball.pos.y > 0.9 && Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) < 4 && me._headerChance()) {
+    if (!ball.lastTouch?.isKeeper && !me.header && this.headCD <= 0 && ball.pos.y > 0.9 && Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) < 4 && me._headerChance()) {
       const near = g.live.filter((a) => a !== me && Math.hypot(ball.pos.x - a.pos.x, ball.pos.z - a.pos.z) < Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) - 0.4);
       if (!near.length && Math.random() < 0.35 + 0.6 * this.cfg.skill) {
         const tgt = me.goalTarget(), gd = Math.hypot(tgt.x - me.pos.x, tgt.z - me.pos.z);
@@ -479,7 +485,7 @@ export class AIController {
     let power = a + Math.random() * (b - a);
     if (gd < 5) power *= 0.75;
     if (oneTouch) power = Math.max(power, 0.55);
-    this.shooting = { hold: 0.05 + power * PLAYER.chargeTime, aim, lob, oneTouch };
+    this.shooting = { hold: 0.05 + power * PLAYER.chargeTime, aim, chipShot: lob, oneTouch };
   }
 
   // ===================================================================== 5v5 ==
@@ -495,18 +501,18 @@ export class AIController {
     let X, Z;
     if (attacking) {
       switch (role) {
-        case 'back': X = clamp(bx - 9, -0.6 * HX, 0.3 * HX); Z = bz * 0.3; break;
-        case 'wingL': X = clamp(bx + 2, -0.3 * HX, HX - 4); Z = -0.78 * HZ; break;
-        case 'wingR': X = clamp(bx + 2, -0.3 * HX, HX - 4); Z = 0.78 * HZ; break;
-        case 'mid': X = clamp(bx - 3.5, -0.45 * HX, HX - 7); Z = bz * 0.25 - side * 0.32 * HZ; break;   // the far side: an angle to switch play
-        default: X = clamp(Math.max(bx + 7, 0.45 * HX), 0, HX - 3); Z = -bz * 0.2;                    // fwd: on the shoulder of the last man
+        case 'back': X = clamp(bx - 12, -0.6 * HX, 0.3 * HX); Z = bz * 0.3; break;
+        case 'wingL': X = clamp(bx + 2, -0.3 * HX, HX - 4); Z = -0.9 * HZ; break;
+        case 'wingR': X = clamp(bx + 2, -0.3 * HX, HX - 4); Z = 0.9 * HZ; break;
+        case 'mid': X = clamp(bx - 6, -0.45 * HX, HX - 7); Z = bz * 0.25 - side * 0.5 * HZ; break;   // the far side: an angle to switch play
+        default: X = clamp(Math.max(bx + 10, 0.45 * HX), 0, HX - 3); Z = -bz * 0.2;                    // fwd: on the shoulder of the last man
       }
     } else {
       switch (role) {
         case 'back': X = clamp(bx - 7.5, -HX + 3, 0.05 * HX); Z = bz * 0.5; break;
-        case 'wingL': X = clamp(bx - 3, -HX + 4, 0.25 * HX); Z = -0.55 * HZ + bz * 0.25; break;
-        case 'wingR': X = clamp(bx - 3, -HX + 4, 0.25 * HX); Z = 0.55 * HZ + bz * 0.25; break;
-        case 'mid': X = clamp(bx - 4.5, -HX + 4, 0.2 * HX); Z = bz * 0.6; break;                       // between the ball and goal
+        case 'wingL': X = clamp(bx - 3, -HX + 4, 0.25 * HX); Z = -0.75 * HZ + bz * 0.25; break;
+        case 'wingR': X = clamp(bx - 3, -HX + 4, 0.25 * HX); Z = 0.75 * HZ + bz * 0.25; break;
+        case 'mid': X = clamp(bx - 4.5, -HX + 4, 0.2 * HX); Z = bz * 0.3 - side * HZ * 0.22; break;                       // between the ball and goal
         default: X = clamp(bx + 1, -0.5 * HX, 0.3 * HX); Z = bz * 0.3 - side * 0.2 * HZ;              // fwd: ready to break
       }
     }
@@ -596,7 +602,7 @@ export class AIController {
       if (nearest === me) {
         let best = null, bs = -Infinity;
         for (let k = 0; k < 8; k++) {
-          const a = (k / 8) * Math.PI * 2, x = car.pos.x + Math.cos(a) * 8, z = car.pos.z + Math.sin(a) * 8;
+          const a = (k / 8) * Math.PI * 2, x = car.pos.x + Math.cos(a) * 11, z = car.pos.z + Math.sin(a) * 11;
           if (Math.abs(x) > HX - 1.5 || Math.abs(z) > HZ - 1.2) continue;
           const free = Math.min(5, ...opps.map((o) => Math.hypot(o.pos.x - x, o.pos.z - z)));
           const sc = free + (x * d - cx) * 0.25 - (this._laneBlocked(car.pos.x, car.pos.z, x, z) ? 4 : 0) - Math.hypot(x - me.pos.x, z - me.pos.z) * 0.15;
@@ -720,7 +726,7 @@ export class AIController {
     const eta = Math.hypot(ball.pos.x - me.pos.x, ball.pos.z - me.pos.z) / Math.max(4, Math.hypot(ball.vel.x, ball.vel.z));
     if (eta > 0.9) return false;
     this._ftKey = key;
-    if (me.role === 'gk' || this.cfg.skill < 0.3) return false;
+    if (passer.isKeeper || me.role === 'gk' || this.cfg.skill < 0.3) return false;
     const sk = this.cfg.skill;
     const tgt = me.goalTarget(), gd = Math.hypot(tgt.x - me.pos.x, tgt.z - me.pos.z);
     const angleOK = Math.abs(me.pos.z) < FIELD.goalHalfW + gd * 0.9;
@@ -749,7 +755,7 @@ export class AIController {
     return false;
   }
 
-  /** ball in my hands: have a look, then throw it to a free team-mate (or launch it) */
+  /** ball in my hands: have a look, then punt upfield to a free team-mate */
   _gkDistribute(mates, opps) {
     mates = mates.filter((m) => !this.game.offsidePos?.(m));
     const me = this.me;
@@ -758,7 +764,7 @@ export class AIController {
     let best = null, bestS = -Infinity;
     for (const m of mates) {
       const d = Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z);
-      if (m.role === 'gk' || d < 5 || d > 26) continue;
+      if (m.role === 'gk' || d < 10 || d > 34 || (m.pos.x - me.pos.x) * me.home.inward.x + (m.pos.z - me.pos.z) * me.home.inward.z < 6) continue;
       const free = Math.min(5, Math.min(...opps.map((o) => Math.hypot(o.pos.x - m.pos.x, o.pos.z - m.pos.z))));
       if (free < 2.5 || this._laneBlocked(me.pos.x, me.pos.z, m.pos.x, m.pos.z)) continue;
       const sc = free - d * 0.08 + (this._isHuman(m) ? 2 : 0);
