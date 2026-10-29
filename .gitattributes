@@ -1,0 +1,5 @@
+* text=auto
+*.vrm binary
+*.glb binary
+*.fbx binary
+*.png binary
