@@ -576,7 +576,8 @@ export class Character {
     this.curl = 0.25; this.breath = 0; this.fatigue = 0; this.tired = 0;
 
     // measure the clips on *this* skeleton (legs differ between models)
-    const cache = template._measure || (template._measure = {});
+    // the element variants share one skeleton: measure the clips once for all of them
+    const mt = this._baseTemplate || template, cache = mt._measure || (mt._measure = {});
     if (!cache.natural) {
       cache.phaseOffset = { walk: this._contactPhase(this.clips.walk), run: this._contactPhase(this.clips.run) };
       cache.natural = { walk: this._stanceSpeed(this.clips.walk), run: this._stanceSpeed(this.clips.run) };
