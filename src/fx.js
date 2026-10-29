@@ -69,7 +69,7 @@ const FRAG = `varying vec3 vC; varying float vA; varying float vS; varying float
     if (a < 0.01) discard;
     vec3 col = vC;
     if (lit > 0.5) { col = mix(col, vec3(1.0), clamp(core * 0.55 + vH * 0.3, 0.0, 0.85)); a = min(1.0, a * 1.15); }
-    if (glowPass > 0.5) col *= 1.15 + 1.3 * clamp(core + vH * 0.5, 0.0, 1.0);   // hotter in the glow: the cores burn
+    if (glowPass > 0.5) col *= 1.0 + 0.8 * clamp(core + vH * 0.5, 0.0, 1.0);   // hotter in the glow: the cores burn
     gl_FragColor = vec4(col, a * vA);
   }`;
 

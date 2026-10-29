@@ -75,7 +75,7 @@ export class SpecialFx {
       const p = ball.pos;
       const pulse = 1 + 0.18 * Math.sin(this.t * 40);
       this.aura.position.copy(p); this.core.position.copy(p);
-      this.aura.material.color.set(def.color).multiplyScalar(1.4); this.core.material.color.set(def.color).lerp(this._w || (this._w = new THREE.Color(1, 1, 1)), 0.35).multiplyScalar(1.5);   // a white-hot core: it burns in the glow
+      this.aura.material.color.set(def.color); this.core.material.color.set(def.color).lerp(this._w || (this._w = new THREE.Color(1, 1, 1)), 0.35).multiplyScalar(1.1);   // a white-hot core: it burns in the glow
       this.aura.scale.setScalar(pulse * (big ? 1.5 : 1) * (combo ? 1.35 : 1) * (ids.length >= 3 ? 1.3 : 1));
       this.core.material.opacity = has('phantom') ? 0.25 : 0.5;
       // the phantom flickers in and out; the invisible combos all but disappear

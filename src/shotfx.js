@@ -53,8 +53,8 @@ const TAIL_FS = `uniform vec3 color; uniform vec3 color2; uniform float time; un
       float e = step(0.93, h21(floor(vec2(u * 40.0 - time * 10.0, s * 6.0))));
       a = body * (0.5 + 0.6 * n) + e * 1.5; c = mix(color2, color, n);
     }
-    vec3 col = c * 1.25 * a + mix(c, vec3(1.0), 0.45) * spine * 1.3;
-    float alpha = clamp((a * 0.8 + spine) * fade * power, 0.0, 1.0);
+    vec3 col = c * 0.9 * a + mix(c, vec3(1.0), 0.35) * spine * 0.85;
+    float alpha = clamp((a * 0.65 + spine * 0.8) * fade * power, 0.0, 1.0);
     gl_FragColor = vec4(col * fade * power, alpha);
   }`;
 
@@ -116,8 +116,8 @@ class Comet {
     U.time.value = t; U.power.value = this.power; U.kind.value = KIND[this.kind] ?? 0;
     this.halo.position.copy(ball.pos);
     this.halo.scale.setScalar((0.75 + 0.1 * Math.sin(t * 40)) * (ids.length > 1 ? 1.3 : 1));
-    this.halo.material.color.setRGB(c[0] * 1.3, c[1] * 1.3, c[2] * 1.3);
-    this.halo.material.opacity = this.power;
+    this.halo.material.color.setRGB(c[0] * 0.85, c[1] * 0.85, c[2] * 0.85);
+    this.halo.material.opacity = this.power * 0.75;
     this.halo.material.rotation = t * 3;
   }
 }
@@ -153,8 +153,8 @@ const PILLAR_FS = `uniform vec3 color; uniform float time; uniform float life; u
     float a = (n * 0.12 + streak * 0.55) * top * bottom;
     if (kind == 1) a = (step(0.78, vn(vec2(x * 40.0, y * 6.0 - floor(time * 20.0)))) * 0.9 + n * 0.08) * top * bottom;
     float env = smoothstep(0.0, 0.12, life) * (1.0 - smoothstep(0.4, 1.0, life));
-    vec3 c = mix(color, vec3(1.0), smoothstep(0.8, 1.6, a) * 0.4) * 1.3;
-    gl_FragColor = vec4(c * a * env, clamp(a * env, 0.0, 1.0));
+    vec3 c = mix(color, vec3(1.0), smoothstep(0.8, 1.6, a) * 0.3) * 0.9;
+    gl_FragColor = vec4(c * a * env, clamp(a * env * 0.75, 0.0, 1.0));
   }`;
 const SIGIL_FS = `uniform vec3 color; uniform float time; uniform float life; varying vec2 vUv;
   void main(){
@@ -167,7 +167,7 @@ const SIGIL_FS = `uniform vec3 color; uniform float time; uniform float life; va
     float runes = step(0.55, fract((ang - time * 0.8) * 8.0 / 6.2832)) * step(abs(r - R * 0.58), 0.02);
     float fill = exp(-r * r * 3.0) * 0.25;
     float a = (ring1 + ring2 + ticks + runes * 0.8 + fill) * (1.0 - smoothstep(0.55, 1.0, life)) * grow;
-    gl_FragColor = vec4(color * 1.25 * a, clamp(a * 0.85, 0.0, 1.0));
+    gl_FragColor = vec4(color * 0.85 * a, clamp(a * 0.7, 0.0, 1.0));
   }`;
 
 export class ShotFx {

@@ -71,7 +71,7 @@ export class Post {
     // the glow: effects alone, half resolution
     this.fxRT = new THREE.WebGLRenderTarget(Math.max(1, size.x >> 1), Math.max(1, size.y >> 1), { type: THREE.HalfFloatType });
     this.fxRT.depthTexture = null;
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.fxRT.width, this.fxRT.height), 0.62, 0.25, 0.45);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.fxRT.width, this.fxRT.height), 0.42, 0.22, 0.55);
     this.depthMat = new THREE.MeshBasicMaterial({ colorWrite: false });
     this._black = new THREE.Color(0, 0, 0);
     this._v = new THREE.Vector3();
