@@ -3,6 +3,13 @@ import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtil
 import { ANIM } from './config.js';
 import { dyeHair } from './avatar.js';
 
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const yawAt = (c, t) => {
+  const T = c.t; if (t <= T[0]) return c.v[0];
+  for (let i = 1; i < T.length; i++) if (t <= T[i]) return c.v[i - 1] + (c.v[i] - c.v[i - 1]) * ((t - T[i - 1]) / (T[i] - T[i - 1] || 1));
+  return c.v[c.v.length - 1];
+};
+
 const UP = new THREE.Vector3(0, 1, 0);
 const smooth = (t) => t * t * (3 - 2 * t);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -572,11 +579,72 @@ export class Character {
     if (!cache.natural) {
       cache.phaseOffset = { walk: this._contactPhase(this.clips.walk), run: this._contactPhase(this.clips.run) };
       cache.natural = { walk: this._stanceSpeed(this.clips.walk), run: this._stanceSpeed(this.clips.run) };
-      cache.kick = this._calibrateKick();
     }
     this.phaseOffset = cache.phaseOffset;
     this.natural = cache.natural;
+    this._buildLoco(cache);
+    if (!cache.kick) cache.kick = this._calibrateKick();
     this.kickCalib = cache.kick;
+  }
+
+  /**
+   * The locomotion set: forward gaits by speed (walk → run → fast run → sprint) and the eight-way football
+   * jog (backpedal, side-shuffle, diagonals) by the direction of travel relative to the body. Every cycle is
+   * measured on this skeleton — how fast the planted foot carries the body, and where the left foot lands —
+   * so they all play in step with each other and with the ground.
+   */
+  _buildLoco(cache) {
+    const C = this.allClips, has = (n) => C[n] && C[n].tracks.length;
+    if (!cache.loco) {
+      const m = (n) => ({ n, po: this._contactPhase(C[n]), v: this._stanceVel(C[n]) });
+      cache.loco = {
+        fwd: has('run_std') ? ['walk', 'run_std', 'run_fast', 'sprint_std'].filter(has).map(m) : [m('walk'), m('run')],
+        dir: {},
+      };
+      for (const k of ['FL', 'FR', 'L', 'R', 'BL', 'BR', 'B']) if (has('jog_' + k)) cache.loco.dir[k] = m('jog_' + k);
+      let ymin = Infinity; const p = new THREE.Vector3();
+      this._sampleClip(C[cache.loco.fwd[1].n], () => { ymin = Math.min(ymin, this.bones.footL.getWorldPosition(p).y); }, 40);
+      cache.loco.ankle = ymin;
+    }
+    const L = cache.loco;
+    const act = (n) => { const a = this.mixer.clipAction(C[n]); a.play(); a.setEffectiveWeight(0); a.timeScale = 0; return a; };
+    // anchors: the speed where each forward gait is fully in (a little above the clip's own pace for the runs)
+    const anchor = { walk: 1.6, run: 3.6, run_std: 3.6, run_fast: 4.9, sprint_std: 6.0 };
+    this.loco = {
+      fwd: L.fwd.map((e) => ({ ...e, a: e.n === 'walk' || e.n === 'run' ? this.actions[e.n] : act(e.n), d: C[e.n].duration, s: anchor[e.n], len: Math.max(0.6, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration })),
+      dir: Object.fromEntries(Object.entries(L.dir).map(([k, e]) => [k, { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.5, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration }])),
+    };
+    if (!L.fwd.some((e) => e.n === 'run')) this.actions.run.setEffectiveWeight(0);
+    this.locoW = {};
+    this.ankle0 = L.ankle;
+    this._lock = { L: { on: false, p: new THREE.Vector3(), w: 0 }, R: { on: false, p: new THREE.Vector3(), w: 0 } };
+  }
+
+  _footLock(dt, MW) {
+    const b = this.bones, sc = this.group.scale.y || 1, floor = (this.ankle0 ?? 0.08) * sc;
+    const active = this.speed > 0.25 && MW < 0.4 && !this.tumble && !(this.airY > 0.02) && this.gestures.length === 0;
+    for (const s of ['L', 'R']) {
+      const lk = this._lock[s], foot = s === 'L' ? b.footL : b.footR, up = s === 'L' ? b.upLegL : b.upLegR, low = s === 'L' ? b.legL : b.legR;
+      const p = foot.getWorldPosition(this._v);
+      const planted = active && p.y < floor + 0.035 * sc && this.ik[s].w < 0.05;
+      if (planted && !lk.on) { lk.on = true; lk.p.copy(p); }
+      if (lk.on && (!planted || Math.hypot(p.x - lk.p.x, p.z - lk.p.z) > 0.22 * sc)) lk.on = false;
+      lk.w += ((lk.on ? 1 : 0) - lk.w) * Math.min(1, dt * (lk.on ? 25 : 18));
+      if (lk.w > 0.01) {
+        if (!lk.on) lk.p.lerp(p, Math.min(1, dt * 18));               // let go smoothly as the heel comes up
+        this._lt = (this._lt || new THREE.Vector3()).set(lk.p.x, p.y, lk.p.z);
+        this._legIK(up, low, foot, this._lt, lk.w);
+      }
+    }
+  }
+
+  /** the body's velocity while a foot is planted (forward f, right r), from the planted foot sliding back */
+  _stanceVel(clip) {
+    const N = 120, ys = [], xs = [], zs = [], p = new THREE.Vector3();
+    this._sampleClip(clip, () => { this.bones.footL.getWorldPosition(p); ys.push(p.y); xs.push(p.x); zs.push(p.z); }, N);
+    const ymin = Math.min(...ys), dt = clip.duration / N; let f = 0, r = 0, n = 0;
+    for (let i = 1; i < N; i++) if (ys[i] < ymin + 0.03 && ys[i - 1] < ymin + 0.03) { f += (zs[i - 1] - zs[i]) / dt; r += -(xs[i - 1] - xs[i]) / dt; n++; }
+    return n ? { f: f / n, r: r / n } : { f: 1.5, r: 0 };
   }
 
   /** see-through (the phantom's sprint) */
@@ -980,6 +1048,8 @@ export class Character {
     const a = this.mixer.clipAction(clip);
     a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.timeScale = 0; a.time = from; a.setEffectiveWeight(0); a.play();
     this.mocap = { name, a, t: 0, from, to, ts, dur: dur + hold, run: dur, fi: fadeIn, fo: next ? 1e-3 : fadeOut, over, next };
+    const yc = clip.userData?.yaw;
+    if (yc) Object.assign(this.mocap, { yaw: yc, f0: this.group.rotation.y + (this._rootYaw || 0), y0: yawAt(yc, from) });
     return this.mocap;
   }
   /**
@@ -1181,22 +1251,46 @@ export class Character {
     if (s > 1e-6) { this._rot(up, axis.divideScalar(s), Math.atan2(s, from.dot(to))); up.updateMatrixWorld(true); }
   }
 
-  update(dt, { speed = 0, turnRate = 0, fatigue = 0, shield = 0 } = {}) {
+  update(dt, { speed = 0, turnRate = 0, fatigue = 0, shield = 0, vf = null, vr = 0 } = {}) {
     this.shieldW = (this.shieldW || 0) + (shield - (this.shieldW || 0)) * Math.min(1, dt * 6);
     this._styleTick?.(dt);
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
     const nat = this.natural || { walk: 1.5, run: 3.4 };
+    void nat;
     const wIdle = clamp(1 - speed / 0.55, 0, 1);
-    const wRun = clamp((speed - 1.9) / 1.3, 0, 1);
-    const wWalk = (1 - wIdle) * (1 - wRun);
-    const runW = (1 - wIdle) * wRun;
-    const strideWalk = nat.walk * this.clips.walk.duration;
-    const strideRun = nat.run * this.clips.run.duration * (1 + 0.22 * clamp((speed - 4) / 3, 0, 1));
-    const stride = strideWalk + (strideRun - strideWalk) * wRun;
+    // direction of travel relative to the body: 0 ahead, +π/2 to the right, π straight back
+    if (vf === null) vf = speed;
+    let th = speed > 0.05 ? Math.atan2(vr, vf) : 0;
+    if (speed > 3.8) th *= clamp(1 - (speed - 3.8) / 2.5, 0.35, 1);       // flat out, the legs run where the body points
+    this._th = wrapAngle((this._th ?? th) + wrapAngle(th - (this._th ?? th)) * Math.min(1, dt * 14));
+    th = this._th;
+    const LW = this.locoW, LO = this.loco;
+    for (const k in LW) LW[k] = 0;
+    // eight-way: the two sectors either side of the heading, 45° apart
+    const side = th >= 0 ? ['F', 'FR', 'R', 'BR', 'B'] : ['F', 'FL', 'L', 'BL', 'B'];
+    const u = Math.min(4, Math.abs(th) / (Math.PI / 4)), i0 = Math.floor(u), fr = u - i0;
+    const secW = { [side[i0]]: 1 - fr }; if (fr > 0) secW[side[Math.min(4, i0 + 1)]] = (secW[side[Math.min(4, i0 + 1)]] || 0) + fr;
+    let fwdShare = secW.F || 0;
+    for (const k in secW) if (k !== 'F' && !LO.dir[k]) fwdShare += secW[k];   // a missing direction falls back on the forward gaits
+    const move = 1 - wIdle;
+    let stride = 0;
+    // forward gaits by speed
+    const F = LO.fwd;
+    let j = 0; while (j < F.length - 1 && speed > F[j + 1].s) j++;
+    const lo = F[j], hi = F[Math.min(F.length - 1, j + 1)];
+    const t = hi === lo ? 0 : clamp((speed - lo.s) / (hi.s - lo.s), 0, 1);
+    for (const e of F) {
+      const w = e === lo ? (speed <= lo.s && j === 0 ? 1 : 1 - t) : e === hi ? t : 0;
+      LW[e.n] = w * fwdShare * move;
+      stride += w * fwdShare * e.len * (e === F[F.length - 1] ? 1 + 0.18 * clamp((speed - e.s) / 2, 0, 1) : 1);
+    }
+    for (const k in LO.dir) { const w = (secW[k] || 0); LW[LO.dir[k].n] = w * move; stride += w * LO.dir[k].len; }
+    // the jog clips are a jog: run them quicker (more steps), not longer, when the player goes faster sideways
+    stride = Math.max(0.4, stride);
     this.phase = (this.phase + (dt * Math.max(speed, 0)) / stride) % 1;
     // motion capture one-shot: its envelope weight takes over from the locomotion clips
-    let MW = 0;
+    let MW = 0, rootYaw = 0;
     if (this.mocap) {
       let m = this.mocap;
       m.t += dt;
@@ -1210,6 +1304,8 @@ export class Character {
         m.a.time = Math.min(m.to, m.from + Math.min(m.t, m.run) * m.ts);
         m.a.setEffectiveWeight(wn);
         MW = wn;
+        // a turn: the body comes round with the clip's own timing, from where it was facing when it started
+        if (m.yaw) rootYaw = wrapAngle(m.f0 + yawAt(m.yaw, m.a.time) - m.y0 - this.group.rotation.y) * wn;
         // the clip it cut in on fades out underneath it (frozen on its last pose) instead of popping
         const pv = this._mprev;
         if (pv) {
@@ -1221,6 +1317,7 @@ export class Character {
     }
     if (!this.mocap && this._mprev) { this._mprev.a.stop(); this._mprev = null; }
     this.mocapW = MW;
+    this._rootYaw = rootYaw; this.root.rotation.y = rootYaw;
     const MO = MW * (this.mocap?.over ?? 1), keep = 1 - MO;   // how much of the hand-made layers survive
     // a different standing pose (a keeper set on his toes) shares the idle slot
     const i2 = this.actions.idle2;
@@ -1230,10 +1327,11 @@ export class Character {
       if (this._i2w < 0.002 && !this._i2on) { i2.stop(); this.actions.idle2 = null; }
     }
     const iw = i2 ? 1 - this._i2w : 1;
-    for (const [k, w] of [['idle', wIdle * iw], ['walk', wWalk], ['run', runW]]) this.actions[k].setEffectiveWeight(w * (1 - MW));
-    const po = this.phaseOffset || { walk: 0, run: 0 };
-    this.actions.walk.time = ((this.phase + po.walk) % 1) * this.clips.walk.duration;
-    this.actions.run.time = ((this.phase + po.run) % 1) * this.clips.run.duration;
+    this.actions.idle.setEffectiveWeight(wIdle * iw * (1 - MW));
+    for (const e of [...LO.fwd, ...Object.values(LO.dir)]) {
+      e.a.setEffectiveWeight((LW[e.n] || 0) * (1 - MW));
+      e.a.time = ((this.phase + e.po) % 1) * e.d;
+    }
     for (const k in this.emoteWeights) {
       this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * Math.min(1, dt * 4);
       this.actions[k]?.setEffectiveWeight(this.emoteWeights[k]);
@@ -1244,7 +1342,7 @@ export class Character {
     // the ball — the run clip's limb swing is exaggerated away from the bind pose by up to ~35%
     this._sprintW += (clamp((speed - 4.4) / 1.3, 0, 1) - this._sprintW) * Math.min(1, dt * 6);
     if (this._sprintW * keep > 0.01) {
-      const k = 1 + 0.35 * this._sprintW * keep, qi = this._qp, qr = this._qa;
+      const k = 1 + (this.loco.fwd.length > 2 ? 0.12 : 0.35) * this._sprintW * keep, qi = this._qp, qr = this._qa;
       for (const { bn, q } of this._bindQ) {
         qi.copy(q).invert(); qr.copy(qi).multiply(bn.quaternion);          // the clip's rotation relative to bind
         const w = clamp(qr.w, -1, 1), ang = 2 * Math.acos(Math.abs(w)), sgn = w < 0 ? -1 : 1;
@@ -1343,6 +1441,9 @@ export class Character {
     }
     this.group.updateMatrixWorld(true);
 
+    // planted feet stay planted: a foot that lands is pinned to that spot on the turf until it lifts, so
+    // blends between gaits, turns and speed changes never skate it (the ball IK below still wins)
+    this._footLock(dt, MW);
     // feet reach for the ball (kick contact, touches, sole traps)
     this._legIK(b.upLegR, b.legR, b.footR, this.ik.R.target, this.ik.R.w);
     this._legIK(b.upLegL, b.legL, b.footL, this.ik.L.target, this.ik.L.w);

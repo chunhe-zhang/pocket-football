@@ -36,7 +36,7 @@ const KEYS = {
   eyeL: 'leftEye', eyeR: 'rightEye',
 };
 
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 
 function worldQuat(o) { o.updateWorldMatrix(true, false); return o.getWorldQuaternion(new THREE.Quaternion()); }
 
@@ -133,6 +133,10 @@ export class AvatarTemplate {
     const out = {};
     for (const [name, c] of Object.entries(raw.clips)) for (const mirror of [false, true]) {
       const tracks = [];
+      // turns and cuts: the hips' turn about the vertical is taken out of the clip and kept as a curve,
+      // so the game can turn the whole body itself (in step with the clip) and blending never spins the hips
+      const deyaw = /^(turn|cut)/.test(name);
+      let yawCurve = null;
       for (const tr of c.tr) {
         const vname = MIXAMO_TO_VRM[mirror ? mir(tr.b) : tr.b], target = vname && this.human[vname];
         if (!target || !raw.rest[tr.b]) continue;
@@ -144,6 +148,13 @@ export class AvatarTemplate {
             _q.fromArray(tr.v, k);
             _q2.copy(Sp).multiply(_q).multiply(SbInv);                       // the rotation in the rest-world frame
             if (mirror) _q2.set(_q2.x, -_q2.y, -_q2.z, _q2.w);                  // reflected left ↔ right
+            if (deyaw && vname === 'hips') {
+              _v.set(0, 0, 1).applyQuaternion(_q2);
+              let yaw = Math.atan2(_v.x, _v.z);
+              if (k > 0) { const prev = yawCurve.v[k / 4 - 1]; yaw = prev + Math.atan2(Math.sin(yaw - prev), Math.cos(yaw - prev)); }
+              (yawCurve ||= { t: tr.t, v: [] }).v.push(yaw);
+              _q.setFromAxisAngle(_Y, -yaw); _q2.premultiply(_q);
+            }
             _q2.premultiply(WpInv).multiply(Wb);
             _q2.toArray(v, k);
           }
@@ -154,7 +165,9 @@ export class AvatarTemplate {
           tracks.push(new THREE.VectorKeyframeTrack(`${target.name}.position`, tr.t, v));
         }
       }
-      out[mirror ? name + '@M' : name] = new THREE.AnimationClip(mirror ? name + '@M' : name, c.d, tracks);
+      const clip = new THREE.AnimationClip(mirror ? name + '@M' : name, c.d, tracks);
+      if (yawCurve) clip.userData = { yaw: yawCurve };
+      out[clip.name] = clip;
     }
     return out;
   }

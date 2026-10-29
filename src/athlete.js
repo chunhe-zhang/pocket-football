@@ -330,6 +330,7 @@ export class Athlete {
         const dl = desired.length();
         if (dl > 0.02) desired.multiplyScalar(Math.min(sp, dl * 6) / dl); else desired.set(0, 0, 0);
       }
+      this._locoTransition(desired, dt);
       const dv = this._w.copy(desired).sub(this.vel);
       // lightning's sprint is fast, so it gets sharper grip too: quick to turn, quick to stop
       const grip = this.charId === 'thunder' && this.sprinting ? 1.8 : 1;
@@ -355,6 +356,7 @@ export class Athlete {
         // open the body to the incoming ball
         const v = g.ball.vel; if (Math.hypot(v.x, v.z) > 0.5) want = Math.atan2(-v.x, -v.z);
       }
+      else if (this.vel.length() > 0.35 && this._jockey(it, ballPos)) want = Math.atan2(ballPos.x - this.pos.x, ballPos.z - this.pos.z);
       else if (this.vel.length() > 0.35) want = Math.atan2(this.vel.x, this.vel.z);
       else if (g.state === 'play' || g.state === 'kickoff') {
         // idle: face the ball
@@ -1965,6 +1967,59 @@ export class Athlete {
     }
   }
 
+  /**
+   * Keep my chest to the ball while I shuffle: a defender backpedals and side-steps in front of the man on
+   * the ball, a keeper slides across his line facing the play, a team-mate drifting back into shape jogs
+   * sideways watching it. Only at a jog — flat out, everyone turns and runs.
+   */
+  _jockey(it, ballPos) {
+    const g = this.game, sp = Math.hypot(this.vel.x, this.vel.z);
+    if (this.dribbling || g.possessor === this || this.receive || this.kick || this.slide || this.dive || g.state !== 'play') return (this._jk = false);
+    const dx = ballPos.x - this.pos.x, dz = ballPos.z - this.pos.z, d = Math.hypot(dx, dz);
+    const keeper = this.isKeeper && d < 30;
+    const human = this._isHumanCtl();
+    if (human && (it.sprint || !(g.possessor && this._isOpp(g.possessor)))) return (this._jk = false);
+    const lim = keeper ? 4.4 : this._jk ? 3.6 : 3.1;
+    if (sp > lim || d < 0.8 || (d > 16 && !keeper)) return (this._jk = false);
+    const c = (this.vel.x * dx + this.vel.z * dz) / (sp * d);          // 1: running at the ball, -1: straight away from it
+    if (c > 0.6 && !this._jk) return false;                             // heading for the ball anyway: just run at it
+    return (this._jk = true);
+  }
+
+  /**
+   * Starts, stops and turns from motion capture, picked from what the stick asks for against how I'm moving:
+   * a burst away from standing, the brakes from full speed, a plant-and-pivot when I reverse, a cut off the
+   * outside foot when I change direction hard. The movement itself stays as responsive as before — only
+   * the body tells the story.
+   */
+  _locoTransition(desired, dt) {
+    this._trT = Math.max(0, (this._trT || 0) - dt);
+    const c = this.char, g = this.game;
+    if (this._trT > 0 || c.mocap || this.frozen || this.isKeeper || this.trick || this.kick || this.slide || this.dive || this.charging || this.header || this.power || this.stunT > 0 || this.air || this.holding || !(g.state === 'play' || g.state === 'kickoff')) return;
+    const vs = Math.hypot(this.vel.x, this.vel.z), ds = Math.hypot(desired.x, desired.z);
+    const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    if (vs > 4.3 && ds < 0.4) {                                        // the brakes from full speed
+      c.playMocap('stop_fast', { from: 0.05, to: 0.62, dur: 0.48, fadeIn: 0.06, fadeOut: 0.22, over: 0.9 });
+      this._trT = 0.6; return;
+    }
+    if (vs < 0.7 && ds > 4.2) {
+      const cs = (desired.x * fx + desired.z * fz) / ds;
+      if (cs > 0.5) { c.playMocap('start_sprint', { from: 0.12, to: 0.78, dur: 0.46, fadeIn: 0.05, fadeOut: 0.2, over: 0.85 }); this._trT = 0.5; return; }
+    }
+    if (vs > 3.4 && ds > 2.5) {
+      const cs = (desired.x * this.vel.x + desired.z * this.vel.z) / (ds * vs);
+      const toRight = (-desired.x * this.vel.z + desired.z * this.vel.x) > 0;   // desired on the right of travel
+      if (cs < -0.65) {                                                  // reversing: plant and pivot
+        c.playMocap('turn180_run', { mirror: !toRight, from: 0.0, to: 0.67, dur: 0.42, fadeIn: 0.05, fadeOut: 0.16, over: 0.9 });
+        this._trT = 0.55; return;
+      }
+      if (cs < 0.45 && vs > 4.2) {                                       // a hard cut off the outside foot
+        c.playMocap('cut_R', { mirror: !toRight, from: 0.1, to: 0.7, dur: 0.38, fadeIn: 0.06, fadeOut: 0.16, over: 0.75 });
+        this._trT = 0.45;
+      }
+    }
+  }
+
   _turnTo(want, dt, rate) {
     if (want === null) { this.turnRate *= 0.8; return; }
     const d = wrapAngle(want - this.facing);
@@ -1983,7 +2038,9 @@ export class Athlete {
     this.char.group.position.copy(this.pos);
     this.char.setFacing(this.facing);
     const hs = Math.hypot(this.vel.x, this.vel.z);
-    this.char.update(dt, { speed: hs, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });
+    const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    const vf = this.vel.x * fx + this.vel.z * fz, vr = -this.vel.x * fz + this.vel.z * fx;
+    this.char.update(dt, { speed: hs, vf, vr, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });
   }
 
   // ---------------------------------------------------------------------------
