@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sphereContact, advanceFreeBall } from './contact-physics.js';
 import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf, waveOff, waveSlope } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
@@ -240,47 +241,12 @@ export class Ball {
   _step(h, u = 1) {
     this._clockT = (this._clockT || 0) + h;
     const p = this.pos, v = this.vel, w = this.spin;
-    const grounded = p.y <= R + 0.002 && Math.abs(v.y) < 0.35;
     const sp = this.special;
     if (sp) this._special(h);
-    if (!grounded) {
-      v.y -= BALL.gravity * h * (sp && !sp.lob ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1);
-      const s = v.length();
-      if (s > 0) v.multiplyScalar(Math.max(0, 1 - BALL.drag * s * h));
-      v.x += BALL.magnus * (w.y * v.z - w.z * v.y) * h;
-      v.z += BALL.magnus * (w.x * v.y - w.y * v.x) * h;
-      v.y += BALL.magnus * 0.4 * (w.z * v.x - w.x * v.z) * h;
-      w.multiplyScalar(Math.max(0, 1 - 0.25 * h));
-    } else {
-      v.y = 0; p.y = R;
-      const gs = Math.hypot(v.x, v.z);
-      if (gs > 0) {
-        const dec = (BALL.rollDecel + BALL.rollQuad * gs * gs) * h;
-        const k = Math.max(0, gs - dec) / gs;
-        v.x *= k; v.z *= k;
-        v.x += BALL.magnus * 0.25 * w.y * v.z * h;
-        v.z -= BALL.magnus * 0.25 * w.y * v.x * h;
-      }
-      w.set(v.z / R, w.y * Math.max(0, 1 - 2.5 * h), -v.x / R);
-      if (gs < 0.02) { v.x = 0; v.z = 0; }
-    }
-
-    p.addScaledVector(v, h);
-
-    if (p.y < R) {
-      p.y = R;
-      if (v.y < -0.35) {
-        const impact = -v.y;
-        v.y = impact * BALL.bounce * (impact > 6 ? 1 : 0.9);
-        if (v.y < 0.6) v.y = 0;
-        const contactX = v.x + w.z * R, contactZ = v.z - w.x * R;
-        v.x -= contactX * (1 - BALL.bounceFriction) * 0.9;
-        v.z -= contactZ * (1 - BALL.bounceFriction) * 0.9;
-        w.x = v.z / R * 0.6 + w.x * 0.4; w.z = -v.x / R * 0.6 + w.z * 0.4;
-        if (impact > 1.2) this.events.push({ type: 'bounce', v: impact });
-        if (impact > 3) this.events.push({ type: 'squash', n: [0, 1, 0], a: impact / 45 });
-      } else v.y = 0;
-    }
+    const gravityScale = sp && !sp.lob ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1;
+    const impact = advanceFreeBall(p, v, w, h, BALL, gravityScale);
+    if (impact > 1.2) this.events.push({ type: 'bounce', v: impact });
+    if (impact > 3) this.events.push({ type: 'squash', n: [0, 1, 0], a: impact / 45 });
 
     this._walls('x', 'z');
     this._walls('z', 'x');
@@ -431,12 +397,9 @@ export class Ball {
       const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
       const vn = rvx * nx + rvy * ny + rvz * nz;
       if (vn >= 0) continue;
-      const j = -(1 + c.e) * vn;
-      v.x += j * nx; v.y += j * ny; v.z += j * nz;
-      // grip: part of the sliding speed across the surface is lost
-      const tx = rvx - vn * nx, ty = rvy - vn * ny, tz = rvz - vn * nz;
-      v.x -= tx * 0.22; v.y -= ty * 0.22; v.z -= tz * 0.22;
-      this.spin.multiplyScalar(0.5);
+      // An off-centre brush transfers tangential impulse into real spin instead
+      // of discarding half the spin on every body collision.
+      sphereContact(v, this.spin, { x: nx, y: ny, z: nz }, CV, R, c.e, c.part === 'hand' ? 0.65 : c.part === 'foot' ? 0.5 : 0.32);
       const key = c.owner.team * 100 + c.idx;
       if (!this._hit.has(key)) {
         this._hit.add(key);
@@ -761,19 +724,16 @@ export class Ball {
     this.marker.visible = this.blob.visible = !inv; if (inv) this.stem.visible = false;
   }
 
-  /** Predict where the ball will be after t seconds (ignores walls, good enough for AI). */
+  /** Predict a free ball with the same drag, spin and bounce as play (ignores walls and elemental steering). */
   predict(t, out = new THREE.Vector3()) {
     out.copy(this.pos);
-    const gs = this.groundSpeed;
-    if (this.pos.y <= R + 0.05 && Math.abs(this.vel.y) < 0.5) {
-      const stopT = gs / (BALL.rollDecel + BALL.rollQuad * gs * gs + 1e-6);
-      const tt = Math.min(t, stopT);
-      const dist = gs * tt - 0.5 * (gs / Math.max(stopT, 1e-3)) * tt * tt;
-      if (gs > 0) { out.x += (this.vel.x / gs) * dist; out.z += (this.vel.z / gs) * dist; }
-    } else {
-      out.x += this.vel.x * t * 0.92; out.z += this.vel.z * t * 0.92;
-      out.y = Math.max(R, this.pos.y + this.vel.y * t - 0.5 * BALL.gravity * t * t);
-    }
+    const v = this._predictV || (this._predictV = new THREE.Vector3());
+    const w = this._predictW || (this._predictW = new THREE.Vector3());
+    v.copy(this.vel); w.copy(this.spin);
+    const duration = Math.max(0, Math.min(t, 6)), steps = Math.max(1, Math.ceil(duration * 120)), h = duration / steps;
+    const sp = this.special;
+    const gravityScale = sp && !sp.lob ? (sp.has('thunder') ? 0.25 : sp.has('cannon') ? 0.5 : sp.has('gale') ? 0.7 : 0.8) : 1;
+    for (let i = 0; i < steps; i++) advanceFreeBall(out, v, w, h, BALL, gravityScale);
     clampToArena(out, R);
     return out;
   }

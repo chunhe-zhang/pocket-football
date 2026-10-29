@@ -726,7 +726,7 @@ export class Character {
       materials.forEach((m) => m.dispose());
       const next = new Character(this._baseTemplate, { ...this._kit, characterId: id });
       const wrapped = {};
-      for (const name of ['play', 'face', 'emote', 'stopEmotes']) if (Object.hasOwn(this, name)) wrapped[name] = this[name];
+      for (const name of ['play', 'face', 'emote', 'stopEmotes', 'receiveImpact']) if (Object.hasOwn(this, name)) wrapped[name] = this[name];
       for (const key of Object.keys(this)) delete this[key];
       Object.assign(this, next, wrapped);
       this.group = group;
@@ -1092,13 +1092,23 @@ export class Character {
     const C = this.allClips; if (!C.strike_foward_jog) return false;
     const R = (o.side || 'Right') !== 'Left', d = g.duration, c = o.contact ?? ANIM.kickContact, sp = this.speed || 0;
     const P = (n, x) => !!C[n] && !!this.playMocap(n, x);
+    // Crop the preparation to the game's wind-up while retaining the captured
+    // tempo around the measured contact frame and the complete follow-through.
+    const captured = (id, mirror = false) => {
+      const clip = C[id], contact = clip?.userData?.contact;
+      if (contact === undefined) return false;
+      const at = d * c, from = Math.max(0, contact - at);
+      return P(id, { mirror, from, to: Math.min(clip.duration, contact + (name === 'pass' ? 0.48 : 0.7)), align: contact, at, fadeIn: 0.045, fadeOut: 0.2 });
+    };
     switch (name) {
       case 'kick':
         if (o.volley) return false;
+        if (sp < 0.7 && captured('rokoko_penalty')) return true;
         if (sp < 0.7 && C.soccer_penalty_kick) return P('soccer_penalty_kick', { from: 0.4, to: 1.4, align: 0.73, at: d * c, fadeIn: 0.06, fadeOut: 0.25 });
         if (sp > 3.6 && C.jog_kick && Math.random() < 0.5) return P('jog_kick', { from: 0.12, to: 1.05, align: 0.43, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
         return P('strike_foward_jog', { from: 0.12, to: 1.15, align: 0.42, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
       case 'pass':
+        if (sp < 2.4 && captured('rokoko_pass', !R)) return true;
         if (sp > 3.6 && C.jog_kick) return P('jog_kick', { from: 0.15, to: 0.95, align: 0.43, at: d * c, fadeIn: 0.05, fadeOut: 0.2 });
         return P('kick_soccerball_2', { from: 0, to: 0.47, align: 0.2, at: d * c, fadeIn: 0.05, fadeOut: 0.16 });
       case 'chip':
@@ -1162,6 +1172,12 @@ export class Character {
   mocapPlaying(name) { return !!this.mocap && (!name || this.mocap.name === name); }
 
   face(name, w) { this.expr?.set(name, w); if (name === 'aa') this._faceBusyT = w > 0 ? 0.6 : 0; }
+
+  /** A damped response to actual contact, layered over the captured pose. */
+  receiveImpact(normal, speed, part = 'chest') {
+    if (speed < 2 || (this._recoil && this._recoil.t < 0.06)) return;
+    this._recoil = { n: new THREE.Vector3().fromArray(normal), t: 0, amp: clamp(speed / 100, 0.02, 0.2) * (part === 'hand' ? 0.65 : 1) };
+  }
 
   stopEmotes() {
     this._i2on = false;
@@ -1529,6 +1545,14 @@ export class Character {
     }
     this.group.updateMatrixWorld(true);
 
+    if (this._recoil) {
+      const recoil = this._recoil; recoil.t += dt;
+      const response = recoil.amp * (1 - Math.exp(-recoil.t * 80)) * Math.exp(-recoil.t * 10);
+      this._rot(b.spine1, r, recoil.n.dot(f) * response);
+      this._rot(b.spine1, f, -recoil.n.dot(r) * response);
+      this.group.updateMatrixWorld(true);
+      if (recoil.t > 0.4) this._recoil = null;
+    }
     // planted feet stay planted: a foot that lands is pinned to that spot on the turf until it lifts, so
     // blends between gaits, turns and speed changes never skate it (the ball IK below still wins)
     this._footLock(dt, MW);

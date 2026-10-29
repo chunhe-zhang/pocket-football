@@ -781,6 +781,7 @@ export class Athlete {
     if ((this.stunT > 0 || this.frozen) && !justIced) return null;
     if (this._beatT > g.time) return 'beat';
     const sp = b.speed; if (sp < 5) return null;
+    this.char.receiveImpact(b.pos.clone().sub(c.pos).normalize().toArray(), sp, c.part);
     const key = lt.team + ':' + lt.lastTouchTime;
     if (this._saveKey === key) return null;              // already decided for this shot: plain physics
     this._saveKey = key;
@@ -839,7 +840,8 @@ export class Athlete {
         if (aR.distanceToSquared(T) <= aL.distanceToSquared(T)) { ik.R.target.copy(T); wr = w; } else { ik.L.target.copy(T); wl = w; }
       }
     }
-    const k = Math.min(1, dt * 16);
+    // Frame-rate independent reach weights: fingertips settle rather than snap.
+    const k = 1 - Math.exp(-dt * 16);
     ik.L.w += (wl - ik.L.w) * k; ik.R.w += (wr - ik.R.w) * k;
   }
 
@@ -1937,6 +1939,22 @@ export class Athlete {
         ik.R.target.y = clamp(ball.pos.y - R * 0.3, ankleH, 1.05);
       }
     }
+    if (k?.hit && k.contactPos) {
+      const after = k.t - k.contactTime;
+      const w = clamp(1 - after / 0.12, 0, 1) * 0.9;
+      ik.R.target.copy(k.contactPos).addScaledVector(k.aim, clamp(after, 0, 0.12) * 1.8 - R - 0.06);
+      ik.R.target.y = clamp(k.contactPos.y - R * 0.3, ankleH, 1.05);
+      ik.R.w = Math.max(ik.R.w, w);
+    }
+    // The non-striking boot plants for the final transfer of weight. Keep its
+    // world position through contact, then release into the follow-through.
+    if (k && k.approach && k.t >= k.contactT - 0.08 && k.t < k.contactT + 0.16) {
+      k.support ||= this.char.anklePos('L').clone();
+      if (k.support.distanceTo(this.char.anklePos('L', this._fa)) < 0.4) {
+        ik.L.target.copy(k.support);
+        ik.L.w = Math.min(clamp((k.t - k.contactT + 0.08) / 0.06, 0, 1), clamp((k.contactT + 0.16 - k.t) / 0.1, 0, 1)) * 0.95;
+      }
+    }
     const t = this.touch;
     if (t) {
       const s = t.side === 'Left' ? 'L' : 'R';
@@ -2302,6 +2320,7 @@ export class Athlete {
     const reach = k.armed ? 0.95 : 0.55;          // met on the run (first time): the boot finds it
     if (!footTouched && (d > reach || ball.pos.y > maxH)) { g.onWhiff(this); return; }
     k.hit = true;
+    k.contactPos = ball.pos.clone(); k.contactTime = k.t;
     if (!footTouched) {
       // the boot didn't quite get there: the ball is met where the boot is (the leg was reaching for it), so
       // what you see is the boot and the ball together at the strike, not a ball leaving from thin air
@@ -2766,7 +2785,7 @@ export class Athlete {
     ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
     ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
     if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);
-    ball.spin.y *= 0.9;
+    ball.spin.y *= Math.exp(-dt * 6.32);
     this.lastTouchTime = g.time;
     // close control: an opponent has to make a tackle to take it off me (no more squeezing it away)
     if (!this.trick || this.trick.type === 'knock') { ball.dribbleBy = this; ball.dribbleGuard = 0.1; }
@@ -2800,9 +2819,10 @@ export class Athlete {
         const s = tt.side === 'Left' ? 'L' : 'R';
         const toe = this.char.footPos(s, this._fa), ank = this.char.anklePos(s, this._fb);
         const ab = toe.sub(ank), u = clamp(this._r.copy(ball.pos).sub(ank).dot(ab) / Math.max(ab.lengthSq(), 1e-6), 0, 1);
-        reached = ank.addScaledVector(ab, u).distanceTo(ball.pos) < R + 0.06;
+        tt.gap = ank.addScaledVector(ab, u).distanceTo(ball.pos);
+        reached = tt.gap < R + 0.06;
       }
-      if ((reached || tt.t >= tt.dur * 0.9) && !tt.done) {
+      if ((reached || (tt.t >= tt.dur * 0.9 && tt.gap < R + 0.16)) && !tt.done) {
         tt.done = true;
         this.knockDur = tt.turn ? 0.12 : interval * 0.75;
         this.knockT = this.knockDur;
@@ -2815,7 +2835,7 @@ export class Athlete {
           const pushV = clamp(1.1 + sp * 0.18, 1.1, 2.6);
           ball.vel.x = this.vel.x * 0.55 + d.x * pushV; ball.vel.z = this.vel.z * 0.55 + d.z * pushV;
         }
-        ball.vel.y = Math.max(ball.vel.y, 0.25 + Math.random() * 0.2);
+        ball.vel.y = Math.max(ball.vel.y, 0.12 + Math.min(sp, 7) * 0.015);
         ball.pos.y = Math.max(ball.pos.y, R + 0.005);
         g.sfx.touch();
         this.stats.touches++;

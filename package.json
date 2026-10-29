@@ -4,8 +4,11 @@
   "private": true,
   "description": "Four-goal mini football in the browser, with online rooms for up to 4 players",
   "scripts": {
-    "start": "node server/server.js"
+    "start": "node server/server.js",
+    "test:physics": "node tests/contact-physics.mjs"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT"
 }

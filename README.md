@@ -1,5 +1,7 @@
 # Pocket Football
 
+Football realism update: supplemental Rokoko passing/penalty captures are retargeted with measured contact frames; strikes plant the support boot and retain follow-through. Ordinary ball anticipation shares the live drag/spin/turf integrator, while glancing impacts transfer friction into spin using thin-shell inertia. Actual body and glove contacts produce a damped torso response. Players have attached lace/sole/stud geometry and subtle cloth weave. Source and licensing details: [precision mocap](assets/anim/precision.README.md).
+
 **五元素角色更新**：火、冰、风、影、土现已分别使用独立造型、球衣和骨骼配件，选人卡片与比赛共用角色变体。新增火焰、冰晶、风带、传送门残影及碎石地裂特效，按真实技能、球路和碰撞驱动。说明见 [五元素角色资产](assets/models/element-collection.README.md)。
 
 **雷元素角色更新**：雷角色使用独立的 RAI 银紫发模型、定制球衣和骨骼配饰；选人界面与比赛均已接入。新增电弧、足下光环、蓄力、冲刺轨迹和真实球路雷霆拖尾，命中效果在主机与联机客机间同步。其余元素保留原模型。角色资产说明与许可记录见 [RAI 模型说明](assets/models/rai-lightning.README.md)。

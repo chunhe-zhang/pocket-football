@@ -183,7 +183,7 @@ export class Game {
 
   _recordCharacter(a, i) {
     const c = a.char;
-    for (const m of ['play', 'face', 'emote', 'stopEmotes']) {
+    for (const m of ['play', 'face', 'emote', 'stopEmotes', 'receiveImpact']) {
       const orig = c[m].bind(c);
       c[m] = (...args) => { if (this.role === 'host') this.emit({ e: 'ch', i, m, a: args }); return orig(...args); };
     }
@@ -1077,6 +1077,7 @@ export class Game {
       case 'wheel': this.sfx.device('wheel'); this.pitch.pulse('wheel', e.x, e.z); this.emit({ e: 'pulse', k: 'wheel', x: e.x, z: e.z }); break;
       case 'body': {
         const a = e.who;
+        a.char.receiveImpact(e.n, e.v, e.part);
         if (this.m5 && a.tryCatch(e.part, e.v)) break;
         if (a.completeReceive(e.part)) break;
         // an unplanned contact: the ball simply bounced off this player

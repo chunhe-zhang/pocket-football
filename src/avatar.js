@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addBootDetails, clothWeave } from './avatar-details.js';
 import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtils.js';
 
 // -----------------------------------------------------------------------------
@@ -63,7 +64,10 @@ export class AvatarTemplate {
     this.height = box.max.y - box.min.y;
 
     this.clips = this._retargetAll(mixamoGltf);
-    if (mocap) Object.assign(this.clips, this._retargetMocap(mocap));
+    if (mocap) {
+      Object.assign(this.clips, this._retargetMocap(mocap));
+      for (const take of mocap.supplements || []) Object.assign(this.clips, this._retargetMocap(take));
+    }
     this.expressions = vrm.expressions?.preset || {};
     this.springData = this.ext.VRMC_springBone || null;
   }
@@ -166,7 +170,7 @@ export class AvatarTemplate {
         }
       }
       const clip = new THREE.AnimationClip(mirror ? name + '@M' : name, c.d, tracks);
-      if (yawCurve) clip.userData = { yaw: yawCurve };
+      clip.userData = { ...(yawCurve ? { yaw: yawCurve } : {}), ...(c.contact !== undefined ? { contact: c.contact } : {}) };
       out[clip.name] = clip;
     }
     return out;
@@ -193,6 +197,7 @@ export class AvatarTemplate {
       expressions: new Expressions(this.expressions, node),
     };
     styleAvatar(root, kit, this.authoredElement || this.authoredThunder);
+    addBootDetails(root, bones);
     return avatar;
   }
 }
@@ -493,6 +498,7 @@ function styleAvatar(root, kit, authoredThunder = false) {
         name: m.name, map, color: m.color, gradientMap: gradient(),
         transparent: m.transparent, alphaTest: m.alphaTest, side: m.side, opacity: m.opacity,
       });
+      if (/TOPS|BOTTOMS/.test(n)) { t.bumpMap = clothWeave(); t.bumpScale = 0.0008; }
       t.emissive = new THREE.Color(0xffffff); t.emissiveMap = map; t.emissiveIntensity = isSkin ? 0.22 : 0.12;
       celMaterial(t, /FACE/.test(n) ? 'face' : isSkin ? 'skin' : isHair ? 'hair' : 'cloth');
       if (isHair && m.map) t.userData.hairSrc = m.map;   // so the hair can be re-dyed per character

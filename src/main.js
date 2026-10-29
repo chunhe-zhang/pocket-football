@@ -77,6 +77,8 @@ try {
   const vrm = await loadModel('./assets/models/player.vrm', 0.3, 0.88, '正在载入球员模型…');
   ui.loading(0.9, '载入足球动作捕捉…');
   const mocap = await fetch('./assets/anim/mocap.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const precision = await fetch('./assets/anim/precision-mocap.json').then(r => r.ok ? r.json() : null).catch(() => null);
+  if (mocap && precision) mocap.supplements = precision.takes;
   ui.loading(0.92, '套用动作捕捉动画…');
   template = new AvatarTemplate(vrm, anims, mocap);
   const rai = await loadModel('./assets/models/rai-lightning.vrm', 0.92, 0.95, '正在载入雷元素角色…');
