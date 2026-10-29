@@ -20,6 +20,7 @@ const rubber = new THREE.MeshStandardMaterial({ color: 0x222432, roughness: 0.8 
 const lace = new THREE.MeshStandardMaterial({ color: 0xe8edf4, roughness: 0.7 });
 const sole = new THREE.CapsuleGeometry(1, 1, 4, 10);
 const Y = new THREE.Vector3(0, 1, 0);
+const fittedLaces = new Map();
 
 /** Small real meshes, attached in the rest pose, follow each animated boot. */
 export function addBootDetails(root, bones) {
@@ -38,14 +39,34 @@ export function addBootDetails(root, bones) {
     const base = new THREE.Mesh(sole, rubber); base.name = 'Sole and heel';
     base.rotation.x = Math.PI / 2; base.scale.set(0.043, length * 0.44, 0.008);
     base.position.set(0, -ankle.y + 0.016, length * 0.24); group.add(base);
-    const cords = new THREE.InstancedMesh(cord, lace, 8);
+    const cords = new THREE.InstancedMesh(cord, lace, 32);
     cords.name = 'Crossed boot laces'; const m = new THREE.Matrix4(), q = new THREE.Quaternion();
-    for (let i = 0; i < 8; i++) {
-      const a = new THREE.Vector3(-0.027, -0.006 - (i >> 1) * 0.004, 0.012 + (i >> 1) * 0.015);
-      const b = a.clone().add(new THREE.Vector3(0.054, 0, i % 2 ? -0.013 : 0.013));
-      const dir = b.clone().sub(a); q.setFromUnitVectors(Y, dir.clone().normalize());
-      m.compose(a.add(b).multiplyScalar(0.5), q, new THREE.Vector3(0.0015, dir.length(), 0.0015)); cords.setMatrixAt(i, m);
+    const cacheKey = side + ':' + length.toFixed(4);
+    let matrices = fittedLaces.get(cacheKey);
+    if (!matrices) {
+      matrices = []; const shoes = [];
+      root.traverse(o => { if (o.isSkinnedMesh && [].concat(o.material).some(m => /SHOES/i.test(m.name))) shoes.push(o); });
+      const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0);
+      const surface = (point) => {
+        const world = group.localToWorld(point.clone());
+        ray.set(world.clone().addScaledVector(Y, 0.3), down);
+        const hit = ray.intersectObjects(shoes, false)[0];
+        if (hit) return group.worldToLocal(hit.point.clone().addScaledVector(Y, 0.002));
+        return point;
+      };
+      for (let i = 0; i < 8; i++) {
+        const row = i >> 1, odd = i % 2;
+        const az = 0.06 + (row + odd) * 0.01, bz = 0.06 + (row + 1 - odd) * 0.01;
+        const a = new THREE.Vector3(-0.014, -0.031, az), b = new THREE.Vector3(0.014, -0.031, bz);
+        for (let part = 0; part < 4; part++) {
+          const p0 = surface(a.clone().lerp(b, part / 4)), p1 = surface(a.clone().lerp(b, (part + 1) / 4));
+          const dir = p1.clone().sub(p0); q.setFromUnitVectors(Y, dir.clone().normalize());
+          matrices.push(new THREE.Matrix4().compose(p0.add(p1).multiplyScalar(0.5), q, new THREE.Vector3(0.0015, dir.length(), 0.0015)));
+        }
+      }
+      fittedLaces.set(cacheKey, matrices);
     }
+    matrices.forEach((matrix, i) => cords.setMatrixAt(i, matrix));
     cords.instanceMatrix.needsUpdate = true; group.add(cords);
     const studs = new THREE.InstancedMesh(cord, rubber, 6); studs.name = 'Six traction studs';
     for (let i = 0; i < 6; i++) {
