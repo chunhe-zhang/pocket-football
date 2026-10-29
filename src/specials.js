@@ -83,6 +83,7 @@ export class SpecialFx {
       // particles streaming off it: every element of the move
       const v = ball.vel, sp = Math.hypot(v.x, v.z) || 1;
       if (!ball.hidden) for (const id of ids) {
+        if (this.refinedElements) continue; // per-element shaders now track the actual ball
         const n = (id === 'phantom' ? 2 : id === 'cannon' ? 6 : 5) * (combo ? 1 : 1) / (ids.length > 2 ? 1.5 : 1);
         this.particles.burst(p, { x: -v.x / sp, z: -v.z / sp }, Math.max(1, Math.round(n)), combo ? 3.4 : 2.6, PARTS[id], id === 'cannon' ? 0.3 : 0.2);
       }

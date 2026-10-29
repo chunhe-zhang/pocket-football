@@ -192,7 +192,7 @@ export class AvatarTemplate {
       springs: this.springData ? new SpringBones(this.springData, node) : null,
       expressions: new Expressions(this.expressions, node),
     };
-    styleAvatar(root, kit, this.authoredThunder);
+    styleAvatar(root, kit, this.authoredElement || this.authoredThunder);
     return avatar;
   }
 }
@@ -472,7 +472,7 @@ function styleAvatar(root, kit, authoredThunder = false) {
     const olMats = [];
     const next = mats.map((m) => {
       const n = (m.name || '').toUpperCase();
-      if (authoredThunder && n.startsWith('RAI /')) {
+      if (authoredThunder && /^(RAI|ELEMENT) \/ /.test(n)) {
         const metal = m.clone(); // keep the authored metal, enamel and glow
         olMats.push(OL.dark); return metal;
       }

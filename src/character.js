@@ -508,7 +508,8 @@ export class Character {
     this._kit = { ...kit };
     template = template.variants?.get(kit.characterId) || template;
     this._modelTemplate = template;
-    this.authoredThunder = !!template.authoredThunder;
+    this.authoredElement = template.authoredElement || (template.authoredThunder ? 'thunder' : null);
+    this.authoredThunder = this.authoredElement === 'thunder';
     this.group = new THREE.Group();
     const av = template.instantiate(kit);
     this.root = av.root;
@@ -706,6 +707,7 @@ export class Character {
     this._style = id;
     for (const o of this._acc || []) o.parent?.remove(o);
     this._acc = []; this._orbit = []; this._sway = []; this._flick = [];
+    if (this.authoredElement) return; // ornaments and outfit are fitted in each VRM
     const b = this.bones;
     // fit in the body frame (+x left, +z forward, +y up) and convert into the bone's rest frame,
     // so the head's current turn (looking at the ball) doesn't skew anything
@@ -928,7 +930,7 @@ export class Character {
   }
 
   /** characters each have their own hair colour */
-  setHair(color) { if (!this.authoredThunder) dyeHair(this.root, color); }
+  setHair(color) { if (!this.authoredElement) dyeHair(this.root, color); }
 
   _sampleClip(clip, fn, N = 60) {
     const m = new THREE.AnimationMixer(this.root);

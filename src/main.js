@@ -79,12 +79,39 @@ try {
   const rai = await loadModel('./assets/models/rai-lightning.vrm', 0.92, 0.95, '正在载入雷元素角色…');
   const thunder = new AvatarTemplate(rai, anims, mocap);
   thunder.authoredThunder = true;
+  thunder.authoredElement = 'thunder';
   template.variants = new Map([['thunder', thunder]]);
+  const textureCache = new Map(), geometryCache = new Map();
+  const shareVariant = (gltf, id) => {
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      // These variants retain the same base topology; share immutable buffers.
+      if (/^(Body|Face|Hair)$/.test(o.name)) {
+        const key = o.name + ':' + o.geometry.attributes.position.count;
+        if (geometryCache.has(key)) { o.geometry.dispose(); o.geometry = geometryCache.get(key); }
+        else geometryCache.set(key, o.geometry);
+      }
+      for (const m of [].concat(o.material)) if (m.map && !/TOPS/i.test(m.name)) {
+        // The five new variants share a neutral iris; RAI has its own iris.
+        const key = m.map.name + (/IRIS/i.test(m.name) && id === 'thunder' ? ':rai' : '');
+        if (textureCache.has(key)) { const old = m.map; m.map = textureCache.get(key); if (old !== m.map) old.dispose(); }
+        else textureCache.set(key, m.map);
+      }
+    });
+  };
+  shareVariant(rai, 'thunder');
+  await Promise.all(['blaze', 'frost', 'gale', 'phantom', 'cannon'].map(async (id) => {
+    const gltf = await loadModel(`./assets/models/${id}.vrm`, 0.95, 0.98, '正在载入五元素角色…');
+    shareVariant(gltf, id);
+    const variant = new AvatarTemplate(gltf, anims, mocap);
+    variant.authoredElement = id;
+    template.variants.set(id, variant);
+  }));
 } catch (err) {
   ui.loading(0, '模型载入失败：请通过本地服务器或 GitHub Pages 打开（不能直接双击 index.html）。');
   throw err;
 }
-ui.loading(0.95, '布置球场…');
+ui.loading(0.99, '布置球场…');
 
 const game = new Game({ scene, camera, template, sfx, input, ui });
 // shadows cover whichever arena is loaded

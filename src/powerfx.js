@@ -193,6 +193,7 @@ export class PowerFx {
     for (let i = n; i < this._iceDecals.length; i++) this._iceDecals[i].visible = false;
     // the sprint itself
     for (const a of athletes) {
+      if (this.refinedElements && a.charId !== 'thunder') continue;
       const w = a.charId === 'gale' ? this._wingsFor(a) : null;
       const on = a.sprinting && !a.out;
       if (w) {
@@ -288,6 +289,7 @@ export class PowerFx {
 
   start(a, kind, extra = null) {
     if (this.refinedLightning && kind === 'thunder') return;
+    if (this.refinedElements && ['blaze', 'frost', 'gale', 'phantom', 'cannon'].includes(kind)) return;
     this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
   }
 

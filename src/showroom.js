@@ -40,6 +40,7 @@ export class Showroom {
     ch.setHair(def.hair); ch.setStyle(id);
     const x = this.models.size * 6;             // each on its own spot, far enough apart to never overlap a view
     ch.group.position.set(x, 0, 0);
+    ch.teleported(); // reset world-space hair tails after placing each display model
     ch.setFacing(0);
     // a soft round shadow and a ring in the character's colour to stand on
     const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
@@ -47,7 +48,7 @@ export class Showroom {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.52, 40), new THREE.MeshBasicMaterial({ color: def.css, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.004, 0);
     this.scene.add(ch.group, disc, ring);
-    m = { ch, x, yaw: 0.35, ring };
+    m = { ch, x, yaw: 0.35, ring, height: this.template.variants?.get(id)?.height || this.template.height };
     this.models.set(id, m);
     return m;
   }
@@ -76,7 +77,8 @@ export class Showroom {
       m.ch.update(step, { speed: 0 });
       m.ring.material.opacity = sel ? 0.65 + 0.3 * Math.sin(this.t * 4) : 0.35;
       const c = this.camera;
-      c.position.set(m.x, 1.05, 4.25); c.lookAt(m.x, 0.84, 0);
+      const scale = Math.max(1, m.height / 1.65);
+      c.position.set(m.x, 1.05 * scale, 4.25 * scale); c.lookAt(m.x, m.height * 0.52, 0);
       r.render(this.scene, c);
       const ctx = cv._ctx || (cv._ctx = cv.getContext('2d'));
       if (cv.width !== W * this.dpr) { cv.width = W * this.dpr; cv.height = H * this.dpr; }

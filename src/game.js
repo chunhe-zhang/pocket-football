@@ -10,6 +10,7 @@ import { Particles } from './fx.js';
 import { SpecialFx } from './specials.js';
 import { PowerFx } from './powerfx.js';
 import { GameLightningFx } from './game-lightning.js';
+import { GameElementFx } from './game-elements.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -42,7 +43,9 @@ export class Game {
     this.specialFx = new SpecialFx(scene, this.particles);
     this.powerFx = new PowerFx(scene);
     this.lightningFx = new GameLightningFx(scene, camera);
+    this.elementFx = new GameElementFx(scene, camera);
     this.powerFx.refinedLightning = this.specialFx.refinedLightning = true;
+    this.powerFx.refinedElements = this.specialFx.refinedElements = true;
     this.athletes = TEAMS.map((t, i) => {
       const ch = new Character(template, t.kit);
       scene.add(ch.group);
@@ -579,7 +582,7 @@ export class Game {
   onWhiff() {}
 
   /** a character's skill move (过人) starts: its effects, here and on guests' screens */
-  onPower(ath, kind, off = false) { this.powerFx.start(ath, kind, off ? { off: true } : null); this.sfx.element(kind, 'move'); this.emit({ e: 'power', i: ath.team, k: kind, f: null, o: off ? 1 : 0 }); }
+  onPower(ath, kind, off = false) { this.powerFx.start(ath, kind, off ? { off: true } : null); this.elementFx.start(ath, kind); this.sfx.element(kind, 'move'); this.emit({ e: 'power', i: ath.team, k: kind, f: null, o: off ? 1 : 0 }); }
   /** a slide tackle with the character's element (from = where a phantom blinked from) */
   onSlide(ath, kind, from) { this.powerFx.start(ath, 'slide:' + kind, { from }); this.sfx.element(kind, 'slide', 0.6); this.emit({ e: 'power', i: ath.team, k: 'slide:' + kind, f: from ? [from.x, from.z] : null }); }
   /** an impact flash at a player (cannon hits) */
@@ -935,8 +938,9 @@ export class Game {
       this.ball.colliders = live.flatMap((a) => (a.colliders || []).filter((c) => c.active));
       const p0 = this._bp0 || (this._bp0 = new THREE.Vector3()); p0.copy(this.ball.pos);
       const thunderShot = this.lightningFx.hasThunder(this.ball);
+      const elementShots = this.elementFx.ids(this.ball);
       const events = this.ball.update(dt);
-      for (const e of events) this._ballEvent(e, thunderShot);
+      for (const e of events) this._ballEvent(e, thunderShot, elementShots);
       void p0;
       this._elemPassTick();
       this._offsideTick();
@@ -951,6 +955,7 @@ export class Game {
     this.specialFx.update(rawDt, this);
     this.powerFx.update(rawDt, this.camera.position);
     this.lightningFx.update(rawDt, this);
+    this.elementFx.update(rawDt, this);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -998,7 +1003,8 @@ export class Game {
 
   _distBall(a) { return Math.hypot(this.ball.pos.x - a.pos.x, this.ball.pos.z - a.pos.z); }
 
-  _ballEvent(e, thunderShot = false) {
+  _ballEvent(e, thunderShot = false, elementShots = null) {
+    this.elementFx.ballEvent(e, this, elementShots);
     // Physics may end the special before returning its goal/catch events.
     if ((thunderShot || this.lightningFx.hasThunder(this.ball)) && ['board', 'post', 'net', 'goal', 'zap'].includes(e.type)) {
       const pos = e.type === 'zap' ? e.who.pos.clone().add(new THREE.Vector3(0, 0.8, 0)) : this.ball.pos.clone();
@@ -1451,6 +1457,7 @@ export class Game {
     this._trails(dt, false);
     this.powerFx.update(dt, this.camera.position);
     this.lightningFx.update(dt, this);
+    this.elementFx.update(dt, this);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }
@@ -1468,9 +1475,10 @@ export class Game {
       case 'focus': this.focus = e.i >= 0 ? this.athletes[e.i] : null; break;
       case 'pulse': this.pitch.pulse(e.k, e.x, e.z); break;
       case 'shield': this.pitch.breakShield(e.t); break;
-      case 'power': { const a = this.athletes[e.i]; if (a) this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : e.o ? { off: true } : null); break; }
+      case 'power': { const a = this.athletes[e.i]; if (a) { this.powerFx.start(a, e.k, e.f ? { from: { x: e.f[0], z: e.f[1] } } : e.o ? { off: true } : null); this.elementFx.start(a, e.k); } break; }
       case 'hit': this.powerFx.start({ pos: new THREE.Vector3(e.p[0], 0, e.p[1]) }, 'hit', { color: e.c }); break;
       case 'lightningHit': this.lightningFx.hit(new THREE.Vector3().fromArray(e.p), e.big); break;
+      case 'elementHit': this.elementFx.hit(e.id, new THREE.Vector3().fromArray(e.p), e.big); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
       case 'flair': { const a = this.athletes[e.i]; if (a) { a.flairText = e.s; a.flairT = this.time; } break; }
