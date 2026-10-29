@@ -42,7 +42,7 @@ function worldQuat(o) { o.updateWorldMatrix(true, false); return o.getWorldQuate
 
 /** Everything that can be computed once per model file and shared by all players. */
 export class AvatarTemplate {
-  constructor(vrmGltf, mixamoGltf) {
+  constructor(vrmGltf, mixamoGltf, mocap = null) {
     this.gltf = vrmGltf;
     const json = vrmGltf.parser.json;
     this.ext = json.extensions || {};
@@ -63,6 +63,7 @@ export class AvatarTemplate {
     this.height = box.max.y - box.min.y;
 
     this.clips = this._retargetAll(mixamoGltf);
+    if (mocap) Object.assign(this.clips, this._retargetMocap(mocap));
     this.expressions = vrm.expressions?.preset || {};
     this.springData = this.ext.VRMC_springBone || null;
   }
@@ -114,6 +115,46 @@ export class AvatarTemplate {
         }
       }
       out[clip.name] = new THREE.AnimationClip(clip.name, clip.duration, tracks);
+    }
+    return out;
+  }
+
+  /**
+   * The motion-capture pack (assets/anim/mocap.json: Mixamo rig rest pose + quaternion tracks) onto the
+   * VRM skeleton, the same way as the glTF clips. Every clip also gets a mirrored copy ("name@M"), the
+   * left/right of it swapped, so a dive or a tackle can go either way.
+   */
+  _retargetMocap(raw) {
+    const tRest = {}, tParentRest = {};
+    for (const [name, o] of Object.entries(this.human)) { tRest[name] = worldQuat(o); tParentRest[name] = worldQuat(o.parent); }
+    const tHips = this.human.hips, hp = tHips.position.clone(), tHipsY = tHips.getWorldPosition(new THREE.Vector3()).y;
+    const Q = (a) => new THREE.Quaternion().fromArray(a);
+    const mir = (b) => (b.startsWith('Left') ? 'Right' + b.slice(4) : b.startsWith('Right') ? 'Left' + b.slice(5) : b);
+    const out = {};
+    for (const [name, c] of Object.entries(raw.clips)) for (const mirror of [false, true]) {
+      const tracks = [];
+      for (const tr of c.tr) {
+        const vname = MIXAMO_TO_VRM[mirror ? mir(tr.b) : tr.b], target = vname && this.human[vname];
+        if (!target || !raw.rest[tr.b]) continue;
+        if (tr.p === 'q') {
+          const Sp = Q(raw.prest[tr.b]), SbInv = Q(raw.rest[tr.b]).invert();
+          const WpInv = tParentRest[vname].clone().invert(), Wb = tRest[vname];
+          const v = new Float32Array(tr.v.length);
+          for (let k = 0; k < v.length; k += 4) {
+            _q.fromArray(tr.v, k);
+            _q2.copy(Sp).multiply(_q).multiply(SbInv);                       // the rotation in the rest-world frame
+            if (mirror) _q2.set(_q2.x, -_q2.y, -_q2.z, _q2.w);                  // reflected left ↔ right
+            _q2.premultiply(WpInv).multiply(Wb);
+            _q2.toArray(v, k);
+          }
+          tracks.push(new THREE.QuaternionKeyframeTrack(`${target.name}.quaternion`, tr.t, v));
+        } else if (tr.p === 'hy' && vname === 'hips') {
+          const v = new Float32Array(tr.v.length * 3);
+          tr.v.forEach((r, i) => { v[i * 3] = hp.x; v[i * 3 + 1] = hp.y + tHipsY * (r - 1); v[i * 3 + 2] = hp.z; });
+          tracks.push(new THREE.VectorKeyframeTrack(`${target.name}.position`, tr.t, v));
+        }
+      }
+      out[mirror ? name + '@M' : name] = new THREE.AnimationClip(mirror ? name + '@M' : name, c.d, tracks);
     }
     return out;
   }

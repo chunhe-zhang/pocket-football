@@ -462,7 +462,7 @@ export class Athlete {
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null;
     this.stamina = Math.max(0, this.stamina - 0.15);
     this.slideCD = 1.3;
-    this.char.play('slide', { duration: 0.85 });
+    this.char.play('slide', { duration: 0.85, kind, side: Math.random() < 0.5 ? 'Right' : 'Left' });
     this.char.face('angry', 0.6); this.faceT = 0.6;
     this.game.sfx.slide();
   }
@@ -589,7 +589,7 @@ export class Athlete {
     this.dive = { t: 0, dur: 1.15, dir, speed0, side, lift };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
     this.slideCD = 1.4;
-    this.char.play('dive', { side, duration: 1.15 });
+    this.char.play('dive', { side, duration: 1.15, low: !!cross && cross.y < 0.5 && need < 1.3 });
     this.char.face('surprised', 0.5); this.faceT = 0.8;
     g.sfx.slide();
   }
@@ -678,7 +678,7 @@ export class Athlete {
     const f = this.forward, fromBehind = dir.x * f.x + dir.z * f.z > 0;
     this.stunT = 1.05;
     this.vel.copy(dir).multiplyScalar(Math.min(maxV, 1.5 + strength * 0.35));
-    this.char.play(fromBehind ? 'fallF' : 'fallB', { duration: 1.5 });
+    this.char.play(fromBehind ? 'fallF' : 'fallB', { duration: 1.5, trip: true, mirror: (dir.x * this.char.right.x + dir.z * this.char.right.z) < 0 });
     this.game.fx?.('dust', { x: this.pos.x + dir.x * 0.6, y: 0.05, z: this.pos.z + dir.z * 0.6 }, { x: dir.x, z: dir.z }, 10, 1.5);
   }
 
@@ -842,6 +842,12 @@ export class Athlete {
     b.hold(this);
     this.holding = { t: 0, off };
     this.char.play('gkHold');
+    // the gather, from motion capture: arms up for a high ball, scooped off the turf for a low one
+    if (!this.dive) {
+      if (off.y > 1.15) this.char.playMocap('goalkeeper_catch_2', { from: 0.22, to: 0.93, fadeIn: 0.05, fadeOut: 0.25 });
+      else if (off.y < 0.35) this.char.playMocap('goalkeeper_scoop', { from: 0.62, to: 1.75, dur: 0.8, fadeIn: 0.06, fadeOut: 0.25 });
+      else this.char.playMocap('goalkeeper_catch', { from: 0.62, to: 1.75, dur: 0.85, fadeIn: 0.06, fadeOut: 0.25 });
+    }
     this.game.sfx.body(6);
   }
 
@@ -862,7 +868,7 @@ export class Athlete {
     const g = this.game, b = g.ball;
     if (!this.holding || b.heldBy !== this) return;
     this.char.stopEmotes();
-    this.char.play('gkThrow', { duration: 0.7 });
+    this.char.play('gkThrow', { duration: 0.7, punt: !to });
     this.holding.release = { t: 0, to };
   }
 

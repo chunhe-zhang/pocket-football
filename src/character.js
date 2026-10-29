@@ -523,6 +523,10 @@ export class Character {
       this.actions[n] = a;
     }
 
+    this.allClips = C;
+    this.mocap = null; this.mocapW = 0;    // a motion-capture one-shot (assets/anim) playing over everything
+    this._i2on = false; this._i2w = 0;
+
     this.phase = 0; this.speed = 0;
     this.windup = 0; this._wu = 0;      // charging a shot / pass: 0..1
     this.accel = 0; this._prevSpeed = 0; this._lean = 0;
@@ -916,6 +920,7 @@ export class Character {
       case 'roar': g = new Gesture('roar', opts.duration ?? 0.6, ROAR, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
     }
+    if (g && !opts.noMocap && this._autoMocap(name, opts, g)) g.mocap = true;
     const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive', 'fallF', 'fallB', 'gkThrow', 'dash', 'galeLeap', 'roar'];
     if (LEG.includes(name)) this.gestures = this.gestures.filter((x) => !LEG.includes(x.name));
     else this.gestures = this.gestures.filter((x) => x.name !== name);
@@ -925,9 +930,83 @@ export class Character {
     return g;
   }
 
+  /**
+   * Play a motion-capture clip once, over the locomotion and the procedural layers.
+   * The window [from, to] of the clip (seconds) is squeezed or stretched to last `dur`; with `align`
+   * (a clip time) and `at` (seconds from now) the clip is timed so that moment lands exactly then —
+   * a boot meets the ball on the frame the ball is struck. `mirror` plays the left/right swapped copy.
+   * `over` (0..1) is how much it overrides the hand-made layers; `keepIK` leaves the feet/hands IK alone.
+   */
+  playMocap(name, { dur, from = 0, to, align, at, fadeIn = 0.08, fadeOut = 0.18, mirror = false, over = 1, hold = 0, next = null } = {}) {
+    const clip = this.allClips[mirror ? name + '@M' : name];
+    if (!clip) return null;
+    to = Math.min(to ?? clip.duration, clip.duration);
+    let ts = 1;
+    if (align != null && at != null) {
+      // time it so that `align` happens `at` seconds from now; the window then runs at that pace
+      ts = dur ? (to - from) / dur : 1;
+      if (at > 0) ts = Math.max(0.45, Math.min(2.4, (align - from) / at));
+      if (dur == null) dur = (to - from) / ts;
+    } else if (dur) ts = (to - from) / dur;
+    else dur = to - from;
+    if (this._mprev) { this._mprev.a.stop(); this._mprev = null; }
+    if (this.mocap && this.mocap.a.getClip() !== clip && this.mocapW > 0.02) this._mprev = { a: this.mocap.a, w: this.mocapW };
+    else if (this.mocap && this.mocap.a.getClip() !== clip) this.mocap.a.stop();
+    const a = this.mixer.clipAction(clip);
+    a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.timeScale = 0; a.time = from; a.setEffectiveWeight(0); a.play();
+    this.mocap = { name, a, t: 0, from, to, ts, dur: dur + hold, run: dur, fi: fadeIn, fo: next ? 1e-3 : fadeOut, over, next };
+    return this.mocap;
+  }
+  /**
+   * The motion-capture take for a gesture, timed to it: the boot meets the ball at the gesture's contact
+   * moment, the keeper leaves the ground when the dive's push starts, and so on. The gesture still runs
+   * underneath (it carries the gameplay timing and the events) but its hand-made pose gives way.
+   */
+  _autoMocap(name, o, g) {
+    const C = this.allClips; if (!C.strike_foward_jog) return false;
+    const R = (o.side || 'Right') !== 'Left', d = g.duration, c = o.contact ?? ANIM.kickContact;
+    switch (name) {
+      case 'kick': return !!this.playMocap('strike_foward_jog', { from: 0.12, to: 1.15, align: 0.42, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
+      case 'pass': return !!this.playMocap('kick_soccerball_2', { from: 0, to: 0.47, align: 0.2, at: d * c, fadeIn: 0.05, fadeOut: 0.16 });
+      case 'chip': return !!this.playMocap('kick_soccerball', { mirror: true, from: 0, to: 0.53, align: 0.24, at: d * c, fadeIn: 0.05, fadeOut: 0.18 });
+      case 'header': return !!this.playMocap('header_soccerball', { from: 0.4, to: 1.45, align: 0.92, at: d * (o.contact ?? 0.42), fadeIn: 0.06, fadeOut: 0.18 });
+      case 'slide':
+        if (o.kind === 'thunder' || o.kind === 'gale') return !!this.playMocap('soccer_tackle_2', { mirror: !R, from: 0.08, to: 1.25, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
+        return !!this.playMocap('soccer_tackle', { mirror: !R, from: 0.8, to: 2.15, dur: d + 0.15, fadeIn: 0.05, fadeOut: 0.22 });
+      case 'dive':
+        // the clips dive to the keeper's left (diving_save, body_block) or right (diving_save_2)
+        if (o.low) return !!this.playMocap('goalkeeper_body_block', { mirror: R, from: 0.35, to: 1.95, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
+        return !!this.playMocap(R ? 'goalkeeper_diving_save_2' : 'goalkeeper_diving_save', { from: R ? 0.85 : 0.88, to: 2.6, dur: d + 0.1, fadeIn: 0.04, fadeOut: 0.25 });
+      case 'fallF': case 'fallB':
+        if (!o.trip) return false;
+        return !!this.playMocap('soccer_trip', { mirror: !!o.mirror, from: 0.15, to: 1.05, dur: d * 0.42, fadeIn: 0.05,
+          next: { name: 'standing_up', mirror: !!o.mirror, from: 0.3, to: 1.63, dur: d * 0.58, fadeOut: 0.2 } });
+      case 'gkThrow':
+        if (o.punt) return !!this.playMocap('goalkeeper_drop_kick', { from: 1.55, to: 2.85, align: 2.08, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
+        return !!this.playMocap('goalkeeper_overhand_throw', { from: 0.95, to: 2.1, align: 1.45, at: 0.3, fadeIn: 0.08, fadeOut: 0.25 });
+      case 'gkReady': if (this.setIdlePose('goalkeeper_idle')) g.silent = true; return false;
+    }
+    return false;
+  }
+
+  /** swap the standing loop for another clip (null → back to the normal idle) */
+  setIdlePose(name) {
+    const clip = name && this.allClips[name];
+    if (!clip) { this._i2on = false; return false; }
+    if (!this.actions.idle2 || this.actions.idle2.getClip() !== clip) {
+      this.actions.idle2?.stop();
+      const a = this.mixer.clipAction(clip); a.reset(); a.setLoop(THREE.LoopRepeat); a.setEffectiveWeight(0); a.play();
+      this.actions.idle2 = a; this._i2w = 0;
+    }
+    this._i2on = true; return true;
+  }
+  stopMocap(fade = 0.15) { if (this.mocap) { const m = this.mocap; m.dur = Math.min(m.dur, m.t + fade); m.fo = fade; } }
+  mocapPlaying(name) { return !!this.mocap && (!name || this.mocap.name === name); }
+
   face(name, w) { this.expr?.set(name, w); if (name === 'aa') this._faceBusyT = w > 0 ? 0.6 : 0; }
 
   stopEmotes() {
+    this._i2on = false;
     for (const g of this.gestures) if (g.loop) g.stop();
     for (const k in this.emoteTargets) this.emoteTargets[k] = 0;
     this.expr?.clear();
@@ -1091,7 +1170,42 @@ export class Character {
     const strideRun = nat.run * this.clips.run.duration * (1 + 0.22 * clamp((speed - 4) / 3, 0, 1));
     const stride = strideWalk + (strideRun - strideWalk) * wRun;
     this.phase = (this.phase + (dt * Math.max(speed, 0)) / stride) % 1;
-    for (const [k, w] of [['idle', wIdle], ['walk', wWalk], ['run', runW]]) this.actions[k].setEffectiveWeight(w);
+    // motion capture one-shot: its envelope weight takes over from the locomotion clips
+    let MW = 0;
+    if (this.mocap) {
+      let m = this.mocap;
+      m.t += dt;
+      if (m.t >= m.dur) {
+        if (m.next) { this.playMocap(m.next.name, { fadeIn: 0.15, ...m.next }); m = this.mocap; m.t = dt; }
+        else { m.a.stop(); this.mocap = null; m = null; }
+      }
+      if (m) {
+        const fin = Math.min(1, m.t / Math.max(1e-3, m.fi)), out = clamp((m.dur - m.t) / Math.max(1e-3, m.fo), 0, 1);
+        const wn = fin * out;
+        m.a.time = Math.min(m.to, m.from + Math.min(m.t, m.run) * m.ts);
+        m.a.setEffectiveWeight(wn);
+        MW = wn;
+        // the clip it cut in on fades out underneath it (frozen on its last pose) instead of popping
+        const pv = this._mprev;
+        if (pv) {
+          const wp = pv.w * (1 - fin);
+          if (wp <= 0.001) { if (pv.a !== m.a) pv.a.stop(); this._mprev = null; }
+          else { pv.a.setEffectiveWeight(wp); MW += wp; }
+        }
+      }
+    }
+    if (!this.mocap && this._mprev) { this._mprev.a.stop(); this._mprev = null; }
+    this.mocapW = MW;
+    const MO = MW * (this.mocap?.over ?? 1), keep = 1 - MO;   // how much of the hand-made layers survive
+    // a different standing pose (a keeper set on his toes) shares the idle slot
+    const i2 = this.actions.idle2;
+    if (i2) {
+      this._i2w += ((this._i2on ? 1 : 0) - this._i2w) * Math.min(1, dt * 5);
+      i2.setEffectiveWeight(wIdle * this._i2w * (1 - MW));
+      if (this._i2w < 0.002 && !this._i2on) { i2.stop(); this.actions.idle2 = null; }
+    }
+    const iw = i2 ? 1 - this._i2w : 1;
+    for (const [k, w] of [['idle', wIdle * iw], ['walk', wWalk], ['run', runW]]) this.actions[k].setEffectiveWeight(w * (1 - MW));
     const po = this.phaseOffset || { walk: 0, run: 0 };
     this.actions.walk.time = ((this.phase + po.walk) % 1) * this.clips.walk.duration;
     this.actions.run.time = ((this.phase + po.run) % 1) * this.clips.run.duration;
@@ -1104,8 +1218,8 @@ export class Character {
     // sprinting is not just running faster: higher knees, a longer stride, arms pumping hard, body further over
     // the ball — the run clip's limb swing is exaggerated away from the bind pose by up to ~35%
     this._sprintW += (clamp((speed - 4.4) / 1.3, 0, 1) - this._sprintW) * Math.min(1, dt * 6);
-    if (this._sprintW > 0.01) {
-      const k = 1 + 0.35 * this._sprintW, qi = this._qp, qr = this._qa;
+    if (this._sprintW * keep > 0.01) {
+      const k = 1 + 0.35 * this._sprintW * keep, qi = this._qp, qr = this._qa;
       for (const { bn, q } of this._bindQ) {
         qi.copy(q).invert(); qr.copy(qi).multiply(bn.quaternion);          // the clip's rotation relative to bind
         const w = clamp(qr.w, -1, 1), ang = 2 * Math.acos(Math.abs(w)), sgn = w < 0 ? -1 : 1;
@@ -1129,12 +1243,12 @@ export class Character {
     this._prevSpeed = speed;
     const lean = clamp(speed / 7, 0, 1) * 0.16 + clamp(this.accel * 0.012, -0.16, 0.12) + 0.1 * (this._sprintW || 0);
     this._lean += (lean - this._lean) * Math.min(1, dt * 12);
-    this._rot(b.spine, r, -this._lean);
-    this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18));
+    this._rot(b.spine, r, -this._lean * keep);
+    this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18) * keep);
     // a looser run: shoulders counter-rotate against the hips, the pelvis drops side to side, the body
     // bobs on each stride and banks into turns, while the head stays steady on the play
     {
-      const rw = clamp((speed - 1) / 4, 0, 1), ph = this.phase * Math.PI * 2;
+      const rw = clamp((speed - 1) / 4, 0, 1) * keep, ph = this.phase * Math.PI * 2;
       if (rw > 0.01) {
         this._rot(b.spine2 || b.spine1, UP, Math.sin(ph) * 0.09 * rw);
         this._rot(b.hips, UP, -Math.sin(ph) * 0.06 * rw);
@@ -1143,13 +1257,13 @@ export class Character {
         this.root.position.y += (Math.abs(Math.cos(ph)) - 0.6) * 0.03 * rw;
       }
       this._bank = (this._bank || 0) + (clamp(this.turnVel * speed * 0.014, -0.2, 0.2) - (this._bank || 0)) * Math.min(1, dt * 8);
-      this._rot(b.spine1, f, -this._bank);
+      this._rot(b.spine1, f, -this._bank * keep);
     }
 
     const ch = {};
     for (const g of this.gestures) {
       g.advance(dt);
-      const w = g.weight;
+      const w = g.weight * (g.silent ? 0 : g.mocap ? keep : 1);
       for (const key in g.keys) ch[key] = (ch[key] || 0) + g.sample(key) * w;
       ch._side = g.side || ch._side;
     }
@@ -1189,7 +1303,7 @@ export class Character {
     // wind-up while charging: torso turns away and leans back a touch, arms open, and
     // (when not running) the striking leg cocks back; it fades as the strike takes over
     this._wu += ((ch.thigh === undefined ? this.windup : 0) - this._wu) * Math.min(1, dt * 12);
-    const wu = this._wu;
+    const wu = this._wu * keep;
     if (wu > 0.01) {
       const still = clamp(1 - speed / 3.2, 0, 1);
       this._rot(b.spine1, r, 0.07 * wu);
@@ -1230,8 +1344,9 @@ export class Character {
     const k = Math.min(1, dt * 5), maxStep = 4 * dt;
     this.look.yaw += clamp((yaw - this.look.yaw) * k, -maxStep, maxStep);
     this.look.pitch += clamp((pitch - this.look.pitch) * k, -maxStep, maxStep);
-    this._rot(b.neck, UP, this.look.yaw * 0.45); this._rot(b.head, UP, this.look.yaw * 0.45);
-    this._rot(b.neck, r, -this.look.pitch * 0.4); this._rot(b.head, r, -this.look.pitch * 0.4 + (ch.headUp || 0));
+    const lk = 1 - 0.7 * MO;
+    this._rot(b.neck, UP, this.look.yaw * 0.45 * lk); this._rot(b.head, UP, this.look.yaw * 0.45 * lk);
+    this._rot(b.neck, r, -this.look.pitch * 0.4 * lk); this._rot(b.head, r, -this.look.pitch * 0.4 * lk + (ch.headUp || 0));
     this._details(dt, speed, fatigue, ch, yaw, pitch);
 
     this.group.updateMatrixWorld(true);

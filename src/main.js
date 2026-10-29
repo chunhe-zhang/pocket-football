@@ -71,9 +71,11 @@ async function loadModel(url, from, to, label) {
 let template;
 try {
   const anims = await loadModel('./assets/models/Xbot.glb', 0, 0.3, '正在载入动作数据…');
-  const vrm = await loadModel('./assets/models/player.vrm', 0.3, 0.9, '正在载入球员模型…');
+  const vrm = await loadModel('./assets/models/player.vrm', 0.3, 0.88, '正在载入球员模型…');
+  ui.loading(0.9, '载入足球动作捕捉…');
+  const mocap = await fetch('./assets/anim/mocap.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
   ui.loading(0.92, '套用动作捕捉动画…');
-  template = new AvatarTemplate(vrm, anims);
+  template = new AvatarTemplate(vrm, anims, mocap);
 } catch (err) {
   ui.loading(0, '模型载入失败：请通过本地服务器或 GitHub Pages 打开（不能直接双击 index.html）。');
   throw err;
