@@ -79,6 +79,8 @@ try {
   const mocap = await fetch('./assets/anim/mocap.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const precision = await fetch('./assets/anim/precision-mocap.json').then(r => r.ok ? r.json() : null).catch(() => null);
   if (mocap && precision) mocap.supplements = precision.takes;
+  const anderson = await fetch('./assets/anim/anderson-football.json').then(r => r.ok ? r.json() : null).catch(() => null);
+  if (mocap && anderson) mocap.supplements = [...(mocap.supplements || []), ...anderson.takes];
   ui.loading(0.92, '套用动作捕捉动画…');
   template = new AvatarTemplate(vrm, anims, mocap);
   const rai = await loadModel('./assets/models/rai-lightning.vrm', 0.92, 0.95, '正在载入雷元素角色…');

@@ -1,5 +1,7 @@
 # Pocket Football
 
+Anderson Rohr's native 60 FPS football captures now supply close-control dribbling, side-foot passes, three strikes and high/mid/low keeper reaches. Captured reaches anticipate the actual ball while existing glove/body collisions decide the save. The original 21-action, three-skeleton pack stays in the owner's local archive; see [source and license](assets/anim/anderson.README.md).
+
 Football realism update: supplemental Rokoko passing/penalty captures are retargeted with measured contact frames; strikes plant the support boot and retain follow-through. Ordinary ball anticipation shares the live drag/spin/turf integrator, while glancing impacts transfer friction into spin using thin-shell inertia. Actual body and glove contacts produce a damped torso response. Players have attached lace/sole/stud geometry and subtle cloth weave. Source and licensing details: [precision mocap](assets/anim/precision.README.md).
 
 **五元素角色更新**：火、冰、风、影、土现已分别使用独立造型、球衣和骨骼配件，选人卡片与比赛共用角色变体。新增火焰、冰晶、风带、传送门残影及碎石地裂特效，按真实技能、球路和碰撞驱动。说明见 [五元素角色资产](assets/models/element-collection.README.md)。

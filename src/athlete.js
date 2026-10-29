@@ -74,6 +74,7 @@ export class Athlete {
     this.poke = null; this.trick = null; this.burstT = 0; this.header = null; this.iceT = 0; this.holding = null; this._ready = false; this.air = null; this.slipT = 0; if (this.power) { this.power = null; this.char.group.visible = !this.out; }
     this.char.gestures = this.char.gestures.filter((g) => g.loop);
     this.char.teleported();
+    this._reachShot = null;
     this._sync(0);
   }
 
@@ -833,6 +834,11 @@ export class Athlete {
     } else if (this.isKeeper && this._tough() && !this.holding && this.stunT <= 0 && g.state === 'play' && b.speed > 4.5 && b.lastTouch && this._isOpp(b.lastTouch) && this._crossing(T)) {
       const w = clamp((1.15 - T.t) / 0.7, 0, 1);
       const s = (T.x - this.pos.x) * r.x + (T.z - this.pos.z) * r.z;
+      const shotKey = b.lastTouch.team + ':' + b.lastTouch.lastTouchTime;
+      if (!this.dive && !this.kick && Math.abs(s) < 0.9 && T.t > 0.08 && T.t < 0.5 && T.y < 2.35 && this._reachShot !== shotKey && this.char.allClips.and_gk_high) {
+        this._reachShot = shotKey;
+        this.char.play('gkReach', { height: T.y, arrive: T.t, side: s >= 0 ? 'Right' : 'Left', duration: T.t + 0.45 });
+      }
       if (Math.abs(s) < 0.32 && T.y > 0.5 && T.y < 1.75 && !this.dive) {
         ik.L.target.copy(T).addScaledVector(r, -0.1); ik.R.target.copy(T).addScaledVector(r, 0.1); wl = wr = w;
       } else {
@@ -856,7 +862,7 @@ export class Athlete {
     this.holding = { t: 0, off };
     this.char.play('gkHold');
     // the gather, from motion capture: arms up for a high ball, scooped off the turf for a low one
-    if (!this.dive) {
+    if (!this.dive && !this.char.mocap?.name.startsWith('and_gk_')) {
       const run = Math.hypot(this.vel.x, this.vel.z) > 2.5;
       if (off.y > 1.7 && run && this.char.allClips.gk_run_jump_catch) this.char.playMocap('gk_run_jump_catch', { from: 1.45, to: 2.6, fadeIn: 0.04, fadeOut: 0.3 });
       else if (off.y > 1.7 && this.char.allClips.gk_jump_catch) this.char.playMocap('gk_jump_catch', { from: 0.72, to: 2.05, fadeIn: 0.04, fadeOut: 0.3 });
@@ -2262,8 +2268,8 @@ export class Athlete {
     this.kick.approach = this._approachTarget(contactT, aim);
     // a soft 爆射 (a pass, really) is side-footed; anything firmer is a full swing
     const volley = g.ball.pos.y > 0.5 && type !== 'chip';
-    if (type === 'kick' && power < 0.3 && !volley) this.char.play('pass', { duration: dur, side: 'Right', amp: 0.8 + 0.6 * power });
-    else this.char.play(volley ? 'kick' : type, { duration: dur, side: 'Right', volley, amp: (0.85 + 0.3 * power) * (volley ? 1.25 : 1) });
+    if (type === 'kick' && power < 0.3 && !volley) this.char.play('pass', { duration: dur, side: 'Right', power, amp: 0.8 + 0.6 * power });
+    else this.char.play(volley ? 'kick' : type, { duration: dur, side: 'Right', volley, power, amp: (0.85 + 0.3 * power) * (volley ? 1.25 : 1) });
   }
 
   _approachTarget(timeLeft, aim) {

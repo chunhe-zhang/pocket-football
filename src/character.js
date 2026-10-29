@@ -605,6 +605,7 @@ export class Character {
       };
       for (const k of ['FL', 'FR', 'L', 'R', 'BL', 'BR', 'B']) if (has('jog_' + k)) cache.loco.dir[k] = m('jog_' + k);
       if (has('dribble_jog')) cache.loco.drib = m('dribble_jog');
+      if (has('and_dribble_control')) cache.loco.closeDrib = m('and_dribble_control');
       // the keeper's side-shuffle: one clip each way (the mirror is the other way)
       if (has('goalkeeper_sidestep')) {
         const a = m('goalkeeper_sidestep'), b = { ...m('goalkeeper_sidestep@M'), n: 'goalkeeper_sidestep@M' };
@@ -625,6 +626,7 @@ export class Character {
     for (const e of this.loco.fwd) e.len /= e.cy;
     const ent = (e) => e && { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.4, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration / e.cy };
     this.loco.drib = ent(L.drib);
+    this.loco.closeDrib = ent(L.closeDrib); this._closeW = 0;
     this.loco.gk = L.gk && { L: ent(L.gk.L), R: ent(L.gk.R) };
     this.cycN = 0; this.dribbling = false; this.keeper = false; this._dribW = 0; this._gkW = 0;
     if (!L.fwd.some((e) => e.n === 'run')) this.actions.run.setEffectiveWeight(0);
@@ -1043,6 +1045,7 @@ export class Character {
       case 'airKick': g = new Gesture('airKick', opts.duration ?? 0.42, AIR_KICK, { fadeIn: 0.03, fadeOut: 0.12, ...opts }); break;
       case 'roar': g = new Gesture('roar', opts.duration ?? 0.6, ROAR, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
       case 'dive': g = new Gesture('dive', opts.duration ?? 1.15, DIVE, { fadeIn: 0.03, fadeOut: 0.15, ...opts }); break;
+      case 'gkReach': g = new Gesture('gkReach', opts.duration ?? 0.7, {}, { fadeIn: 0.04, fadeOut: 0.15, ...opts }); break;
     }
     if (g && !opts.noMocap && this._autoMocap(name, opts, g)) g.mocap = true;
     const LEG = ['kick', 'chip', 'pass', 'poke', 'stepover', 'drag', 'dragback', 'sidestep', 'jumpHeader', 'diveHeader', 'bicycle', 'touch', 'trap', 'slide', 'stagger', 'trapFoot', 'trapThigh', 'trapChest', 'header', 'dive', 'fallF', 'fallB', 'gkThrow', 'dash', 'galeLeap', 'roar'];
@@ -1097,17 +1100,20 @@ export class Character {
     const captured = (id, mirror = false) => {
       const clip = C[id], contact = clip?.userData?.contact;
       if (contact === undefined) return false;
-      const at = d * c, from = Math.max(0, contact - at);
+      const at = o.arrive ?? d * c, from = Math.max(0, contact - at);
       return P(id, { mirror, from, to: Math.min(clip.duration, contact + (name === 'pass' ? 0.48 : 0.7)), align: contact, at, fadeIn: 0.045, fadeOut: 0.2 });
     };
     switch (name) {
       case 'kick':
         if (o.volley) return false;
+        if (sp < 0.7 && captured(o.power > 0.84 ? 'and_penalty_2' : 'and_penalty_1', !R)) return true;
+        if (sp >= 0.7 && sp < 2.5 && captured('and_power', R)) return true;
         if (sp < 0.7 && captured('rokoko_penalty')) return true;
         if (sp < 0.7 && C.soccer_penalty_kick) return P('soccer_penalty_kick', { from: 0.4, to: 1.4, align: 0.73, at: d * c, fadeIn: 0.06, fadeOut: 0.25 });
         if (sp > 3.6 && C.jog_kick && Math.random() < 0.5) return P('jog_kick', { from: 0.12, to: 1.05, align: 0.43, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
         return P('strike_foward_jog', { from: 0.12, to: 1.15, align: 0.42, at: d * c, fadeIn: 0.06, fadeOut: 0.22 });
       case 'pass':
+        if (sp < 2.4 && captured('and_pass', !R)) return true;
         if (sp < 2.4 && captured('rokoko_pass', !R)) return true;
         if (sp > 3.6 && C.jog_kick) return P('jog_kick', { from: 0.15, to: 0.95, align: 0.43, at: d * c, fadeIn: 0.05, fadeOut: 0.2 });
         return P('kick_soccerball_2', { from: 0, to: 0.47, align: 0.2, at: d * c, fadeIn: 0.05, fadeOut: 0.16 });
@@ -1146,6 +1152,11 @@ export class Character {
         if (o.keeper && C.goalkeeper_miss) return P('goalkeeper_miss', { from: 0.3, to: 2.8, fadeIn: 0.1, fadeOut: 0.5 });
         return false;
       case 'gkReady': if (this.setIdlePose('goalkeeper_idle')) g.silent = true; return false;
+      case 'gkReach': {
+        const high = o.height > 1.55;
+        // The high capture reaches left; the middle and low takes reach right.
+        return captured(high ? 'and_gk_high' : o.height < 0.65 ? 'and_gk_low' : 'and_gk_mid', high ? R : !R);
+      }
     }
     return false;
   }
@@ -1376,6 +1387,15 @@ export class Character {
         LW[DR.n] = w * move; stride += w * DR.len;
       } else LW[DR.n] = 0;
     }
+    // Close-control capture blends into the faster dribbling jog by speed.
+    const close = LO.closeDrib;
+    if (close) {
+      const want = this.dribbling ? clamp((2.7 - speed) / 1.0, 0, 1) * clamp(speed / 0.7, 0, 1) : 0;
+      this._closeW += (want - this._closeW) * (1 - Math.exp(-dt * 7));
+      for (const e of [...F, ...(DR ? [DR] : [])]) LW[e.n] *= 1 - this._closeW;
+      LW[close.n] = this._closeW * fwdShare * move;
+      stride = stride * (1 - this._closeW * fwdShare) + close.len * this._closeW * fwdShare;
+    }
     // a keeper shuffles sideways in his crouch instead of jogging
     const GK = LO.gk;
     if (GK) {
@@ -1431,7 +1451,7 @@ export class Character {
     }
     const iw = i2 ? 1 - this._i2w : 1;
     this.actions.idle.setEffectiveWeight(wIdle * iw * (1 - MW));
-    for (const e of [...LO.fwd, ...Object.values(LO.dir), LO.drib, LO.gk?.L, LO.gk?.R]) {
+    for (const e of [...LO.fwd, ...Object.values(LO.dir), LO.drib, LO.closeDrib, LO.gk?.L, LO.gk?.R]) {
       if (!e) continue;
       e.a.setEffectiveWeight((LW[e.n] || 0) * (1 - MW));
       e.a.time = (((((this.cycN % e.cy) + this.phase) / e.cy) + e.po) % 1) * e.d;
