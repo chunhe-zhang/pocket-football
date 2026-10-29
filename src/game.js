@@ -10,6 +10,7 @@ import { Particles } from './fx.js';
 import { SpecialFx } from './specials.js';
 import { PowerFx } from './powerfx.js';
 import { GameLightningFx } from './game-lightning.js';
+import { ShotFx } from './shotfx.js';
 import { GameElementFx } from './game-elements.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -44,6 +45,7 @@ export class Game {
     this.powerFx = new PowerFx(scene);
     this.lightningFx = new GameLightningFx(scene, camera);
     this.elementFx = new GameElementFx(scene, camera);
+    this.shotFx = new ShotFx(scene); this.powerFx.skill = this.shotFx;
     this.powerFx.refinedLightning = this.specialFx.refinedLightning = true;
     this.powerFx.refinedElements = this.specialFx.refinedElements = true;
     this.athletes = TEAMS.map((t, i) => {
@@ -443,6 +445,7 @@ export class Game {
     this.ui.onScore(this);
     this.state = 'goal'; this.timer = MATCH.goalPause;
     this.sfx.cheer(); this.sfx.net();
+    this.post?.shockwave(this.ball.pos, 1.8, this.ball.lastTouch?.charDef?.color ?? 0xffffff);   // the net bulges, the air ripples
     this.pitch.cheer(team, 1); this.emit({ e: 'cheer' });
     const loser = this.athletes[team];
     this.focus = own ? loser : toucher;
@@ -475,6 +478,7 @@ export class Game {
     if (!own) { this.scored[toucher.team]++; toucher.stats.goals = (toucher.stats.goals || 0) + 1; }
     this.state = 'goal'; this.timer = MATCH.goalPause;
     this.sfx.cheer(); this.sfx.net();
+    this.post?.shockwave(this.ball.pos, 1.8, this.ball.lastTouch?.charDef?.color ?? 0xffffff);   // the net bulges, the air ripples
     this.pitch.cheer(goalIdx, 1); this.emit({ e: 'cheer' });
     this.focus = toucher || null;
     for (const a of this.athletes) {
@@ -556,6 +560,11 @@ export class Game {
   // ------------------------------------------------------------ callbacks --
   onKick(ath, k, vel) {
     if (k.type === 'pass') { this.sfx.pass(k.power); return; }
+    // a special shot leaves the boot: the air ripples round the ball and the frame's edges light up
+    if (this.ball.specialType && this.post) {
+      const id = this.ball.specialType.replace('!', '').split('+')[0];
+      this.post.shockwave(this.ball.pos, this.ball.specialType.includes('+') ? 1.4 : 1.1, CHAR[id]?.color ?? 0xffffff);
+    }
     const p = k.power;
     if (k.type !== 'header') this.sfx.kick(p);
     if (p > 0.55 && k.type === 'kick') {
@@ -956,6 +965,7 @@ export class Game {
     this.powerFx.update(rawDt, this.camera.position);
     this.lightningFx.update(rawDt, this);
     this.elementFx.update(rawDt, this);
+    this.shotFx.update(rawDt, this);
     this._updateCrowd(rawDt);
     this._updateCamera(rawDt);
     this.ui.updateHud(this);
@@ -1458,6 +1468,7 @@ export class Game {
     this.powerFx.update(dt, this.camera.position);
     this.lightningFx.update(dt, this);
     this.elementFx.update(dt, this);
+    this.shotFx.update(dt, this);
     this._updateCamera(dt);
     this.ui.updateHud(this);
   }

@@ -281,6 +281,7 @@ export class PowerFx {
     const P = this.sp[this.next]; this.next = (this.next + 1) % N;
     P.s.material.map = map; P.s.material.color.set(color);
     P.s.material.blending = normal ? THREE.NormalBlending : THREE.AdditiveBlending;
+    if (map === this.T.smoke) P.s.layers.disable(1); else P.s.layers.enable(1);   // fire and light glow, smoke doesn't
     P.s.material.rotation = Math.random() * 6.28; P.spin = (Math.random() - 0.5) * 4;
     P.s.position.set(p.x, p.y, p.z); P.vel.set(v.x, v.y, v.z);
     P.life = P.max = life; P.s0 = s0; P.s1 = s1; P.grav = grav; P.a0 = a0;
@@ -288,9 +289,22 @@ export class PowerFx {
   }
 
   start(a, kind, extra = null) {
+    this._wave(a, kind, extra);
+    if (!extra?.off && typeof kind === 'string' && !kind.includes(':') && kind !== 'hit') this.skill?.burst(a, kind);
     if (this.refinedLightning && kind === 'thunder') return;
     if (this.refinedElements && ['blaze', 'frost', 'gale', 'phantom', 'cannon'].includes(kind)) return;
     this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
+  }
+
+  /** the screen ripples out from it (heat haze): a big hit, a skill going off, a slide */
+  _wave(a, kind, extra) {
+    const P = this.post; if (!P || !a.pos) return;
+    const COL = { thunder: 0x8f6bff, blaze: 0xff5a1a, frost: 0x8fe4ff, gale: 0x6dffb0, phantom: 0xb07bff, cannon: 0xffc35a };
+    const at = this._wp || (this._wp = new THREE.Vector3());
+    at.set(a.pos.x, 0.8, a.pos.z);
+    if (kind === 'hit') P.shockwave(at, 0.9, extra?.color ?? 0xffffff);
+    else if (COL[kind] && !extra?.off) P.shockwave(at, 0.75, COL[kind]);
+    else if (kind.startsWith?.('slide:')) P.shockwave(at.setY(0.2), 0.35);
   }
 
   update(dt, cam) {

@@ -18,10 +18,12 @@ export class SpecialFx {
     this.aura.renderOrder = 4; this.aura.visible = false; scene.add(this.aura);
     this.core = new THREE.Mesh(new THREE.SphereGeometry(R * 1.35, 20, 14), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }));
     this.core.renderOrder = 4; this.core.visible = false; scene.add(this.core);
+    this.core.material.userData.glow = true;
     // lightning bolt: a jagged line from the ball back along its path
     const n = 18;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
     this.bolt = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xbff4ff, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }));
+    this.bolt.material.userData.glow = true;
     this.bolt.frustumCulled = false; this.bolt.visible = false; this.bolt.renderOrder = 5; scene.add(this.bolt);
     this.bolt2 = this.bolt.clone(); this.bolt2.geometry = g.clone(); this.bolt2.material = this.bolt.material.clone(); this.bolt2.material.color.set(0x5fe1ff); scene.add(this.bolt2);
     this.hist = [];
@@ -73,7 +75,7 @@ export class SpecialFx {
       const p = ball.pos;
       const pulse = 1 + 0.18 * Math.sin(this.t * 40);
       this.aura.position.copy(p); this.core.position.copy(p);
-      this.aura.material.color.set(def.color); this.core.material.color.set(def.color);
+      this.aura.material.color.set(def.color).multiplyScalar(1.4); this.core.material.color.set(def.color).lerp(this._w || (this._w = new THREE.Color(1, 1, 1)), 0.35).multiplyScalar(1.5);   // a white-hot core: it burns in the glow
       this.aura.scale.setScalar(pulse * (big ? 1.5 : 1) * (combo ? 1.35 : 1) * (ids.length >= 3 ? 1.3 : 1));
       this.core.material.opacity = has('phantom') ? 0.25 : 0.5;
       // the phantom flickers in and out; the invisible combos all but disappear

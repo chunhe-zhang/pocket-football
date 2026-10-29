@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { glow, GLOW_PASS } from './post.js';
 
 // Pooled particles for everything small that flies off the ball and the players: grass and dust,
 // sparks, and the elements (fire, ice, lightning, wind, ghost light, earth smoke).
@@ -36,7 +37,7 @@ const VERT = `attribute float size; attribute float alpha; attribute float shape
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_PointSize = max(0.0, size) * scale / -mv.z; gl_Position = projectionMatrix * mv; }`;
 const FRAG = `varying vec3 vC; varying float vA; varying float vS; varying float vR; varying float vH;
-  uniform float lit;
+  uniform float lit; uniform float glowPass;
   void main(){
     vec2 p = gl_PointCoord - 0.5;
     float c = cos(vR), s = sin(vR); p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
@@ -68,6 +69,7 @@ const FRAG = `varying vec3 vC; varying float vA; varying float vS; varying float
     if (a < 0.01) discard;
     vec3 col = vC;
     if (lit > 0.5) { col = mix(col, vec3(1.0), clamp(core * 0.55 + vH * 0.3, 0.0, 0.85)); a = min(1.0, a * 1.15); }
+    if (glowPass > 0.5) col *= 1.15 + 1.3 * clamp(core + vH * 0.5, 0.0, 1.0);   // hotter in the glow: the cores burn
     gl_FragColor = vec4(col, a * vA);
   }`;
 
@@ -91,11 +93,12 @@ class Cloud {
     const mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, vertexColors: true, toneMapped: false,
       blending: THREE.NormalBlending,          // additive washes out to white over the bright grass
-      uniforms: { scale: { value: 600 }, lit: { value: lit ? 1 : 0 } }, vertexShader: VERT, fragmentShader: FRAG,
+      uniforms: { scale: { value: 600 }, lit: { value: lit ? 1 : 0 }, glowPass: GLOW_PASS }, vertexShader: VERT, fragmentShader: FRAG,
     });
     this.points = new THREE.Points(g, mat);
     this.points.frustumCulled = false; this.points.renderOrder = lit ? 6 : 4;
     scene.add(this.points);
+    if (lit) glow(this.points);
   }
 }
 

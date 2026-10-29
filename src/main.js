@@ -7,8 +7,10 @@ import { Game } from './game.js';
 import { AvatarTemplate } from './avatar.js';
 import { FIELD } from './config.js';
 import { Showroom } from './showroom.js';
+import { Post, tagGlow } from './post.js';
 
 const params = new URLSearchParams(location.search);
+let post = null;
 
 // ---- renderer / scene ------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -50,6 +52,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  post?.setSize(innerWidth, innerHeight);
 });
 camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => sfx.init(), { passive: true });
@@ -123,8 +126,18 @@ game.onMapChange = () => {
 ui.showroom = new Showroom(template);
 ui.bind(game);
 window.__game = game; // handy for debugging in the console
+// the picture after the scene: glow on the effects, shockwave ripples. ?fx=off|low|high; phones get 'low'
+// (no depth pre-pass), and a phone that can't hold the frame rate drops to 'off' by itself
+const touch = matchMedia('(pointer: coarse)').matches;
+post = new Post(renderer, scene, camera, { quality: params.get('fx') || (touch ? 'low' : 'high') });
+game.post = post; game.powerFx.post = post;
+let glowSweep = 0;
+const draw = (dt) => {
+  if (++glowSweep % 15 === 1) tagGlow(scene, post);
+  post.update(dt); post.render();
+};
 // test hook: advance the simulation deterministically and render one frame
-window.__step = (n = 1, dt = 1 / 60, render = true) => { for (let i = 0; i < n; i++) { game.update(dt); input.endFrame(); } if (render) renderer.render(scene, camera); return game.time; };
+window.__step = (n = 1, dt = 1 / 60, render = true) => { for (let i = 0; i < n; i++) { game.update(dt); input.endFrame(); } if (render) draw(dt); return game.time; };
 
 // warm up shaders so the first frame doesn't hitch
 renderer.compile(scene, camera);
@@ -146,9 +159,17 @@ function frame(now = performance.now()) {
   const dt = fixed || Math.max(0, Math.min((now - last) / 1000, 1 / 20));
   last = now;
   if (!window.__hold) for (let i = 0; i < substeps; i++) game.update(dt);
-  renderer.render(scene, camera);
+  draw(dt || 1 / 60);
+  autoQuality(dt);
   // live character models in the picker (menu / lobby)
   if (ui.showroom) ui.showroom.update(dt || 1 / 60, [...document.querySelectorAll('.char-card canvas')].filter((c) => c.offsetParent));
   input.endFrame();
+}
+// keep the frame rate: if the glow costs too much on this device, step it down
+let slowT = 0, fastN = 0;
+function autoQuality(dt) {
+  if (fixed || params.get('fx') || !dt) return;
+  if (dt > 1 / 40) slowT += dt; else { slowT = Math.max(0, slowT - dt * 0.5); fastN++; }
+  if (slowT > 3) { post.quality = post.quality === 'high' ? 'low' : 'off'; slowT = 0; }
 }
 frame();

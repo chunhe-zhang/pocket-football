@@ -735,6 +735,7 @@ export class Ball {
         this.spinQ.premultiply(this._q);
       }
       this.trail.update(dt, this.pos, this.speed);
+      if (this.trail.mesh) this.trail.mesh.layers[this.trail.tint ? 'enable' : 'disable'](1);   // a special shot's ribbon glows
       this.sq.t += dt;
     }
     // squash: flatten along the impact axis, bulge around it, with a quick wobble back
