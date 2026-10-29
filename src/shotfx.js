@@ -191,7 +191,7 @@ export class ShotFx {
     const pillar = new THREE.Mesh(this.pillarGeo, pm), sigil = new THREE.Mesh(this.sigilGeo, sm);
     pillar.renderOrder = 7; sigil.renderOrder = 3; sigil.position.y = 0.03;
     this.scene.add(glow(pillar), glow(sigil));
-    this.bursts.push({ a, pillar, sigil, pm, sm, t: 0, life: kind === 'phantom' ? 0.6 : 0.85 });
+    this.bursts.push({ a, pillar, sigil, pm, sm, t: 0, life: kind === 'gale' ? 1.5 : kind === 'phantom' ? 1.05 : 1.2 });
   }
 
   _kill(b) { this.scene.remove(b.pillar, b.sigil); b.pm.dispose(); b.sm.dispose(); }

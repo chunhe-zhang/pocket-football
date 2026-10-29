@@ -31,7 +31,7 @@ export class GameElementFx {
       const actors=[...live].filter(a=>a.charId===id),shooting=shotIds.includes(id)&&!ball.hidden&&!ball.heldBy,old=this.flight.get(id);
       fx.linger=Math.max(0,(fx.linger||0)-dt);
       if(!actors.length&&!shooting&&!fx.linger){if(fx.group.visible)fx.clear();fx.group.visible=false;this.flight.delete(id);continue;}
-      fx.group.visible=true;fx.visibleAura=actors.length>0;
+      fx.group.visible=true;fx.visibleAura=actors.length>0;fx.skillStrength=actors.some(a=>a.power?.type===id||a.tm?.type===id)?1:0;
       const primary=actors.find(a=>a.charging)||actors[0];if(primary)fx.setOrigin(primary.pos);else fx.setOrigin(ball.pos);
       let charge=0,chargePos=ball.pos;
       for(const a of actors){

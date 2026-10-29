@@ -111,7 +111,7 @@ export class Post {
 
   render() {
     const r = this.renderer, s = this.scene, cam = this.camera;
-    if (this.quality === 'off') { r.render(s, cam); return; }
+    if (this.quality === 'off') { r.setRenderTarget(null); r.render(s, cam); return; }
     // 1. the glow layer, over black, half size
     const bg = s.background, fog = s.fog, oldMask = cam.layers.mask;
     r.getClearColor(this._cc || (this._cc = new THREE.Color())); const ca = r.getClearAlpha();

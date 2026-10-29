@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { FireFlame, installFireSprite } from './fire-flame.js';
+import { WindPresence, EarthPresence, ShadowPresence } from './element-presence.js';
 
 // Big, readable effects for the characters' skill moves (过人): proper flames, ice spikes,
 // wind wings and a whirlwind, lightning flashes, ghost after-images and shockwaves.
@@ -99,9 +101,10 @@ export class PowerFx {
     const T = textures();
     this.T = T;
     // pooled sprites
-    this.sp = [];
+    this.sp = []; this.fireClock = { value: 0 };
     for (let i = 0; i < N; i++) {
       const m = new THREE.SpriteMaterial({ map: T.glow, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+      installFireSprite(m, this.fireClock, i * 1.73);
       const s = new THREE.Sprite(m); s.visible = false; s.renderOrder = 6; scene.add(s);
       this.sp.push({ s, life: 0, max: 1, vel: new THREE.Vector3(), s0: 1, s1: 1, grav: 0, spin: 0, a0: 1 });
     }
@@ -280,9 +283,10 @@ export class PowerFx {
   puff(map, p, v, life, s0, s1, color = 0xffffff, grav = 0, normal = false, a0 = 1) {
     const P = this.sp[this.next]; this.next = (this.next + 1) % N;
     P.s.material.map = map; P.s.material.color.set(color);
-    P.s.material.blending = normal ? THREE.NormalBlending : THREE.AdditiveBlending;
+    P.fire = map === this.T.flame; P.s.material.userData.realFire = P.fire; P.s.material.userData.fireSeed.value = Math.random() * 40;
+    P.s.material.blending = (normal || P.fire) ? THREE.NormalBlending : THREE.AdditiveBlending;
     if (map === this.T.smoke) P.s.layers.disable(1); else P.s.layers.enable(1);   // fire and light glow, smoke doesn't
-    P.s.material.rotation = Math.random() * 6.28; P.spin = (Math.random() - 0.5) * 4;
+    P.s.material.rotation = P.fire ? (Math.random() - .5) * .25 : Math.random() * 6.28; P.spin = (Math.random() - .5) * (P.fire ? .25 : 4);
     P.s.position.set(p.x, p.y, p.z); P.vel.set(v.x, v.y, v.z);
     P.life = P.max = life; P.s0 = s0; P.s1 = s1; P.grav = grav; P.a0 = a0;
     P.s.scale.setScalar(s0); P.s.visible = true; P.s.material.opacity = a0; P.s.material.needsUpdate = true;
@@ -291,7 +295,7 @@ export class PowerFx {
   start(a, kind, extra = null) {
     if (kind === 'element-hit') { const old = this.fx.find(f => f.kind === kind && f.a === a && f.element === extra?.element); if (old) { old.t = 0; return; } }
     this._wave(a, kind, extra);
-    if (!extra?.off && typeof kind === 'string' && !kind.includes(':') && kind !== 'hit') this.skill?.burst(a, kind);
+    if (typeof kind === 'string' && !kind.includes(':') && kind !== 'hit') this.skill?.burst(a, kind);
     // Refined particles complement the move's silhouette; they do not replace it.
     this.fx.push({ a, kind, t: 0, blasted: false, x: a.pos.x, z: a.pos.z, ...(extra || {}) });
   }
@@ -308,7 +312,7 @@ export class PowerFx {
   }
 
   update(dt, cam) {
-    const T = this.T;
+    const T = this.T; this.fireClock.value += dt;
     this._updatePools(dt, cam);
     // sprites
     for (const P of this.sp) {
@@ -318,7 +322,8 @@ export class PowerFx {
       P.vel.y -= P.grav * dt;
       P.s.position.addScaledVector(P.vel, dt);
       const u = 1 - P.life / P.max;
-      P.s.scale.setScalar(P.s0 + (P.s1 - P.s0) * u);
+      const size = P.s0 + (P.s1 - P.s0) * u;
+      if (P.fire) P.s.scale.set(size * .85, size * 1.75, 1); else P.s.scale.setScalar(size);
       P.s.material.opacity = P.a0 * Math.min(1, (1 - u) * 1.6) * Math.min(1, u * 12 + 0.2);
       P.s.material.rotation += P.spin * dt;
     }
@@ -338,6 +343,11 @@ export class PowerFx {
       let ringOn = false, spikesOn = false, twistOn = false, wingsOn = false, cloakOn = false;
       f.t += dt;
       const a = f.a, p = a.pos, t = f.t;
+      if (!f.presence) {
+        if (f.kind === 'gale') f.presence = new WindPresence(this.scene);
+        else if (f.kind === 'cannon' || (f.kind === 'element-hit' && f.element === 'cannon')) f.presence = new EarthPresence(this.scene, p);
+        else if (f.kind === 'phantom') f.presence = new ShadowPresence(this.scene, p);
+      }
       if (f.kind === 'element-hit') {
         if (!f.go) { f.go = true; this.shock(p.x, p.z, f.color, 2.2, .65, true); }
         f.clock = (f.clock || 0) - dt;
@@ -351,25 +361,33 @@ export class PowerFx {
         }
         f.done = t > (f.element === 'frost' ? 1.5 : 1.0);
       } else if (f.kind === 'blaze') {
-        // gathering flames round the body, then the roar: a ring of fire bursting outwards
-        cloakOn = t < 0.55;
-        if (t < 0.55) { this.cloak.position.set(p.x, 0, p.z); this.cloak.rotation.y += dt * 9; this.cloak.material.color.set(0xff3a08); this.cloak.material.opacity = 0.6 * Math.min(1, t * 5) * (t > 0.4 ? (0.55 - t) / 0.15 : 1); this.cloak.material.map.offset.y -= dt * 2; this.cloak.scale.set(1 + t, 1 + t * 0.5, 1 + t); }
-        for (let k = 0; k < 2; k++) {
-          const ang = Math.random() * 6.28, r = 0.35 + Math.random() * 0.25;
-          this.puff(T.flame, { x: p.x + Math.cos(ang) * r, y: 0.2 + Math.random() * 1.2, z: p.z + Math.sin(ang) * r }, { x: 0, y: 2.2 + Math.random(), z: 0 }, 0.4, 0.5, 0.15, 0xffffff, -1, true, 0.9);
+        // A turbulent sheet of flame expands at the blast; the centre lifts into a plume.
+        if (!f.flame) f.flame = new FireFlame(this.scene, p);
+        f.flame.update(t);
+        f.emitClock = (f.emitClock || 0) - dt;
+        if (t < .7 && f.emitClock <= 0) {
+          const ang = Math.random() * Math.PI * 2, r = .3 + Math.random() * .35;
+          this.puff(T.flame, { x: p.x + Math.cos(ang) * r, y: .12, z: p.z + Math.sin(ang) * r }, { x: .2 * Math.cos(ang), y: 1.6, z: .2 * Math.sin(ang) }, .6, .6, .18, 0xffffff, -.6, true, .9);
+          f.emitClock = .035;
         }
-        if (!f.blasted && t >= 0.25) {
+        if (!f.blasted && t >= .25) {
           f.blasted = true; f.bx = p.x; f.bz = p.z;
-          // a ring of fireballs racing outwards, a column of flame going up
-          for (let k = 0; k < 22; k++) {
-            const ang = (k / 22) * 6.28, sp = 6.5 + Math.random() * 1.5;
-            this.puff(T.flame, { x: p.x + Math.cos(ang) * 0.5, y: 0.35 + Math.random() * 0.3, z: p.z + Math.sin(ang) * 0.5 }, { x: Math.cos(ang) * sp, y: 0.6 + Math.random(), z: Math.sin(ang) * sp }, 0.5, 0.55, 1.0, 0xffffff, -1.5, true, 0.95);
+          for (let k = 0; k < 28; k++) {
+            const angle = Math.random() * Math.PI * 2, speed = 2 + Math.random() * 5;
+            this.puff(T.glow, { x: p.x, y: .3, z: p.z }, { x: Math.cos(angle) * speed, y: 1.3 + Math.random() * 3.5, z: Math.sin(angle) * speed }, .65 + Math.random() * .5, .025 + Math.random() * .045, .005, 0xffa030, 3, false, .95);
           }
-          for (let k = 0; k < 6; k++) this.puff(T.flame, { x: p.x, y: 0.8 + Math.random(), z: p.z }, { x: (Math.random() - 0.5) * 1.5, y: 3.5 + Math.random() * 2, z: (Math.random() - 0.5) * 1.5 }, 0.6, 0.6, 1.2, 0xffffff, 2, true, 0.9);
-          this.puff(T.glow, { x: p.x, y: 1, z: p.z }, { x: 0, y: 0, z: 0 }, 0.3, 1.5, 4.5, 0xff4a10, 0, false, 0.45);
+          for (let k = 0; k < 7; k++) {
+            const angle = k / 7 * Math.PI * 2;
+            this.puff(T.smoke, { x: p.x + Math.cos(angle) * .6, y: .65, z: p.z + Math.sin(angle) * .6 }, { x: Math.cos(angle) * 1.3, y: 1.5, z: Math.sin(angle) * 1.3 }, 1.1, .6, 1.8, 0xb5a297, -.25, true, .35);
+          }
+          this.post?.shockwave(new THREE.Vector3(p.x, .6, p.z), .55, 0xff6a20);
         }
-        if (f.blasted && t < 0.85) { ringOn = true; this._ring(this.ringA, f.bx, f.bz, (t - 0.25) / 0.6, 7.5, 0xff3a0a); this._ring(this.ringB, f.bx, f.bz, (t - 0.3) / 0.55, 6, 0xff8a1a); }
-        f.done = t > 1;
+        if (f.blasted && t < .85) {
+          ringOn = true;
+          this._ring(this.ringA, f.bx, f.bz, (t - .25) / .6, 7.0, 0xe84712);
+          this.ringA.material.opacity *= .32;
+        }
+        f.done = t > 1.2;
       } else if (f.kind === 'frost') {
         cloakOn = t < 0.5;
         if (t < 0.5) { this.cloak.position.set(p.x, 0, p.z); this.cloak.rotation.y -= dt * 7; this.cloak.material.color.set(0x8fdcff); this.cloak.material.opacity = Math.min(1, t * 5); this.cloak.material.map.offset.y += dt * 1.5; this.cloak.scale.set(1, 1, 1); }
@@ -385,6 +403,13 @@ export class PowerFx {
         if (f.blasted) {
           const u = t - 0.25;
           if (u < 0.6) { ringOn = true; this._ring(this.ringA, f.bx, f.bz, u / 0.45, 7, 0x6fcfff); this._ring(this.ringB, f.bx, f.bz, (u - 0.08) / 0.45, 5, 0xe8f8ff); }
+          // Cold mist stays below the crown, preserving the readable solid ice silhouette.
+        f.mistClock = (f.mistClock || 0) - dt;
+        if (t < 1.5 && f.mistClock <= 0) {
+          const angle = t * 8;
+          this.puff(T.smoke, { x: p.x + Math.cos(angle) * 1.2, y: .12, z: p.z + Math.sin(angle) * 1.2 }, { x: Math.cos(angle) * .5, y: .25, z: Math.sin(angle) * .5 }, .65, .65, 1.2, 0xd7f0ff, 0, true, .24);
+          f.mistClock = .1;
+        }
           // a crown of ice spikes erupts round me, holds, then melts into the grass
           spikesOn = u < 2.0;
           const grow = Math.min(1, u / 0.12), sink = u > 1.6 ? Math.max(0, 1 - (u - 1.6) / 0.4) : 1;
@@ -402,6 +427,13 @@ export class PowerFx {
         const on = !!a.power && a.power.type === 'gale';
         wingsOn = on || t < 0.9; twistOn = on || t < 0.9;
         const flap = Math.sin(t * 22) * 0.55;
+        f.dustClock = (f.dustClock || 0) - dt;
+        if ((on || t < .9) && f.dustClock <= 0) {
+          const angle = t * 9;
+          this.puff(T.smoke, { x: p.x + Math.cos(angle) * .8, y: .1, z: p.z + Math.sin(angle) * .8 }, { x: -Math.sin(angle) * 2, y: 1.4, z: Math.cos(angle) * 2 }, .7, .45, 1.3, 0xd5e9db, -.1, true, .25);
+          f.dustClock = .075;
+        }
+        this.wings.scale.setScalar(1.4);
         this.wings.position.set(p.x, a.char.root.position.y + 1.25, p.z);
         this.wings.rotation.set(0, a.facing, 0);
         this.wingR.rotation.set(0, -0.35 - flap * 0.5, 0.15 + flap);
@@ -431,6 +463,10 @@ export class PowerFx {
           f.struck = true;
           this.bolt({ x: p.x + 0.4, y: 9, z: p.z - 0.6 }, { x: p.x, y: 0.1, z: p.z }, 0.3, 0.35, 0xdff9ff);
           this.bolt({ x: p.x - 0.5, y: 8, z: p.z + 0.3 }, { x: p.x, y: 0.1, z: p.z }, 0.22, 0.18);
+          for (let k = 0; k < 6; k++) {
+            const angle = k * Math.PI / 3 + .2;
+            this.bolt({ x: p.x, y: .15, z: p.z }, { x: p.x + Math.cos(angle) * 2.1, y: .08, z: p.z + Math.sin(angle) * 2.1 }, .26, .035, 0xbca4ff);
+          }
           this.shock(p.x, p.z, 0x6fe0ff, 4, 0.45);
           this.puff(T.glow, { x: p.x, y: 0.5, z: p.z }, { x: 0, y: 0, z: 0 }, 0.3, 1.2, 3.2, 0x3fb8ff, 0, false, 0.6);
         }
@@ -440,7 +476,7 @@ export class PowerFx {
         if (!f.opened) { f.opened = true; this.portal(p.x, p.z, 0.55); f.ox = p.x; f.oz = p.z; }
         if (!f.out && t >= 0.16) { f.out = true; this.portal(p.x, p.z, 0.6); this.shock(p.x, p.z, 0xb07cff, 3, 0.4); }
         if (t < 0.5 && Math.random() < 0.8) this.puff(T.glow, { x: (f.out ? p.x : f.ox) + (Math.random() - 0.5) * 0.6, y: 0.3 + Math.random() * 1.6, z: (f.out ? p.z : f.oz) + (Math.random() - 0.5) * 0.6 }, { x: 0, y: 1.2, z: 0 }, 0.45, 0.5, 0.1, 0xa070ff);
-        f.done = t > 0.7;
+        f.done = t > 1.35;
       } else if (f.kind === 'cannon') {
         // a burst of smoke at the start, rocket flames from the heels, speed lines, a shockwave on every hit
         if (!f.go) { f.go = true; this.shock(p.x, p.z, 0xffffff, 3, 0.4, true); for (let k = 0; k < 10; k++) { const a1 = Math.random() * 6.28; this.puff(T.smoke, { x: p.x, y: 0.2, z: p.z }, { x: Math.cos(a1) * 3, y: 0.6, z: Math.sin(a1) * 3 }, 0.7, 0.6, 1.6, 0xffffff, -0.2, true, 0.75); } }
@@ -450,7 +486,7 @@ export class PowerFx {
           this.puff(T.smoke, { x: p.x + bx * 0.6, y: 0.4, z: p.z + bz * 0.6 }, { x: bx, y: 0.5, z: bz }, 0.6, 0.5, 1.4, 0xffffff, -0.2, true, 0.6);
           for (let k = 0; k < 2; k++) this.puff(T.streak, { x: p.x + (Math.random() - 0.5) * 1.2, y: 0.4 + Math.random() * 1.4, z: p.z + (Math.random() - 0.5) * 1.2 }, { x: -bx * 6, y: 0, z: -bz * 6 }, 0.18, 1.0, 1.4, 0xffe8a0);
         }
-        f.done = t > 0.8;
+        f.done = t > 1.5;
       } else if (f.kind === 'hit') {
         // a cannon / tackle impact
         if (!f.go) { f.go = true; this.shock(p.x, p.z, f.color || 0xffd23f, 3.5, 0.4); this.puff(T.glow, { x: p.x, y: 1, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.2, 3, f.color || 0xffd23f); for (let k = 0; k < 8; k++) { const a1 = Math.random() * 6.28; this.puff(T.streak, { x: p.x, y: 1, z: p.z }, { x: Math.cos(a1) * 6, y: (Math.random() - 0.3) * 4, z: Math.sin(a1) * 6 }, 0.25, 0.8, 1.2, 0xffffff); } }
@@ -493,6 +529,12 @@ export class PowerFx {
       }
       if (!ringOn) { this.ringA.visible = false; this.ringB.visible = false; }
       this.spikes.visible = spikesOn; this.twister.visible = twistOn; this.wings.visible = wingsOn; this.cloak.visible = cloakOn;
+      if (f.presence) {
+        const strength = f.kind === 'gale' ? Math.max(0, 1 - Math.max(0, t - (f.lastOn ?? .75)) / .35) : 1;
+        f.presence.update(t, a, strength);
+        if (f.done) f.presence.dispose();
+      }
+      if (f.done && f.flame) f.flame.dispose();
       if (f.done && f.visual) for (const o of Object.values(f.visual)) {
         this.scene.remove(o); o.traverse(n => { if (n.material) for (const m of [].concat(n.material)) m.dispose(); });
       }
