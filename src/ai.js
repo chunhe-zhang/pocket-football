@@ -159,9 +159,25 @@ export class AIController {
     const st = ball.specialType || '', ghost = st.includes('phantom') && !(g.m5 && beats(me.charId, 'phantom')), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
     if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.9 + 0.1 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
     if (!this._willDive) return false;
-    if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
+    // a clear chance (close in, off a slick move: a high 射门评分) gives him less time to read it
+    const lag = [0, 0, 0.03, 0.07, 0.11, 0.14][Math.max(0, Math.min(5, ball.shotS ?? 2))];
+    if (lag && ball.lastTouch && me._isOpp(ball.lastTouch) && g.time - ball.lastTouch.lastTouchTime < lag) return false;
     // time until the ball reaches my position along the goal's inward axis
     const toward = -(v.x * home.inward.x + v.z * home.inward.z);
+    // a slow one rolling towards goal: no need to dive, just get across and gather it
+    if (gk && sp >= 1.5 && sp < 7 && toward > 1 && ball.pos.y < 1.2 && !ball.heldBy) {
+      const along0 = home.axis === 'x' ? 'z' : 'x';
+      const bd0 = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
+      const atLine0 = ball.pos[along0] + v[along0] * (bd0 / toward);
+      if (Math.abs(atLine0) < FIELD.goalHalfW + 0.5 && bd0 < 14) {
+        const md = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
+        const tt = Math.max(0, (bd0 - md) / toward);
+        const ix = ball.pos.x + v.x * tt, iz = ball.pos.z + v.z * tt;
+        it.move.set(ix - me.pos.x, iz - me.pos.z); if (it.move.lengthSq() > 0.01) it.move.normalize(); it.sprint = true;
+        return true;
+      }
+    }
+    if (sp < 7 || ball.pos.y > (gk ? 2.1 : 1.6)) return false;
     if (toward < 4) return false;
     const myDepth = (me.pos.x - home.centre.x) * home.inward.x + (me.pos.z - home.centre.z) * home.inward.z;
     const ballDepth = (ball.pos.x - home.centre.x) * home.inward.x + (ball.pos.z - home.centre.z) * home.inward.z;
@@ -174,8 +190,14 @@ export class AIController {
     const atLine = ball.pos[along] + v[along] * ((ballDepth) / toward);
     if (Math.abs(atLine) > FIELD.goalHalfW + 0.4) return false;
     const off = Math.hypot(cx - me.pos.x, cz - me.pos.z);
-    if (off < (gk ? 0.6 : 0.45) || off > (gk ? 4.4 : 2.4)) return false;   // straight at him: he stands and the gloves go to it
-    if (gk && (t > 0.45 || (off < 1.3 && t > 0.2))) { it.move.set(cx - me.pos.x, cz - me.pos.z).normalize(); return true; }   // early: shuffle across first, dive late
+    // straight at him and at a height he can take it: he stands and the gloves go to it. Anything wide of
+    // the body, or low at the feet, he has to go down for
+    const cy = ball.pos.y + v.y * t - 4.9 * t * t;
+    if (off > (gk ? 4.4 : 2.4)) return false;
+    if (off < (gk ? (cy > 0.45 && cy < 1.75 ? 0.32 : 0.12) : 0.45)) return false;
+    // a slower ball is still slowing down: it gets there later than it looks, so wait a touch longer before going
+    const late = sp < 18 ? 0.32 : 0.45;
+    if (gk && (t > late || (off < 1.3 && t > 0.2))) { it.move.set(cx - me.pos.x, cz - me.pos.z).normalize(); return true; }   // early: shuffle across first, dive late
     it.move.set(cx - me.pos.x, cz - me.pos.z).normalize();
     it.tackle = true; it.kick = it.lob = false;
     return true;

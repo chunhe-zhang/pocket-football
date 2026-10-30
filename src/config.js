@@ -433,6 +433,21 @@ export function inBigBox(team, x, z) {
   const A = g.axis, depth = g.sign * (A === 'x' ? x : z), along = A === 'x' ? z : x, B = bigBox();
   return depth > g.line - B.depth && Math.abs(along) < B.halfW;
 }
+/**
+ * How good a chance a shot is (射门评分), the one number that sets how hard it is to keep out:
+ *   where it's struck from — 小禁区 3, 大禁区 2, outside the box in the opponents' half 1, own half 0 —
+ *   plus how it was made — on your own 0, first time off a team-mate (a 连携) 1, a 三人合击 or more 2.
+ * About: 0 almost never goes in, 3 usually does, 4+ always does (its pace, its placement and what it
+ * does to the keeper follow from it; a keeper who can't move is a different story).
+ */
+export function shotScore(x, z, tx, tz, people = 1) {
+  let gi = -1, best = Infinity;
+  GOALS.forEach((g, i) => { const d = Math.hypot(g.centre.x - tx, g.centre.z - tz); if (d < best) { best = d; gi = i; } });
+  const zone = shotZone(x, z, tx, tz);
+  let pos = zone === 'small' ? 3 : zone === 'box' ? 2 : 1;
+  if (pos === 1 && gi >= 0) { const g = GOALS[gi]; if ((g.axis === 'x' ? x : z) * Math.sign(g.centre[g.axis]) <= 0) pos = 0; }   // still in my own half
+  return pos + (people >= 3 ? 2 : people === 2 ? 1 : 0);
+}
 /** where a shot is struck from, relative to the goal it's aimed at: 'small' (小禁区) | 'box' (大禁区) | 'out' */
 export function shotZone(x, z, tx, tz) {
   let gi = -1, best = Infinity;

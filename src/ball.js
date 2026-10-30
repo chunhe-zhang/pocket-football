@@ -168,7 +168,7 @@ export class Ball {
   strike(vel, spin = null, by = null) {
     this.vel.copy(vel);
     if (spin) this.spin.copy(spin);
-    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.carryGuard = 0; this.passToT = 0; this.shotDist = null; this.shotZone = null;
+    this.lastTouch = by; this.guardT = 0; this.loftKind = null; this.dribbleGuard = 0; this.carryGuard = 0; this.passToT = 0; this.shotDist = null; this.shotZone = null; this.shotS = null;
     this.endSpecial();     // any new strike ends a special shot in flight
   }
 
@@ -189,15 +189,14 @@ export class Ball {
     const l = Math.hypot(dir.x, dir.z) || 1, c = { ...comboOf(els) };
     // from range the keeper has time: a two-man combo's unstoppable trick (through him, teleport,
     // blast) often fades into a plain thunderbolt he can get to; even a 合击 from very far sometimes
-    const dist = this.shotDist ?? 12;
-    // two-man combos are never a sure thing: deadly close in (their trick usually comes off), a plain
-    // hard shot from range. Only a three-man 合击 can't be stopped — and even that fades from very far
-    const zone = this.shotZone || 'box';
-    c.range = zone === 'small' ? 0.05 : zone === 'box' ? Math.max(0.25, Math.min(0.6, (dist - 6) / 10)) : Math.max(0.75, Math.min(1, (dist - 8) / 12));   // ~0 in the 小禁区 … 1 from far out
-    if (c.level === 2 && c.gk !== 'parry' && Math.random() < 0.3 + 0.62 * c.range) { c.gk = 'parry'; c.faded = true; }
-    if (c.level === 2 && c.pierceGk) c.pierceGk *= 1 - 0.85 * c.range;
-    if (c.level === 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far
-    if (c.level >= 3 && dist > 15 && Math.random() < Math.min(0.6, (dist - 15) / 10)) { c.gk = 'parry'; c.faded = true; }
+    // the combo's trick (through the keeper, the teleport, the freeze…) comes off as often as the chance
+    // was good (射门评分, config.shotScore): never off a hopeful one, about half the time from a 3, always from 4+
+    const S = Math.max(0, Math.min(5, this.shotS ?? 2));
+    c.range = [1, 0.85, 0.6, 0.3, 0, 0][S];
+    const trick = [0, 0, 0.15, 0.75, 1, 1][S];
+    if (c.level >= 2 && c.gk !== 'parry' && Math.random() >= trick) { c.gk = 'parry'; c.faded = true; }
+    if (c.level >= 2) c.pierceGk = S >= 4 ? 1 : (c.pierceGk || 0) * [0, 0.2, 0.5, 1, 1, 1][S];
+    if (c.level >= 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far
     this.special = { els, ids: c.ids, combo: c, type: c.ids.length === 1 ? c.ids[0] : c.key, has: (id) => c.ids.includes(id), owner, power, t: 0, hit: new Set(), aura: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1, goal };
     this.specialType = c.key + (c.n > c.ids.length ? '!' : '');      // '!' = more players than elements (stronger look)
     this.spin.set(0, 0, 0); this.hidden = false;
@@ -267,7 +266,7 @@ export class Ball {
       const f = (c.level > 1 ? 40 : 34) * Math.cos(sp.t * 6.8 + 0.3) * sp.sgn;
       v.x += -sp.dz * f * h; v.z += sp.dx * f * h;
     }
-    if (c.zig) {
+    if (c.zig && !((this.shotS ?? 0) >= 4 && sp.t > 0.12)) {
       // lightning zigzag: hard sideways jinks, back and forth
       const f = 70 * Math.sign(Math.sin(sp.t * 26 + 0.5)) * sp.sgn;
       v.x += -sp.dz * f * h; v.z += sp.dx * f * h;
@@ -315,12 +314,13 @@ export class Ball {
     if (toLine < 0.3 || v[A] * sg < 2) return;
     if (sp.tgtB === undefined) {
       // the spot it was meant for: where it was heading, kept a hand's width inside the post
-      const t0 = toLine / Math.abs(v[A]), m = FIELD.goalHalfW - 0.6;
+      const t0 = toLine / Math.abs(v[A]), m = FIELD.goalHalfW - ((this.shotS ?? 0) >= 4 ? 0.8 : 0.6);
       sp.tgtB = Math.max(-m, Math.min(m, p[B] + v[B] * t0));
     }
     const t = toLine / Math.abs(v[A]);
     const wantB = (sp.tgtB - p[B]) / t;                      // the sideways speed that lands it on the spot
-    const k = Math.min(1, h * (toLine < 9 ? 9 : 4));
+    const sure = (this.shotS ?? 0) >= 4;                     // a 4+ chance: it goes where it was meant, inside the post
+    const k = sure ? Math.min(1, h * 14) : Math.min(1, h * (toLine < 9 ? 9 : 4));
     v[B] += (wantB - v[B]) * k;
     const yAt = p.y + v.y * t - 0.5 * BALL.gravity * (sp.lob ? 1 : 0.5) * t * t;
     if (yAt > FIELD.goalH - 0.45) v.y -= (yAt - (FIELD.goalH - 0.7)) / Math.max(t, 0.1) * Math.min(1, h * 8);

@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone, shotScore } from './config.js';
+
+// what a shot's 评分 (config.shotScore, 0..5) does to it: pace, the top speed, and how much harder it is to save
+const S_PACE = [0.74, 0.87, 1.08, 1.2, 1.25, 1.3], S_CAP_SOLO = [24, 28, 33, 38, 38, 38], S_CAP_COMBO = [26, 29, 33, 43, 46, 48];
+const S_REACH = [0.3, 0.14, -0.12, -0.45, -0.9, -1.2], S_HOLD = [0.3, 0.14, -0.15, -0.55, -0.9, -1.2];
+const sOf = (b) => Math.max(0, Math.min(5, b.shotS ?? 2));
 
 const UP = new THREE.Vector3(0, 1, 0);
 const smoothstep = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
@@ -739,20 +744,19 @@ export class Athlete {
     if (lat > reach || y > (diving ? 1.7 : 2.35)) return;
     const spc = b.special, cb = spc && spc.combo;
     if (cb && cb.level > 1 && (cb.gk === 'through' || cb.gk === 'blast' || cb.gk === 'teleport')) return;
+    const S = sOf(b);
+    if (S >= 4 && cb && cb.level > 1) return;                  // 4+: nothing keeps it out
     let chance = 1.08 - Math.max(0, sp - 18) * 0.011 - (lat / reach) ** 2 * 0.3;
-    // from range the keeper sees it all the way; close in there's no time
-    const dist = b.shotDist ?? 14;
-    const zone = b.shotZone || (dist < 4 ? 'small' : dist < 9 ? 'box' : 'out');
-    chance += zone === 'small' ? -0.3 + clamp((dist - 4) * 0.02, 0, 0.06) : zone === 'box' ? -0.08 + clamp((dist - 8) * 0.012, 0, 0.06) : 0.12 + clamp((dist - 13) * 0.02, 0, 0.14);
+    // the chance it was (where from, how it was made): close in or off a slick move there's no time
+    chance += S_REACH[S];
     if (spc) chance -= spc.has('phantom') ? 0.1 : 0.04;
-    if (cb && cb.level > 1) chance -= (cb.level >= 3 ? 0.35 : 0.22) * Math.max(0.1, 1 - (cb.range ?? 0.3));   // a combo is hot close in, readable from range
     chance -= (1 - this._gkLevel()) * 0.6;
     const roll = Math.random();
     if (roll > chance) return;                                 // beaten all the same
     b.pos.set(x, Math.max(BALL.r, y), z);
     const combo = cb && cb.level > 1;
     b.endSpecial(); b.passEls = null; b.chain = null;
-    if (!combo && sp < 25 && !justIced) { this.smother(b); g.sfx.body(9); this.flair('稳稳抱住!', true); return; }
+    if (!combo && sp < (S <= 1 ? 29 : 25) && !justIced) { this.smother(b); g.sfx.body(9); this.flair('稳稳抱住!', true); return; }
     // beaten away: back out of the goal, off to the side
     const vin = b.vel.x * inw.x + b.vel.z * inw.z, side = Math.sign((z - this.pos.z) * inw.x - (x - this.pos.x) * inw.z) || 1;
     b.vel.x += -1.55 * vin * inw.x; b.vel.z += -1.55 * vin * inw.z;
@@ -793,16 +797,18 @@ export class Athlete {
     if (this._saveKey === key) return null;              // already decided for this shot: plain physics
     this._saveKey = key;
     const cb = spc && spc.combo, combo = cb && cb.level > 1;
-    const dist = b.shotDist ?? 14, zone = b.shotZone || (dist < 4 ? 'small' : dist < 9 ? 'box' : 'out');
     const glove = c.part === 'hand', body = c.part === 'chest' || c.part === 'head' || c.part === 'hips';
-    // he's got there: most of the time that's a save. Point blank, a rocket, a combo or a boot to it are less sure
+    const S = sOf(b);
+    if (S >= 4 && combo && !justIced) { this._beatT = g.time + 0.35; this.flair('挡不住!', true); return 'beat'; }   // 4+: it takes him in with it
+    // he's got there: most of the time that's a save. A clear chance (close in, off a move) is less sure
     let chance = 1.14 - Math.max(0, sp - 22) * 0.012;
-    chance += zone === 'small' ? -0.08 : zone === 'box' ? 0 : 0.16;
+    chance += S_HOLD[S];
     if (!glove && !body) chance -= 0.05;
     if (spc) chance -= spc.has?.('phantom') && !this._counters('phantom') ? 0.13 : 0.02;   // a control keeper (冰 风) reads the shadow
-    if (combo) chance -= (cb.level >= 3 ? 0.32 : 0.16) * Math.max(0.15, 1 - (cb.range ?? 0.3));
     chance -= (1 - this._gkLevel()) * 0.55;
-    if (Math.random() > chance) {
+    const roll = Math.random();
+    if (roll > chance && body) return null;                    // off his body it can't go through him: it bounces off, wherever that takes it
+    if (roll > chance) {
       // fingertips: it's touched, slowed a little and nudged, but goes on
       this._beatT = g.time + 0.35;
       b.vel.multiplyScalar(0.85); b.vel.x += (Math.random() - 0.5) * 1.6; b.vel.z += (Math.random() - 0.5) * 1.6; b.vel.y += 0.5;
@@ -1844,7 +1850,7 @@ export class Athlete {
       ball.spin.multiplyScalar(0.2);
       ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.3; this.ignoreBall = 0.25; this.stats.touches++;
       ball.guardT = 0; ball.loftKind = null; ball.dribbleGuard = 0; ball.endSpecial();
-      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos); { const t2 = this.goalTarget(); ball.shotZone = shotZone(this.pos.x, this.pos.z, t2.x, t2.z); }
+      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos); { const t2 = this.goalTarget(); ball.shotZone = shotZone(this.pos.x, this.pos.z, t2.x, t2.z); ball.shotS = shotScore(this.pos.x, this.pos.z, t2.x, t2.z, chain.length); }
       if (special) { ball.startSpecial(chain, this, h.aim, 0.8, this.goalTarget()); g.onSpecial?.(this, special); }
       else if (mate) { this._elemPass(chain); ball.passTo = mate; ball.passToT = 1.3; }
       if (!mate) this.passT = -1;
@@ -2388,12 +2394,13 @@ export class Athlete {
     // close in, a shot is struck with everything; from range it carries less (a combo loses less of it)
     // where it's struck from: 小禁区 (goal area) full power, the box about normal, outside it a long shot loses a lot
     const gt = this.goalTarget(), zone = shotZone(this.pos.x, this.pos.z, gt.x, gt.z);
+    // the shot's 评分 (where from + how it was made) sets its pace: a run through to the 小禁区 is struck
+    // with everything, a 三人合击 even more; a hopeful one from your own half is something a keeper tracks
+    const S = shotScore(this.pos.x, this.pos.z, gt.x, gt.z, chain.length);
     if (k.type === 'kick' && special) {
-      const zf = zone === 'small' ? 1.1 : zone === 'box' ? clamp(1.0 - (gd - 7) * 0.012, 0.92, 1.0) : clamp(0.86 - (gd - 13) * 0.012, 0.72, 0.86);
-      speed *= special.level > 1 ? 1 - (1 - zf) * 0.6 : zf;               // combos lose less of it
+      speed *= S_PACE[S];
+      speed = Math.min(speed, special.level > 1 ? S_CAP_COMBO[S] : S_CAP_SOLO[S]);
     }
-    if (k.type === 'kick' && special && special.level === 1) speed = Math.min(speed, 33);
-    if (k.type === 'kick' && special && special.level > 1) speed = Math.min(speed, 46 - clamp((gd - 10) * 1.0, 0, 12));   // from range even a combo is something a keeper can track   // a solo shot never gets past what a keeper can react to
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
     let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
     if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so
@@ -2424,7 +2431,7 @@ export class Athlete {
     if ((k.type === 'pass' || k.loft) && this.passTarget) { ball.guardT = 0.32; ball.guardBy = this; }
     ball.loftKind = k.loft ? k.loft.kind : null;
     ball.chain = { els: chain, last: this };
-    ball.shotDist = gd; ball.shotZone = zone;
+    ball.shotDist = gd; ball.shotZone = zone; ball.shotS = S;
     if (this.passTarget && !special) { ball.passTo = this.passTarget; ball.passToT = 1.3; }
     if (special) { ball.startSpecial(chain, this, dir, p, this.goalTarget()); if (lobShot) ball.special.lob = true; g.onSpecial?.(this, special); }
     else this._elemPass(chain);                                    // every pass carries them too, however soft
