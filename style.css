@@ -312,3 +312,14 @@ button { font-family: var(--font); cursor: pointer; }
   .cover .setup #btn-start { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; width: 100%; padding: 15px 15px max(15px, env(safe-area-inset-bottom)); z-index: 30; }
   .cover .setup .controls { margin-bottom: 84px; }
 }
+/* Compact soundtrack controls belong with the pre-match setup. */
+.music-controls { display:flex; align-items:center; gap:10px; padding:12px; margin:0 0 18px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); border-radius:12px; }
+.cover .setup .music-controls > button { width:auto; margin:0; flex:0 0 auto; border:1px solid rgba(255,213,63,.4); border-radius:8px; padding:8px 10px; color:#ffdc64; background:rgba(255,213,63,.1); font:inherit; cursor:pointer; }
+.cover .setup .music-controls > button.off { color:#a3a9bb; border-color:rgba(255,255,255,.15); background:transparent; }
+.music-track { display:flex; flex:1; flex-direction:column; min-width:0; gap:3px; }
+.music-track strong { font:600 13px system-ui,sans-serif; color:#eef0fa; }
+.music-track small { font:11px system-ui,sans-serif; color:#989eb3; }
+.music-controls label { font:11px system-ui,sans-serif; color:#989eb3; }
+.cover .setup .music-controls input { width:64px; min-width:40px; padding:0; border:0; accent-color:#ffd63f; cursor:pointer; }
+.music-controls :focus-visible { outline:2px solid #ffe781; outline-offset:3px; }
+@media(max-width:440px) { .music-controls { gap:7px; padding:10px; } .music-controls label { display:none; } }

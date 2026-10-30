@@ -82,6 +82,12 @@
     </section>
     <div class="menu-card setup">
       <p class="tag">选一个元素，带着它的必杀射门上场。</p>
+      <div class="music-controls" aria-label="主页音乐设置">
+        <button id="btn-music" type="button" aria-pressed="true" title="开启或关闭主页音乐">♫ BGM</button>
+        <div class="music-track"><strong>Kickoff Lights</strong><small id="music-status">点击页面，开启赛前节拍</small></div>
+        <label for="music-volume">音量</label>
+        <input id="music-volume" type="range" min="0" max="100" value="55" aria-label="背景音乐音量" />
+      </div>
       <div class="seg tabs" data-key="net">
         <button data-v="local" class="on">本地游戏</button>
         <button data-v="online">联机对战</button>

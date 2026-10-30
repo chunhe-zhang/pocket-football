@@ -298,12 +298,22 @@ class SpringBones {
       j.length = j.bone.getWorldPosition(_v).distanceTo(j.tail);
     }
     this.needsReset = false;
+    this.accumulator = 0;
   }
 
   update(dt) {
     if (this.needsReset) this.reset();
     if (dt <= 0) return;
-    dt = Math.min(dt, 1 / 30);
+    // The Verlet coefficients were authored for 60 Hz. A fixed simulation
+    // step prevents display refresh rate and thumbnail cadence changing them.
+    this.accumulator = Math.min(0.1, (this.accumulator || 0) + dt);
+    while (this.accumulator + 1e-9 >= 1 / 60) {
+      this._step(1 / 60);
+      this.accumulator -= 1 / 60;
+    }
+  }
+
+  _step(dt) {
     const pos = new THREE.Vector3(), parentQ = new THREE.Quaternion(), restDir = new THREE.Vector3();
     const next = new THREE.Vector3(), tmp = new THREE.Vector3(), c0 = new THREE.Vector3(), c1 = new THREE.Vector3();
     for (const ch of this.chains) {

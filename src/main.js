@@ -56,6 +56,7 @@ addEventListener('resize', () => {
 });
 camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => sfx.init(), { passive: true });
+addEventListener('visibilitychange', () => sfx.visibilityChanged());
 
 // ---- load assets --------------------------------------------------------------
 const loader = new GLTFLoader();
@@ -173,6 +174,7 @@ function frame(now = performance.now()) {
   requestAnimationFrame(frame);
   const dt = fixed || Math.max(0, Math.min((now - last) / 1000, 1 / 20));
   last = now;
+  sfx.setScene(game.state);
   if (!window.__hold) for (let i = 0; i < substeps; i++) game.update(dt);
   draw(dt || 1 / 60);
   autoQuality(dt);

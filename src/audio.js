@@ -10,10 +10,13 @@
 //   影 phantom  a ghostly detuned swell that bends downward
 //   土 cannon   a deep boom and grinding rock
 
+import { MenuMusic } from './music.js';
+
 export class Sfx {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.scene = 'menu'; this.musicVolume = 0.55; this.musicEnabled = true;
   }
 
   init() {
@@ -34,6 +37,10 @@ export class Sfx {
     this.verbSend = ctx.createGain(); this.verbSend.gain.value = 0.22;
     this.bus.connect(this.verbSend); this.verbSend.connect(this.verb); this.verb.connect(this.master);
     this._startCrowd();
+    this.music = new MenuMusic(ctx, this.master);
+    this.music.setVolume(this.musicVolume);
+    this._syncMusic();
+    this.music.prepare();
   }
 
   setMuted(m) {
@@ -43,6 +50,21 @@ export class Sfx {
 
   get ok() { return !!this.ctx && this.ctx.state === 'running'; }
   get now() { return this.ctx.currentTime; }
+
+  setScene(scene) {
+    if (this.scene === scene) return;
+    this.scene = scene; this._syncMusic();
+    if (this.ok) this.crowd(scene === 'menu' || scene === 'paused' ? 0.006 : 0.045);
+  }
+  setMusicEnabled(enabled) { this.musicEnabled = enabled; this._syncMusic(); }
+  setMusicVolume(volume) { this.musicVolume = Math.max(0, Math.min(1, volume)); this.music?.setVolume(this.musicVolume); }
+  _syncMusic() { this.music?.setActive(this.scene === 'menu' && this.musicEnabled && !document.hidden); }
+  visibilityChanged() {
+    this._syncMusic();
+    if (!this.ctx) return;
+    if (document.hidden && this.ctx.state === 'running') { this._resumeVisible = true; this.ctx.suspend().catch(() => {}); }
+    else if (!document.hidden && this._resumeVisible) { this._resumeVisible = false; this.ctx.resume().catch(() => {}); }
+  }
 
   // ---------------------------------------------------------------- building blocks --
   _makeNoise(sec) {
@@ -364,12 +386,12 @@ export class Sfx {
     const src = this.ctx.createBufferSource(); src.buffer = this.pink; src.loop = true;
     const f1 = this.ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 560; f1.Q.value = 0.55;
     const f2 = this.ctx.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.value = 1500;
-    this.crowdGain = this.ctx.createGain(); this.crowdGain.gain.value = 0.045;
+    this.crowdGain = this.ctx.createGain(); this.crowdGain.gain.value = this.scene === 'menu' ? 0.006 : 0.045;
     src.connect(f1); f1.connect(f2); f2.connect(this.crowdGain); this.crowdGain.connect(this.master);
     src.start();
     // slow random swell so the ambience breathes
     const lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.13;
-    const lg = this.ctx.createGain(); lg.gain.value = 0.012; lfo.connect(lg); lg.connect(this.crowdGain.gain); lfo.start();
+    const lg = this.ctx.createGain(); lg.gain.value = 0.003; lfo.connect(lg); lg.connect(this.crowdGain.gain); lfo.start();
   }
 
   crowd(level = 0.045, time = 0.6) {

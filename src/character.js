@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtils.js';
 import { ANIM } from './config.js';
 import { dyeHair } from './avatar.js';
+import { AnimationPose } from './animation-pose.js';
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawAt = (c, t) => {
@@ -1175,6 +1176,7 @@ export class Character {
     if (!this.actions.idle2 || this.actions.idle2.getClip() !== clip) {
       this.actions.idle2?.stop();
       const a = this.mixer.clipAction(clip); a.reset(); a.setLoop(THREE.LoopRepeat); a.setEffectiveWeight(0); a.play();
+      a.timeScale = /idle/.test(name) ? 0.72 : 1;
       this.actions.idle2 = a; this._i2w = 0;
     }
     this._i2on = true; return true;
@@ -1239,6 +1241,50 @@ export class Character {
   }
 
   teleported() { this.springs && (this.springs.needsReset = true); }
+
+  /** A calm, planted presentation pose, independent of the gameplay ready loop. */
+  setPresentation(personality = 0) {
+    this.presentation = { t: personality * 2.73, personality, ack: 10 };
+    this.actions.idle.timeScale = 0;
+    this.actions.idle.time = Math.min(0.6, this.clips.idle.duration * 0.3);
+  }
+
+  acknowledge() { if (this.presentation) this.presentation.ack = 0; }
+
+  _presentationTick(dt) {
+    const p = this.presentation; if (!p) return;
+    p.t += dt; p.ack += dt;
+    const b = this.bones, r = this.right, f = this.forward;
+    // Long rests between small actions; minimum-jerk pulses have zero velocity
+    // at both ends. Six offset personalities never move in mechanical unison.
+    const period = 12 + p.personality * 0.9, u = (p.t % period) / period;
+    const pulse = (a, z) => u < a || u > z ? 0 : Math.pow(Math.sin(Math.PI * (u - a) / (z - a)), 4);
+    const shift = Math.sin(p.t * 0.33) * 0.014;
+    const glance = pulse(0.34, 0.62) * (p.personality % 2 ? -1 : 1);
+    const loosen = pulse(0.72, 0.94);
+    const nod = p.ack < 1.3 ? Math.pow(Math.sin(Math.PI * p.ack / 1.3), 4) : 0;
+    this._rot(b.spine, f, shift);
+    this._rot(b.spine1, f, -shift * 0.6);
+    this._rot(b.neck, UP, glance * 0.08);
+    this._rot(b.head, UP, glance * 0.13);
+    this._rot(b.head, r, nod * 0.12);
+    // Small, distinct upper-body beats, separated by many seconds of rest.
+    // Feet and lower body keep the same support pose throughout each action.
+    switch (p.personality) {
+      case 0: // thunder: a compact readying of the right arm
+        this._rot(b.armR, r, loosen * 0.12); this._rot(b.foreR, r, loosen * 0.38); break;
+      case 1: // blaze: a confident hand towards the hip
+        this._rot(b.armR, f, -loosen * 0.22); this._rot(b.foreR, f, -loosen * 0.5); break;
+      case 2: // frost: a composed downward glance, hands easing back
+        this._rot(b.head, r, loosen * 0.08); this._rot(b.armL, r, -loosen * 0.09); this._rot(b.armR, r, -loosen * 0.09); break;
+      case 3: // gale: loosen one shoulder
+        this._rot(b.armL, f, loosen * 0.18); this._rot(b.armL, r, loosen * 0.2); this._rot(b.foreL, r, loosen * 0.25); break;
+      case 4: // phantom: a quiet, thoughtful hand to the chest
+        this._rot(b.armR, r, loosen * 0.3); this._rot(b.foreR, r, loosen * 0.7); this._rot(b.head, f, loosen * 0.04); break;
+      case 5: // cannon: settle both elbows into a compact athletic pose
+        for (const s of ['L', 'R']) { this._rot(b['arm' + s], r, loosen * 0.1); this._rot(b['fore' + s], r, loosen * 0.35); } break;
+    }
+  }
 
   // rotate a bone by `angle` around a world-space axis, keeping its hierarchy
   _rot(bone, axis, angle) {
@@ -1348,7 +1394,9 @@ export class Character {
     // --- locomotion blend with phase sync -----------------------------------
     const nat = this.natural || { walk: 1.5, run: 3.4 };
     void nat;
-    const wIdle = clamp(1 - speed / 0.55, 0, 1);
+    const idleTarget = clamp(1 - speed / 0.55, 0, 1);
+    this._idleW = (this._idleW ?? idleTarget) + (idleTarget - (this._idleW ?? idleTarget)) * (1 - Math.exp(-dt * 14));
+    const wIdle = this._idleW;
     // direction of travel relative to the body: 0 ahead, +π/2 to the right, π straight back
     if (vf === null) vf = speed;
     let th = speed > 0.05 ? Math.atan2(vr, vf) : 0;
@@ -1423,7 +1471,7 @@ export class Character {
       }
       if (m) {
         const fin = Math.min(1, m.t / Math.max(1e-3, m.fi)), out = clamp((m.dur - m.t) / Math.max(1e-3, m.fo), 0, 1);
-        const wn = fin * out;
+        const wn = smooth(fin) * smooth(out);
         m.a.time = Math.min(m.to, m.from + Math.min(m.t, m.run) * m.ts);
         m.a.setEffectiveWeight(wn);
         MW = wn;
@@ -1432,7 +1480,7 @@ export class Character {
         // the clip it cut in on fades out underneath it (frozen on its last pose) instead of popping
         const pv = this._mprev;
         if (pv) {
-          const wp = pv.w * (1 - fin);
+          const wp = pv.w * (1 - smooth(fin));
           if (wp <= 0.001) { if (pv.a !== m.a) pv.a.stop(); this._mprev = null; }
           else { pv.a.setEffectiveWeight(wp); MW += wp; }
         }
@@ -1460,7 +1508,10 @@ export class Character {
       this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * Math.min(1, dt * 4);
       this.actions[k]?.setEffectiveWeight(this.emoteWeights[k]);
     }
-    this.mixer.update(dt);
+    // PropertyMixer skips writes for unchanged keyframes. Restore last frame's
+    // *unlayered* pose first, otherwise breathing/IK/head rotations accumulate
+    // on static channels until a changing keyframe suddenly snaps them back.
+    (this._animationPose ||= new AnimationPose()).sample(this.root, this.mixer, dt);
     this.root.position.y = 0;
     // sprinting is not just running faster: higher knees, a longer stride, arms pumping hard, body further over
     // the ball — the run clip's limb swing is exaggerated away from the bind pose by up to ~35%
@@ -1495,7 +1546,7 @@ export class Character {
     // a looser run: shoulders counter-rotate against the hips, the pelvis drops side to side, the body
     // bobs on each stride and banks into turns, while the head stays steady on the play
     {
-      const rw = clamp((speed - 1) / 4, 0, 1) * keep, ph = this.phase * Math.PI * 2;
+      const rw = clamp((speed - 1) / 4, 0, 1) * keep * (this.loco.fwd.length > 2 ? 0.35 : 1), ph = this.phase * Math.PI * 2;
       if (rw > 0.01) {
         this._rot(b.spine2 || b.spine1, UP, Math.sin(ph) * 0.09 * rw);
         this._rot(b.hips, UP, -Math.sin(ph) * 0.06 * rw);
@@ -1606,6 +1657,7 @@ export class Character {
     this._rot(b.neck, UP, this.look.yaw * 0.45 * lk); this._rot(b.head, UP, this.look.yaw * 0.45 * lk);
     this._rot(b.neck, r, -this.look.pitch * 0.4 * lk); this._rot(b.head, r, -this.look.pitch * 0.4 * lk + (ch.headUp || 0));
     this._details(dt, speed, fatigue, ch, yaw, pitch);
+    this._presentationTick(dt);
 
     this.group.updateMatrixWorld(true);
     this.constraints?.update();

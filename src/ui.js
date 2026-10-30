@@ -41,6 +41,9 @@ export class UI {
     this.settings = { net: 'local', humans: 1, level: 'hard', mode: 'match5', practice: 'gk', pairing: 'humans', map: 'classic', duration: 180, who: '0',
       chars: [0, 1, 2, 3].map((i) => (CHAR[saved[i]] ? saved[i] : CHARS[i].id)) };
     this.muted = false;
+    this.sfx.musicEnabled = store.get('pf-music') !== 'off';
+    const volume = store.get('pf-music-volume');
+    if (volume !== null && Number.isFinite(+volume)) this.sfx.setMusicVolume(+volume);
     this.tags = [];
     this.net = null;
     this.lobby = null; // host: { slots: [...] }
@@ -49,6 +52,25 @@ export class UI {
 
   bind(game) {
     this.game = game;
+    const musicButton = $('#btn-music'), musicVolume = $('#music-volume');
+    const updateMusic = () => {
+      musicButton.setAttribute('aria-pressed', String(this.sfx.musicEnabled));
+      musicButton.classList.toggle('off', !this.sfx.musicEnabled);
+      $('#music-status').textContent = this.muted ? '全部声音已静音 · M 恢复' : !this.sfx.musicEnabled ? '主页音乐已关闭' : this.sfx.musicVolume === 0 ? '音乐音量为零' : this.sfx.ctx ? '原创原声 · 112 BPM' : '点击页面，开启赛前节拍';
+    };
+    musicVolume.value = Math.round(this.sfx.musicVolume * 100);
+    musicButton.addEventListener('click', () => {
+      this.sfx.init(); this.sfx.setMusicEnabled(!this.sfx.musicEnabled);
+      store.set('pf-music', this.sfx.musicEnabled ? 'on' : 'off'); updateMusic();
+    });
+    musicVolume.addEventListener('input', () => {
+      this.sfx.init(); this.sfx.setMusicVolume(+musicVolume.value / 100);
+      store.set('pf-music-volume', String(this.sfx.musicVolume)); updateMusic();
+    });
+    addEventListener('pointerdown', updateMusic, { passive: true });
+    addEventListener('keydown', updateMusic, { passive: true });
+    this._updateMusic = updateMusic;
+    updateMusic();
     for (const seg of document.querySelectorAll('.seg')) {
       seg.addEventListener('click', (e) => {
         const b = e.target.closest('button'); if (!b) return;
@@ -248,7 +270,7 @@ export class UI {
     else if (['play', 'kickoff', 'goal', 'halftime'].includes(g.state)) { this._prevState = g.state; g.state = 'paused'; $('#pause').classList.add('show'); }
   }
 
-  toggleMute() { this.muted = !this.muted; this.sfx.setMuted(this.muted); $('#btn-mute').classList.toggle('off', this.muted); }
+  toggleMute() { this.muted = !this.muted; this.sfx.setMuted(this.muted); $('#btn-mute').classList.toggle('off', this.muted); this._updateMusic?.(); }
 
   _m5mode() { return this.settings.mode === 'match5' || this.settings.mode === 'practice'; }
 
