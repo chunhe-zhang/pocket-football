@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Pocket Football room server — no dependencies, Node 18+.
+// Genshin football room server — no dependencies, Node 18+.
 //  * serves the game's static files
 //  * relays WebSocket messages between a room's host and its guests (/ws)
 // The match itself runs in the host's browser; this server never simulates.
@@ -181,4 +181,4 @@ setInterval(() => {
 
 function log(s) { console.log(new Date().toISOString().slice(11, 19), s); }
 
-server.listen(PORT, () => log(`Pocket Football server: http://localhost:${PORT}  (rooms on /ws)`));
+server.listen(PORT, () => log(`Genshin football server: http://localhost:${PORT}  (rooms on /ws)`));

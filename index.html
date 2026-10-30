@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>Pocket Football</title>
+  <title>Genshin football</title>
   <script type="module">
     // package.json is the single source of the version shown on the cover.
     fetch('./package.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(pkg => {
@@ -12,20 +12,24 @@
       }
     }).catch(() => {});
   </script>
-  <meta name="description" content="足球网页游戏：四门混战、2v2、6v6 比赛，每个角色有自己的必杀射门。" />
+  <meta name="description" content="Genshin football：四门混战、2v2、6v6 比赛，每个角色有自己的必杀射门。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Ma+Shan+Zheng&display=swap" />
-  <link rel="stylesheet" href="./style.css?v=1.1.0" />
+  <link rel="stylesheet" href="./style.css?v=1.1.1" />
   <script type="importmap">
     { "imports": {
       "three": "./vendor/three/three.module.js",
-      "./src/audio.js": "./src/audio.js?v=1.1.0",
-      "./src/avatar.js": "./src/avatar.js?v=1.1.0",
-      "./src/character.js": "./src/character.js?v=1.1.0",
-      "./src/showroom.js": "./src/showroom.js?v=1.1.0",
-      "./src/ui.js": "./src/ui.js?v=1.1.0",
-      "./src/music.js": "./src/music.js?v=1.1.0",
-      "./src/animation-pose.js": "./src/animation-pose.js?v=1.1.0"
+      "./src/game.js": "./src/game.js?v=1.1.1",
+      "./src/ball.js": "./src/ball.js?v=1.1.1",
+      "./src/athlete.js": "./src/athlete.js?v=1.1.1",
+      "./src/ball-motion.js": "./src/ball-motion.js?v=1.1.1",
+      "./src/audio.js": "./src/audio.js?v=1.1.1",
+      "./src/avatar.js": "./src/avatar.js?v=1.1.1",
+      "./src/character.js": "./src/character.js?v=1.1.1",
+      "./src/showroom.js": "./src/showroom.js?v=1.1.1",
+      "./src/ui.js": "./src/ui.js?v=1.1.1",
+      "./src/music.js": "./src/music.js?v=1.1.1",
+      "./src/animation-pose.js": "./src/animation-pose.js?v=1.1.1"
     } }
   </script>
 </head>
@@ -34,7 +38,7 @@
 
   <div id="loading" class="overlay show">
     <div class="load-card">
-      <div class="brand">POCKET<span>FOOTBALL</span></div>
+      <div class="brand">GENSHIN<span>FOOTBALL</span></div>
       <div class="bar"><i id="load-bar"></i></div>
       <div class="hint" id="load-text">正在载入球员模型…</div>
     </div>
@@ -73,7 +77,7 @@
     <div class="cover-grid">
     <section class="stage" aria-label="选择角色">
       <header class="cover-head">
-        <div class="brand">POCKET<span>FOOTBALL</span></div>
+        <div class="brand">GENSHIN<span>FOOTBALL</span></div>
         <div class="cover-version" id="cover-version">Version 1.0.0</div>
       </header>
       <div class="glyph" id="hero-glyph" aria-hidden="true">雷</div>
@@ -250,6 +254,6 @@
   </div>
 
   <noscript>需要启用 JavaScript 才能运行这个游戏。</noscript>
-  <script type="module" src="./src/main.js?v=1.1.0"></script>
+  <script type="module" src="./src/main.js?v=1.1.1"></script>
 </body>
 </html>

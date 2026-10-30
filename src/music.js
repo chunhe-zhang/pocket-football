@@ -1,4 +1,4 @@
-// "Kickoff Lights" — original instrumental for Pocket Football.
+// "Kickoff Lights" — original instrumental for Genshin football.
 // 112 BPM, D major, 32 bars. Warm electric keys, syncopated bass, plucked
 // melody and a light breakbeat; a quieter middle eight gives the loop space.
 // Render once off the main audio thread. Gameplay never schedules music voices.

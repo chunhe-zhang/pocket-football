@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>Ball motion integration</title>
+<style>body{font:16px system-ui;background:#101625;color:white}iframe{width:100%;height:650px}pre{white-space:pre-wrap}</style>
+<h1>Ball motion integration</h1><pre id="results">Loading…</pre><iframe src="../?autostart=1&fx=off"></iframe>
+<script>
+const timer=setInterval(()=>{
+ const w=document.querySelector('iframe').contentWindow,g=w.__game;
+ if(!g || !g.ui.game || !g.athletes.length)return;
+ clearInterval(timer);w.__hold=true;
+ const assert=(ok,msg)=>{if(!ok)throw Error(msg);};
+ try{
+  g.state='play';g.controllers=[];g.slowmo=0;g.hitstop=0.08;
+  for(let i=0;i<g.athletes.length;i++){const a=g.athletes[i];a.place(-19+i*0.5,12,0);a.frozen=true;a.intent.move.set(0,0);a.intent.kick=a.intent.pass=a.intent.tackle=a.intent.sprint=false;}
+  g.ball.reset(0,0);g.ball.vel.set(6,0,0);
+  let min=Infinity,max=0;
+  for(let i=0;i<8;i++){const x=g.ball.pos.x;g.update(1/60);const d=g.ball.pos.x-x;min=Math.min(min,d);max=Math.max(max,d);}
+  assert(min>0.08,'ball stalled during impact: '+min);
+  const a=g.athletes[0];a.frozen=false;a.place(0,0,Math.PI/2);a.vel.set(0,0,0);
+  g.ball.reset(1.6,0);g.ball.lastTouch=a;g.ball.carryBy=a;g.ball.carryGuard=1.2;a.lastTouchTime=g.time;a.touch=null;
+  const before=g.ball.pos.x;a._dribble(1/60,1.6,0.16);const correction=before-g.ball.pos.x;
+  assert(correction<=2.5/60+1e-8,'carry snapped: '+correction);
+  g.ball.pos.x=3;const kept=a._dribble(1/60,3,0.16);assert(!kept&&g.ball.pos.x===3,'distant ball pulled back');
+  let snapshot;g.role='host';g.net={broadcast:s=>{snapshot=s;}};g._sendSnapshot();
+  const s0={...snapshot,t:100,br:1,b:[0,0.16,0,80,0,0,0,0,0,1],recv:performance.now()/1000};
+  const s1={...snapshot,t:100.05,br:1,b:[4,0.16,0,80,0,0,0,0,0,1],recv:performance.now()/1000};
+  g.role='guest';g.mySlot=-1;g.snaps=[s0,s1];g.pendingEvents=[];g.snapshotTimeline={advance:()=>100.025};
+  g._guestUpdate(1/60);
+  assert(Math.abs(g.ball.pos.x-2)<1e-7,'fast shot skipped interpolation: '+g.ball.pos.x);
+  document.querySelector('#results').textContent='PASS '+JSON.stringify({title:w.document.title,impactBallMinStep:min,impactBallMaxStep:max,carryCorrection:correction,distantBallNotPulled:true,guestFastShotMidpoint:g.ball.pos.x},null,2);
+ }catch(e){document.querySelector('#results').textContent='FAIL '+e.stack;}
+},250);
+</script>

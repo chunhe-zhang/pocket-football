@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SnapshotTimeline, sampleBallSnapshot } from './ball-motion.js';
 import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
@@ -189,7 +190,7 @@ export class Game {
     }
   }
 
-  emit(e) { if (this.role === 'host') { e.t = this.time; this.events.push(e); } }
+  emit(e) { if (this.role === 'host') { e.t = performance.now() / 1000; this.events.push(e); } }
 
   /** grass / dust particles, mirrored to guests */
   fx(kind, p, dir, n, speed) {
@@ -878,7 +879,9 @@ export class Game {
     if (this.state === 'paused') { this._updateCamera(rawDt); return; }
 
     let dt = rawDt;
-    if (this.hitstop > 0) { this.hitstop -= rawDt; dt = rawDt * 0.08; }
+    // Impact is conveyed by recoil, sound and camera shake. Freezing the entire
+    // simulation here made the ball visibly stall on ordinary strikes.
+    if (this.hitstop > 0) this.hitstop = Math.max(0, this.hitstop - rawDt);
     if (this.slowmo > 0) { this.slowmo -= rawDt; dt *= 0.3 + 0.7 * clamp(1 - this.slowmo / 1.1, 0, 1) ** 2; }
     this.time += dt;
 
@@ -1327,7 +1330,7 @@ export class Game {
     const r = (v, k = 100) => Math.round(v * k) / k;
     const b = this.ball, q = b.spinQ;
     const snap = {
-      k: 's', t: r(this.time, 1000), st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
+      k: 's', t: performance.now() / 1000, br: b.motionId, st: this.state, al: this.alive.map((v, i) => (this.athletes[i].out ? 0 : v ? 1 : 2)), clk: r(this.clock, 10),
       c: this.conceded, sc: this.scored, lb: this.athletes.map((a) => a.label), sh: [...this.ball.shields],
       en: this.ends | 0, hf: this.half || 1, bs: this.ball.specialType || 0, pe: this.ball.passEls || 0, bh: this.ball.hidden ? 1 : 0, gold: this.golden ? 1 : 0, cur: this.m5 ? this._curSnap() : 0,
       b: [r(b.pos.x, 1000), r(b.pos.y, 1000), r(b.pos.z, 1000), r(b.vel.x), r(b.vel.y), r(b.vel.z), r(q.x, 1000), r(q.y, 1000), r(q.z, 1000), r(q.w, 1000)],
@@ -1376,6 +1379,7 @@ export class Game {
     if (this.m5) { this.conceded = [0, 0]; this.golden = false; this._curNames = msg.cur || []; for (const a of this.athletes) a.char.group.scale.setScalar(1.14); }
     this.athletes.forEach((a, i) => { a.label = msg.slots[i].name || TEAMS[i].cpuName; a.puppet = true; a.stats = { shots: 0, onTarget: 0, touches: 0, tackles: 0, skills: 0 }; a.char.stopEmotes(); });
     this.snaps = []; this.pendingEvents = []; this.state = 'kickoff';
+    this.snapshotTimeline = new SnapshotTimeline(INTERP_DELAY);
     this._resetElimination();
     if (!this.m5) { this.conceded = TEAMS.map(() => 0); } else { this.alive = this.athletes.map(() => true); }
     this.scored = this.athletes.map(() => 0);
@@ -1404,7 +1408,7 @@ export class Game {
     if (!S.length) { this._updateCamera(dt); return; }
     const newest = S[S.length - 1];
     const now = performance.now() / 1000;
-    const renderT = newest.t + (now - newest.recv) - INTERP_DELAY;
+    const renderT = (this.snapshotTimeline ||= new SnapshotTimeline(INTERP_DELAY)).advance(newest, S[0], now, dt);
     let s0 = S[0], s1 = S[0];
     for (let i = 0; i < S.length - 1; i++) if (S[i].t <= renderT && S[i + 1].t >= renderT) { s0 = S[i]; s1 = S[i + 1]; break; }
     if (renderT > newest.t) { s0 = s1 = newest; }
@@ -1441,9 +1445,7 @@ export class Game {
     for (const e of due) this._applyEvent(e);
     // ball
     const b = this.ball, B0 = s0.b, B1 = s1.b;
-    // a teleport: jump, don't slide across the pitch
-    const jump = Math.hypot(B1[0] - B0[0], B1[2] - B0[2]) > 3;
-    if (jump) b.pos.set(B1[0], B1[1], B1[2]); else b.pos.set(L(B0[0], B1[0]), L(B0[1], B1[1]), L(B0[2], B1[2]));
+    const jump = sampleBallSnapshot(s0, s1, renderT, b.pos);
     if (jump && !this._jumped) b.trail.reset(b.pos);
     this._jumped = jump;
     b.vel.set(B1[3], B1[4], B1[5]);

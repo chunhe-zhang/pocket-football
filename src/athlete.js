@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { constrainCarry } from './ball-motion.js';
 import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone, shotScore } from './config.js';
 
 // what a shot's 评分 (config.shotScore, 0..5) does to it: pace, the top speed, and how much harder it is to save
@@ -1602,6 +1603,7 @@ export class Athlete {
   /** the ball during a character move: stuck to my feet (or carried up with me) */
   _powerBall() {
     const P = this.power, b = this.game.ball;
+    if (P.type === 'phantom' && P.jumped && !P.ballJumped) { b.motionId++; P.ballJumped = true; }
     const dir = P.type === 'gale' || P.type === 'cannon' ? P.dir : this.forward;
     const reach = P.type === 'cannon' ? 0.75 : 0.45;
     const air = P.type === 'gale' && !P.planted;
@@ -2337,14 +2339,8 @@ export class Athlete {
     if (!footTouched && (d > reach || ball.pos.y > maxH)) { g.onWhiff(this); return; }
     k.hit = true;
     k.contactPos = ball.pos.clone(); k.contactTime = k.t;
-    if (!footTouched) {
-      // the boot didn't quite get there: the ball is met where the boot is (the leg was reaching for it), so
-      // what you see is the boot and the ball together at the strike, not a ball leaving from thin air
-      const a = this.char.anklePos('R', this._fa), tp = this.char.footPos('R', this._fb);
-      const mid = a.lerp(tp, 0.6);
-      const nx = mid.x + k.aim.x * (R + 0.02), nz = mid.z + k.aim.z * (R + 0.02);
-      if (Math.hypot(nx - ball.pos.x, nz - ball.pos.z) < 0.7) { ball.pos.x += (nx - ball.pos.x) * 0.85; ball.pos.z += (nz - ball.pos.z) * 0.85; if (!(ball.pos.y > R + 0.15)) ball.pos.y = Math.max(R, Math.min(ball.pos.y, mid.y + 0.02)); }
-    }
+    // Contact IK reaches the ball; never move it to a missed boot. That used
+    // to shift ordinary shots up to sixty centimetres in a single frame.
     if (this.passTarget && !this.passTarget.out && (k.type === 'pass' || k.loft)) {
       if (k.loft) { k.loft = this._loftTo(this.passTarget, k.power, k.loft.kind); k.aim.copy(k.loft.aim); }
       else { const lead = this.passLead(this.passTarget, k.power); k.aim.set(lead.x - ball.pos.x, 0, lead.z - ball.pos.z).normalize(); k.passSpeed = lead.speed; }
@@ -2735,7 +2731,7 @@ export class Athlete {
    */
   _dribble(dt, dist, by) {
     const g = this.game, ball = g.ball;
-    const retained = ball.lastTouch === this && ball.carryBy === this && ball.carryGuard > 0;
+    const retained = ball.lastTouch === this && ball.carryBy === this && ball.carryGuard > 0 && dist < 2.2 && by < 0.65 && Math.hypot(ball.vel.x - this.vel.x, ball.vel.z - this.vel.z) < 10;
     const mine = ball.lastTouch === this && (retained || g.time - this.lastTouchTime < 0.45);
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
     const relSp = Math.hypot(rvx, rvz);
@@ -2886,12 +2882,9 @@ export class Athlete {
     // A bounded control envelope repairs an unopposed gait/turn overshoot.
     // A shot clears carryGuard; tackles and other players' touches clear ownership.
     if (retained && !this.kick && !this.header && !sk) {
-      const dx = ball.pos.x - this.pos.x, dz = ball.pos.z - this.pos.z, gap = Math.hypot(dx, dz);
-      if (gap > 0.82) {
-        ball.pos.x = this.pos.x + dx / gap * 0.82; ball.pos.z = this.pos.z + dz / gap * 0.82;
-        ball.vel.x = this.vel.x; ball.vel.z = this.vel.z;
-      }
-      ball.pos.y = Math.min(ball.pos.y, R + 0.04); ball.vel.y = Math.min(0, ball.vel.y);
+      constrainCarry(ball.pos, this.pos, dt);
+      if (ball.pos.y > R + 0.04) ball.pos.y -= Math.min(ball.pos.y - R - 0.04, 1.2 * dt);
+      ball.vel.y = Math.min(0, ball.vel.y);
       clampToArena(ball.pos, R + 0.04);
     }
     return true;

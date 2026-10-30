@@ -1,4 +1,4 @@
-# Pocket Football
+# Genshin football
 
 封面版本号读取 `package.json` 的 `version`。每次发布游戏更新时递增该版本号，并随更新一起发布；封面会自动显示新版本。
 
@@ -246,7 +246,7 @@ node server/server.js        # 需要 Node 18 以上，不用安装任何依赖
    ```bash
    sudo tee /etc/systemd/system/pocket-football.service > /dev/null <<UNIT
    [Unit]
-   Description=Pocket Football
+   Description=Genshin football
    After=network.target
    [Service]
    WorkingDirectory=$PWD
@@ -319,3 +319,12 @@ tools/              开发用的本地服务器和无头浏览器截图脚本
 - 原创器乐曲《Kickoff Lights》：112 BPM、D 大调、32 小节（约 69 秒），带鼓、贝斯、电钢琴、旋律与中段变化。源码位于 `src/music.js`，随本项目许可证提供，无第三方音乐素材。
 - 首次点击/按键后播放；开球淡出、回主页淡入，切到后台暂停音频。主页提供独立音乐开关与音量，自动保存偏好；M 控制全部声音。
 - `npm run test:presentation` 检查静态关键帧不累积偏移、重复画布不重复推进动画，以及 30/60/144 Hz 下的弹簧模拟时间。
+
+## 1.1.1：Genshin football 与球运动修复
+
+- 游戏标题、载入画面、主页标志和本地服务器名称改为 Genshin football；原有网址和存档偏好保留。
+- 普通击球不再暂停整场物理；出脚时不再把球瞬间搬到未接触到球的脚旁。带球纠偏按时间和速度限制逐步收敛，远离球员的球不会被旧持球状态拉回。
+- 联机使用独立的单调时间戳和连续播放时钟，避免慢动作/网络抖动改变快照时间轴。快速射门不再因跨越 3 米而被误判成传送；开球重置、传送门和影技能通过明确的运动版本标记处理。
+- 短暂缺包只做最多 80 毫秒、1.2 米的有限外推，避免长时间掉线时球持续漂移。
+- `npm run test:ball-motion` 覆盖 30/60/144 fps 带球纠偏、80 m/s 射门、传送时机、旧快照兼容、抖动和丢包。
+- 启动本地服务器后打开 `tests/ball-integration.html`，可在完整游戏中重跑击球连续性、远球不吸回、带球纠偏和联机高速球插值检查。

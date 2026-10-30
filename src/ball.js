@@ -152,6 +152,7 @@ export class Ball {
   }
 
   reset(x = 0, z = 0) {
+    this.motionId = (this.motionId || 0) + 1;
     this.pos.set(x, R, z); this.vel.set(0, 0, 0); this.spin.set(0, 0, 0);
     this.lastTouch = null; this.goalTeam = -1;
     this.special = null; this.specialType = null;
@@ -282,6 +283,7 @@ export class Ball {
       if (!sp.vanishT && (sp.t > 0.1 || gd < 5)) { sp.vanishT = sp.t; this.hidden = true; this.events.push({ type: 'teleport', from: [p.x, p.y, p.z] }); }
       if (sp.vanishT && sp.t - sp.vanishT > 0.22) {
         sp.ported = true; this.hidden = false;
+        this.motionId++;
         const g = sp.goal, A = Math.abs(g.x) > Math.abs(g.z) ? 'x' : 'z', B = A === 'x' ? 'z' : 'x', sg = Math.sign(g[A]) || 1;
         p[A] = sg * (halfOf(A) + 0.55); p[B] = Math.max(-FIELD.goalHalfW + 0.45, Math.min(FIELD.goalHalfW - 0.45, g[B])); p.y = Math.min(FIELD.goalH - 0.5, 0.8);
         v.set(0, 0, 0); v[A] = sg * 14; v.y = 1;
@@ -611,6 +613,7 @@ export class Ball {
         if (this._portalHits.length > 3) { v.x *= 0.5; v.z *= 0.5; }
         const ex = (out.r + R + 0.08) * (out.sq ? 1.42 : 1);   // pop out clear of the far edge (square: past the corner too)
         p.x = out.x + ux * ex; p.z = out.z + uz * ex;
+        this.motionId++;
         if (gs < 2.5) { v.x = ux * 2.5; v.z = uz * 2.5; }            // never leave a ball sitting inside one
         clampToArena(p, R);
         cd.portal = 0.45;
