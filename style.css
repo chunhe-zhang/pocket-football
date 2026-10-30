@@ -242,77 +242,154 @@ button { font-family: var(--font); cursor: pointer; }
 
 @media (max-width: 600px) { .combo-cutin { top: 23%; } }
 
-/* ---- cover: the picked element on a stage, the match set-up beside it ---- */
-#menu.cover { padding: 0; align-items: stretch; justify-content: stretch; --cc: #5fe1ff;
+/* ---- cover: the picked element on a stage, the match set-up beside it ----
+   One loud thing: the element's brush character, huge, in its colour, behind the player.
+   Everything else is quiet: navy glass, hairlines, one gold action. */
+#menu.cover { --cc: #5fe1ff; --navy: #0a1029; --glass: rgba(10, 16, 41, 0.86); --hair: rgba(255, 255, 255, 0.08); --mut: #8e9bb8;
+  padding: 0; align-items: stretch; justify-content: stretch;
   background:
-    radial-gradient(60% 75% at 30% 58%, color-mix(in srgb, var(--cc) 26%, transparent), transparent 70%),
-    linear-gradient(100deg, rgba(8, 13, 32, 0.9) 0%, rgba(8, 13, 32, 0.62) 46%, rgba(8, 13, 32, 0.88) 64%, rgba(6, 10, 26, 0.95) 100%);
-  transition: background 0.5s; }
-.cover-grid { width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, 440px); gap: 0; }
-.cover .stage { position: relative; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto auto auto;
-  padding: max(22px, env(safe-area-inset-top)) 40px 22px max(40px, env(safe-area-inset-left)); min-height: 0; }
-.cover-head { display: flex; align-items: baseline; gap: 14px; position: relative; z-index: 2; }
-.cover .brand { font-size: 44px; }
+    radial-gradient(42% 60% at 34% 60%, color-mix(in srgb, var(--cc) 30%, transparent), transparent 72%),
+    conic-gradient(from 200deg at 34% -10%, transparent 0deg, color-mix(in srgb, var(--cc) 14%, transparent) 14deg, transparent 30deg),
+    linear-gradient(100deg, rgba(7, 11, 30, 0.93) 0%, rgba(7, 11, 30, 0.7) 40%, rgba(7, 11, 30, 0.9) 66%, #070b1e 100%);
+  transition: background 0.6s; }
+.cover-grid { width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); }
+
+/* the stage */
+.cover .stage { position: relative; overflow: hidden; min-height: 0; display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px); grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "head head" "hero dossier" "who who" "roster roster"; column-gap: 28px;
+  padding: max(22px, env(safe-area-inset-top)) 44px 24px max(44px, env(safe-area-inset-left)); }
+.cover-head { grid-area: head; display: flex; align-items: center; gap: 14px; position: relative; z-index: 3; }
+.cover .brand { font-size: 40px; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.45); }
 .cover .brand span { display: inline; margin-left: 0.18em; }
-.cover .cover-version { margin-top: 0; }
-/* the one loud thing: a brush-stroke character of the element, taller than the player */
-.cover .glyph { position: absolute; z-index: 0; left: 50%; top: 52%; transform: translate(-54%, -50%) rotate(-4deg);
-  font-family: "Ma Shan Zheng", "STKaiti", "KaiTi", serif; font-size: min(78vh, 62vw); line-height: 1; pointer-events: none;
-  color: transparent; background: linear-gradient(170deg, color-mix(in srgb, var(--cc) 75%, #fff) 10%, var(--cc) 45%, color-mix(in srgb, var(--cc) 30%, transparent) 90%);
-  -webkit-background-clip: text; background-clip: text; opacity: 0.32; filter: drop-shadow(0 0 40px color-mix(in srgb, var(--cc) 45%, transparent)); }
-.cover .hero-cv { position: relative; z-index: 1; justify-self: center; align-self: end; height: min(46vh, 440px); aspect-ratio: 210 / 266; width: auto; }
-.cover .hero-meta { position: relative; z-index: 2; text-align: center; max-width: 560px; justify-self: center; margin-top: -6px; }
-.cover .hero-meta h2 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: 0.04em; color: #fff; text-shadow: 0 2px 18px color-mix(in srgb, var(--cc) 60%, transparent); }
-.cover .hero-meta .char-note { margin: 6px 0 0; font-size: 14px; line-height: 1.5; color: #c4cee0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.cover .hero-meta .char-note .cn-h { display: none; }        /* the heading above already names it */
-.cover .char-row { position: relative; z-index: 2; grid-template-columns: 1fr; margin: 12px auto 0; width: min(420px, 100%); }
+.cover .cover-version { margin-top: 0; border-color: var(--hair); color: var(--mut); font-weight: 600; }
+.cover .glyph { position: absolute; z-index: 0; left: 36%; top: 54%; transform: translate(-50%, -50%) rotate(-5deg);
+  font-family: "Ma Shan Zheng", "STKaiti", "KaiTi", serif; font-size: min(84vh, 56vw); line-height: 1; pointer-events: none;
+  color: transparent; background: linear-gradient(165deg, color-mix(in srgb, var(--cc) 70%, #fff) 6%, var(--cc) 42%, color-mix(in srgb, var(--cc) 10%, transparent) 92%);
+  -webkit-background-clip: text; background-clip: text; opacity: 0.3; filter: drop-shadow(0 0 48px color-mix(in srgb, var(--cc) 40%, transparent)); }
+.cover .spot { position: absolute; z-index: 0; left: 36%; bottom: 25%; width: min(560px, 46vw); height: 120px; transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--cc) 45%, transparent), transparent 70%); filter: blur(6px); }
+.cover .hero-cv { grid-area: hero; position: relative; z-index: 1; justify-self: center; align-self: end; height: min(54vh, 520px); width: auto; aspect-ratio: 210 / 266; }
+
+/* the dossier: what this element does, set like a card in the stage */
+.cover .dossier { grid-area: dossier; align-self: center; position: relative; z-index: 2; padding: 22px 22px 18px; border-radius: 4px 18px 4px 18px;
+  background: linear-gradient(160deg, rgba(14, 22, 52, 0.88), rgba(9, 14, 36, 0.78)); border: 1px solid var(--hair); border-top: 3px solid var(--cc);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); backdrop-filter: blur(10px); }
+.cover .d-top { display: flex; align-items: center; gap: 14px; }
+.cover .d-glyph { font-family: "Ma Shan Zheng", "STKaiti", "KaiTi", serif; font-size: 64px; line-height: 0.9; color: var(--cc);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--cc) 55%, transparent); }
+.cover .d-title h2 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: 0.06em; color: #fff; }
+.cover .d-camp { display: inline-block; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--cc) 40%, transparent); }
+.cover .d-list { margin: 18px 0 0; display: grid; gap: 13px; }
+.cover .d-list > div { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.cover .d-list dt { color: var(--mut); font-size: 13px; padding-top: 2px; }
+.cover .d-list dd { margin: 0; font-size: 14.5px; line-height: 1.55; color: #e3e9f5; }
+.cover .d-rel { display: inline-block; margin-right: 6px; font-size: 12px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }
+.cover .d-rel.win { color: #0a1029; background: #7be495; }
+.cover .d-rel.lose { color: #fff; background: #e8574a; margin-left: 8px; }
+.cover .d-el { display: inline-block; margin-right: 4px; font-weight: 700; color: var(--ec); }
+
+/* players 2-4 pick in turn */
+.cover .char-row { grid-area: who; position: relative; z-index: 3; grid-template-columns: 1fr; margin: 14px 0 0; width: min(380px, 100%); }
 .cover .char-row:has(.who-seg.hidden) { display: none; }
-/* the six elements as a strip of portraits under the stage */
-.cover .char-pick { position: relative; z-index: 2; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 14px auto 0; width: min(540px, 100%); }
-.cover .char-card { min-width: 0; }
-.cover .char-card .cv { width: 100%; height: auto; }
-.cover .char-card { padding: 0 0 6px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 2px solid rgba(255, 255, 255, 0.08); transition: transform 0.15s, border-color 0.15s, background 0.15s; }
-.cover .char-card .cv { aspect-ratio: 210 / 266; border-radius: 10px 10px 0 0; }
-.cover .char-card b { font-size: 17px; }
-.cover .char-card small { font-size: 11px; }
-.cover .char-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--cc) 55%, transparent); }
-.cover .char-card.on { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 20%, rgba(8, 13, 32, 0.6)); box-shadow: 0 0 0 1px var(--cc), 0 8px 24px color-mix(in srgb, var(--cc) 35%, transparent); }
-.cover .char-card:focus-visible, .cover button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-/* the set-up: a quiet panel down the right edge, kick-off always in reach at its foot */
-.cover .menu-card.setup { width: auto; max-height: none; height: 100%; border-radius: 0; border: 0; border-left: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(7, 11, 28, 0.78); backdrop-filter: blur(14px); box-shadow: none; overflow: auto;
+
+/* the roster: six slanted portrait cards */
+.cover .char-pick { grid-area: roster; position: relative; z-index: 3; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;
+  margin: 16px 0 0; width: min(760px, 100%); padding: 0 8px; }
+.cover .char-card { position: relative; min-width: 0; padding: 0 0 6px; overflow: hidden; border-radius: 6px; transform: skewX(-8deg);
+  display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 6px; text-align: left;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cc) 18%, #0e1636) 0%, #0b1230 100%); border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s; }
+.cover .char-card > * { transform: skewX(8deg); }
+.cover .char-card .cv { grid-column: 1 / -1; display: block; width: 118%; margin: 0 -9% 4px; height: auto; aspect-ratio: 210 / 200; border-radius: 0; background: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 78%, transparent); mask-image: linear-gradient(180deg, #000 78%, transparent); }
+.cover .char-card .ic { display: none; }
+.cover .char-card b { margin: -14px 0 0 12px; font-family: "Ma Shan Zheng", "STKaiti", "KaiTi", serif; font-weight: 400;
+  font-size: 28px; line-height: 1; color: #fff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7), 0 0 14px color-mix(in srgb, var(--cc) 60%, transparent); }
+.cover .char-card small { margin: 0; font-size: 11.5px; font-weight: 700; color: var(--cc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover .char-card::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--cc); opacity: 0.35; transform: none; }
+.cover .char-card:hover { transform: skewX(-8deg) translateY(-3px); border-color: color-mix(in srgb, var(--cc) 50%, transparent); }
+.cover .char-card.on { transform: skewX(-8deg) translateY(-6px); border-color: var(--cc);
+  box-shadow: 0 0 0 1px var(--cc), 0 14px 34px color-mix(in srgb, var(--cc) 40%, transparent); }
+.cover .char-card.on::after { opacity: 1; height: 4px; }
+.cover .char-card:focus-visible, .cover button:focus-visible, .cover summary:focus-visible { outline: 2px solid #ffd23f; outline-offset: 3px; }
+
+/* switching element: the brush character is painted in, the dossier slides up */
+#menu.cover.swap .glyph { animation: brushIn 0.62s cubic-bezier(.2, .8, .2, 1); }
+#menu.cover.swap .dossier { animation: dossierIn 0.42s cubic-bezier(.2, .8, .2, 1); }
+@keyframes brushIn { from { clip-path: inset(0 100% 0 0); opacity: 0; } 30% { opacity: 0.3; } to { clip-path: inset(0 0 0 0); } }
+@keyframes dossierIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* the set-up: navy glass down the right edge */
+.cover .menu-card.setup { width: auto; max-height: none; height: 100%; border-radius: 0; border: 0; border-left: 1px solid var(--hair);
+  background: var(--glass); backdrop-filter: blur(16px); box-shadow: -30px 0 60px rgba(0, 0, 0, 0.25); overflow: auto;
   padding: max(26px, env(safe-area-inset-top)) max(26px, env(safe-area-inset-right)) 0 26px; display: flex; flex-direction: column; }
-.cover .setup .tag { margin: 4px 0 18px; font-size: 18px; color: #dfe6f2; }
-.cover .setup .row { grid-template-columns: 46px 1fr; }
-.cover .setup .seg button { font-size: 16px; padding: 9px 2px; }
-.cover .setup .seg button.on { background: #f3f6fb; color: #0c1430; }
-.cover .setup .seg.tabs button.on { background: var(--gold); color: #0c1430; }
+.cover .setup .tag { margin: 2px 0 16px; font-size: 18px; font-weight: 600; color: #eef2fa; }
+.cover .setup .row { grid-template-columns: 1fr; gap: 7px; margin: 16px 0 6px; }
+.cover .setup .row label { font-size: 13px; color: var(--mut); }
+.cover .setup .seg { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--hair); border-radius: 10px; }
+.cover .setup .seg button { font-size: 15.5px; padding: 9px 2px; color: #cfd7e8; }
+.cover .setup .seg button.on { background: #eef2fa; color: var(--navy); }
+.cover .setup .seg.tabs { margin: 0 0 4px; }
+.cover .setup .seg.tabs button.on { background: #ffd23f; color: var(--navy); }
+/* the four modes as tiles, each with what it is */
+.cover .setup .seg[data-key="mode"] { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.cover .setup .seg[data-key="mode"] button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 11px 12px; text-align: left; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid transparent; }
+.cover .setup .seg[data-key="mode"] button b { font-size: 17px; }
+.cover .setup .seg[data-key="mode"] button small { font-size: 12px; color: var(--mut); font-weight: 500; }
+.cover .setup .seg[data-key="mode"] button.on { background: color-mix(in srgb, #ffd23f 12%, transparent); border-color: #ffd23f; color: #fff; }
+.cover .setup .seg[data-key="mode"] button.on small { color: #ffe08a; }
+.cover .setup .note { font-size: 13px; line-height: 1.5; color: var(--mut); margin: 4px 0 0; }
 .cover .setup #panel-local, .cover .setup #panel-online { display: flex; flex-direction: column; }
 .cover .setup #panel-local.hidden, .cover .setup #panel-online.hidden { display: none; }
-.cover .setup #btn-start { position: sticky; bottom: 0; order: 99; margin: 16px -26px 0; width: calc(100% + 52px); border-radius: 0; padding: 18px; font-size: 28px;
-  letter-spacing: 0.4em; font-style: italic; box-shadow: 0 -12px 24px rgba(7, 11, 28, 0.85); }
-.cover .setup .controls { margin-bottom: 18px; }
-@media (prefers-reduced-motion: reduce) { #menu.cover, .cover .char-card { transition: none; } }
+.cover .setup #btn-start { position: sticky; bottom: 0; order: 99; margin: 22px -26px 0; width: calc(100% + 52px); border-radius: 0; padding: 19px; font-size: 28px;
+  letter-spacing: 0.5em; font-style: italic; background: linear-gradient(100deg, #ffd23f, #ffb92e); color: var(--navy);
+  box-shadow: 0 -14px 28px rgba(7, 11, 30, 0.9); }
+.cover .setup #btn-start:hover { filter: brightness(1.06); }
+.cover .setup .help { margin: 0 0 20px; border-top: 1px solid var(--hair); padding-top: 12px; }
+.cover .setup .help summary { cursor: pointer; color: var(--mut); font-size: 14px; list-style: none; }
+.cover .setup .help summary::before { content: "＋ "; }
+.cover .setup .help[open] summary::before { content: "－ "; }
+.cover .setup .help .controls { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { #menu.cover, .cover .char-card { transition: none; } #menu.cover.swap .glyph, #menu.cover.swap .dossier { animation: none; } }
 
-/* phones and narrow windows: the stage on top, the set-up underneath, kick-off pinned to the bottom */
+/* medium screens: the dossier tucks under the player */
+@media (max-width: 1180px) and (min-width: 821px) {
+  .cover .stage { grid-template-columns: 1fr; grid-template-areas: "head" "hero" "dossier" "who" "roster"; grid-template-rows: auto minmax(0, 1fr) auto auto auto; }
+  .cover .hero-cv { height: min(44vh, 420px); }
+  .cover .dossier { justify-self: center; width: min(560px, 100%); margin-top: -10px; padding: 14px 18px 12px; }
+  .cover .d-list { grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 10px; }
+  .cover .d-list > div:last-child { grid-column: 1 / -1; }
+  .cover .glyph, .cover .spot { left: 50%; }
+}
+
+/* phones: stage on top, set-up underneath, kick-off pinned to the bottom */
 @media (max-width: 820px) {
   #menu.cover { overflow: auto; display: none; }
   #menu.cover.show { display: block; }
   .cover-grid { display: block; height: auto; }
-  .cover .stage { padding: max(16px, env(safe-area-inset-top)) 16px 10px; grid-template-rows: auto auto auto auto auto; }
+  .cover .stage { grid-template-columns: 1fr; grid-template-areas: "head" "hero" "dossier" "who" "roster"; grid-template-rows: none;
+    padding: max(16px, env(safe-area-inset-top)) 16px 14px; }
   .cover .brand { font-size: 28px; }
   .cover .cover-version { display: none; }
-  .cover .glyph { font-size: min(60vh, 92vw); top: 34%; }
-  .cover .hero-cv { height: min(36vh, 300px); }
-  .cover .hero-meta .char-note { -webkit-line-clamp: 3; }
-  .cover .hero-meta h2 { font-size: 24px; }
-  .cover .hero-meta .char-note { font-size: 13.5px; }
-  .cover .char-pick { gap: 5px; }
-  .cover .char-card b { font-size: 14px; }
+  .cover .glyph { font-size: min(62vh, 96vw); top: 28%; left: 50%; }
+  .cover .spot { left: 50%; bottom: auto; top: 44vh; width: 90vw; }
+  .cover .hero-cv { height: min(42vh, 340px); }
+  .cover .dossier { margin-top: -8px; padding: 14px 16px 10px; }
+  .cover .d-glyph { font-size: 48px; }
+  .cover .d-title h2 { font-size: 21px; }
+  .cover .d-list { gap: 9px; margin-top: 10px; }
+  .cover .d-list > div { grid-template-columns: 56px 1fr; padding-top: 9px; }
+  .cover .d-list dd { font-size: 13.5px; }
+  .cover .char-pick { gap: 6px; padding: 0 4px; }
+  .cover .char-card { grid-template-columns: 1fr; justify-items: center; }
+  .cover .char-card b { font-size: 22px; margin: -10px 0 0; }
   .cover .char-card small { display: none; }
-  .cover .menu-card.setup { height: auto; border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); padding: 18px 16px 0; overflow: visible; backdrop-filter: none; background: rgba(7, 11, 28, 0.92); }
+  .cover .menu-card.setup { height: auto; border-left: 0; border-top: 1px solid var(--hair); padding: 18px 16px 0; overflow: visible; backdrop-filter: none; background: rgba(8, 12, 32, 0.96); }
   .cover .setup #btn-start { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; width: 100%; padding: 15px 15px max(15px, env(safe-area-inset-bottom)); z-index: 30; }
-  .cover .setup .controls { margin-bottom: 84px; }
+  .cover .setup .help { margin-bottom: 88px; }
 }
 /* Compact soundtrack controls belong with the pre-match setup. */
 .music-controls { display:flex; align-items:center; gap:10px; padding:12px; margin:0 0 18px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.09); border-radius:12px; }

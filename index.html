@@ -83,11 +83,22 @@
         <div class="cover-version" id="cover-version">Version 1.0.0</div>
       </header>
       <div class="glyph" id="hero-glyph" aria-hidden="true">雷</div>
+      <div class="spot" aria-hidden="true"></div>
       <canvas class="hero-cv" data-c="thunder" aria-hidden="true"></canvas>
-      <div class="hero-meta">
-        <h2 id="hero-name">雷 · 闪电射门</h2>
-        <p class="note char-note"></p>
-      </div>
+      <aside class="dossier" aria-live="polite">
+        <div class="d-top">
+          <span class="d-glyph" id="d-glyph" aria-hidden="true">雷</span>
+          <div class="d-title">
+            <h2 id="hero-name">闪电射门</h2>
+            <span class="d-camp" id="d-camp">灵巧阵营</span>
+          </div>
+        </div>
+        <dl class="d-list">
+          <div><dt>必杀射门</dt><dd id="d-shot"></dd></div>
+          <div><dt>过人技</dt><dd id="d-move"></dd></div>
+          <div><dt>克制关系</dt><dd id="d-rel"></dd></div>
+        </dl>
+      </aside>
       <div class="row char-row">
         <div class="seg who-seg hidden" data-key="who">
           <button data-v="0" class="on">P1</button><button data-v="1">P2</button><button data-v="2">P3</button><button data-v="3">P4</button>
@@ -109,32 +120,13 @@
       </div>
 
       <div id="panel-local">
-        <div class="row">
-          <label>人数</label>
-          <div class="seg" data-key="humans">
-            <button data-v="1" class="on">1 人</button>
-            <button data-v="2">2 人</button>
-            <button data-v="3">3 人</button>
-            <button data-v="4">4 人</button>
-          </div>
-        </div>
-        <p class="note" id="humans-note">其余位置由电脑补上。</p>
-        <div class="row map-row">
-          <label>地图</label>
-          <div class="seg" data-key="map">
-            <button data-v="classic" class="on">经典圆场</button>
-            <button data-v="track">方块乐园</button>
-            <button data-v="pitch5">6v6 标准场</button>
-          </div>
-        </div>
-        <p class="note map-note">小巧的圆形球场，一眼看全场。</p>
-        <div class="row">
+        <div class="row mode-row">
           <label>模式</label>
           <div class="seg" data-key="mode">
-            <button data-v="ffa">四门混战</button>
-            <button data-v="team">2v2 组队</button>
-            <button data-v="match5" class="on">6v6 比赛</button>
-            <button data-v="practice">练习场</button>
+            <button data-v="match5" class="on"><b>6v6 比赛</b><small>两队正式对抗</small></button>
+            <button data-v="ffa"><b>四门混战</b><small>每人守一个门</small></button>
+            <button data-v="team"><b>2v2 组队</b><small>两人一队</small></button>
+            <button data-v="practice"><b>练习场</b><small>自由练射门</small></button>
           </div>
         </div>
         <div class="row practice-row hidden">
@@ -155,6 +147,25 @@
           </div>
         </div>
         <p class="note mode-note">每人守一个球门，谁都可以打。</p>
+        <div class="row">
+          <label>人数</label>
+          <div class="seg" data-key="humans">
+            <button data-v="1" class="on">1 人</button>
+            <button data-v="2">2 人</button>
+            <button data-v="3">3 人</button>
+            <button data-v="4">4 人</button>
+          </div>
+        </div>
+        <p class="note" id="humans-note">其余位置由电脑补上。</p>
+        <div class="row map-row">
+          <label>地图</label>
+          <div class="seg" data-key="map">
+            <button data-v="classic" class="on">经典圆场</button>
+            <button data-v="track">方块乐园</button>
+            <button data-v="pitch5">6v6 标准场</button>
+          </div>
+        </div>
+        <p class="note map-note">小巧的圆形球场，一眼看全场。</p>
         <div class="row">
           <label>难度</label>
           <div class="seg" data-key="level">
@@ -181,7 +192,7 @@
         </div>
         <p class="note" id="net-status">最多 4 人，人不够时由电脑补位。</p>
       </div>
-      <div class="controls" id="controls-help"></div>
+      <details class="help"><summary>操作说明</summary><div class="controls" id="controls-help"></div></details>
     </div>
     </div>
   </div>

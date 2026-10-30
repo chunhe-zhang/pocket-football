@@ -83,10 +83,13 @@ export class Showroom {
       const m = this._model(id);
       const c = this.camera;
       const scale = Math.max(1, m.height / 1.65);
-      c.position.set(m.x, 1.05 * scale, 4.25 * scale); c.lookAt(m.x, m.height * 0.52, 0);
+      // the cover's big stage shows the whole player; its roster cards (and the lobby's) are head-and-shoulders portraits
+      const hero = cv.classList.contains('hero-cv'), bust = !hero && cv.closest('.cover');
+      if (bust) { c.position.set(m.x, m.height * 0.84, 1.75 * scale); c.lookAt(m.x, m.height * 0.8, 0); }
+      else { c.position.set(m.x, 1.05 * scale, 4.25 * scale); c.lookAt(m.x, m.height * 0.52, 0); }
       m.ch.updateVisualDetails(c, H);
       // the cover's big stage portrait is drawn at a higher resolution than the little cards
-      const hero = cv.classList.contains('hero-cv'), k = hero ? Math.min(3, Math.max(2, this.dpr * 1.6)) : this.dpr;
+      const k = hero ? Math.min(3, Math.max(2, this.dpr * 1.6)) : this.dpr;
       if (hero) r.setPixelRatio(k);
       // Skinned meshes deliberately bypass frustum culling to avoid limb pop.
       // Hide the other five portraits explicitly instead of drawing all six
