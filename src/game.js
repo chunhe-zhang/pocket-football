@@ -995,7 +995,7 @@ export class Game {
       const L = a._trailAt;
       if (!L || Math.hypot(a.pos.x - L.x, a.pos.z - L.z) > 0.5) {
         a._trailAt = { x: a.pos.x, z: a.pos.z };
-        P.push({ x: a.pos.x, z: a.pos.z, kind: a.charId === 'blaze' ? 'fire' : 'ice', life: a.charId === 'blaze' ? 1.5 : 2.6, max: a.charId === 'blaze' ? 1.5 : 2.6, owner: a });
+        P.push({ x: a.pos.x, z: a.pos.z, angle: a.facing, kind: a.charId === 'blaze' ? 'fire' : 'ice', life: a.charId === 'blaze' ? 1.5 : 2.6, max: a.charId === 'blaze' ? 1.5 : 2.6, owner: a });
       }
     }
     for (const p of P) p.life -= dt;

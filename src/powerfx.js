@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { frostPatch } from './frost-trail.js';
 import { FireFlame, installFireSprite } from './fire-flame.js';
 import { WindPresence, EarthPresence, ShadowPresence } from './element-presence.js';
 
@@ -32,6 +33,10 @@ function textures() {
     }
     const gr = g.createRadialGradient(0, 0, 0, 0, 0, 30); gr.addColorStop(0, 'rgba(180,235,255,0.9)'); gr.addColorStop(1, 'rgba(180,235,255,0)');
     g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 30, 0, Math.PI * 2); g.fill();
+  });
+  TEX.frostShard = tex(128, (g, s) => {
+    const gr = g.createLinearGradient(0, 0, s, s); gr.addColorStop(0, 'rgba(240,255,255,0)'); gr.addColorStop(.45, 'rgba(215,250,255,.9)'); gr.addColorStop(1, 'rgba(125,210,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(s*.5,s*.08);g.lineTo(s*.64,s*.5);g.lineTo(s*.5,s*.92);g.lineTo(s*.36,s*.5);g.closePath();g.fill();
   });
   TEX.wind = tex(128, (g, s) => {
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineCap = 'round';
@@ -185,11 +190,12 @@ export class PowerFx {
       } else {
         let d = this._iceDecals[n];
         if (!d) {
-          d = new THREE.Mesh(new THREE.CircleGeometry(0.42, 18), new THREE.MeshStandardMaterial({ color: 0xd8f4ff, emissive: 0x6fc8ff, emissiveIntensity: 0.35, roughness: 0.05, metalness: 0.3, transparent: true, depthWrite: false }));
-          d.rotation.x = -Math.PI / 2; d.renderOrder = 1; this.scene.add(d); this._iceDecals.push(d);
+          d = frostPatch(); this.scene.add(d); this._iceDecals.push(d);
         }
-        d.visible = true; d.position.set(p.x, 0.015 + n * 0.0001, p.z); d.material.opacity = 0.75 * Math.min(1, u * 3);
-        if (Math.random() < dt * 1.5) this.puff(T.snow, { x: p.x, y: 0.15, z: p.z }, { x: 0, y: 0.5, z: 0 }, 0.5, 0.2, 0.3, 0xe6f8ff, 0, true);
+        d.visible = true; d.position.set(p.x, .022 + n * .00001, p.z);
+        d.rotation.z = p.angle || 0;
+        d.material.uniforms.opacity.value = Math.min(1, u * 2.5) * .72;
+        d.material.uniforms.seed.value = p.x * .37 + p.z * .23;
         n++;
       }
     }
@@ -210,7 +216,7 @@ export class PowerFx {
           if (on && Math.random() < dt * 8) this.puff(T.wind, { x: a.pos.x, y: 1.2, z: a.pos.z }, { x: -a.vel.x * 0.4, y: 0.4, z: -a.vel.z * 0.4 }, 0.35, 0.35, 0.6, 0x9fffc0, 0, false, 0.6);
         }
       }
-      if (!on) continue;
+      if (!on && !(a.charId === 'frost' && !a.out && a.vel.lengthSq() > 4)) continue;
       const p = a.pos, v = a.vel, vl = Math.hypot(v.x, v.z) || 1, bx = -v.x / vl, bz = -v.z / vl;
       if (a.charId === 'thunder') {
         if (this.refinedLightning) continue;
@@ -219,7 +225,8 @@ export class PowerFx {
       } else if (a.charId === 'blaze') {
         if (Math.random() < dt * 14) this.puff(T.flame, { x: p.x + bx * 0.3, y: 0.25 + Math.random() * 0.8, z: p.z + bz * 0.3 }, { x: bx * 2, y: 1.5, z: bz * 2 }, 0.4, 0.45, 0.1, 0xffffff, -1, true, 0.85);
       } else if (a.charId === 'frost') {
-        if (Math.random() < dt * 10) this.puff(T.snow, { x: p.x + (Math.random() - 0.5) * 0.6, y: 0.4 + Math.random() * 1.2, z: p.z + (Math.random() - 0.5) * 0.6 }, { x: bx, y: 0.3, z: bz }, 0.6, 0.25, 0.35, 0xe6f8ff, 0, true);
+        if (Math.random() < dt * 7) this.puff(T.smoke, { x: p.x + bx * .35, y: .1, z: p.z + bz * .35 }, { x: bx * .5, y: .25, z: bz * .5 }, .5, .3, .8, 0xd9f4ff, 0, true, .16);
+        if (Math.random() < dt * 12) this.puff(T.frostShard, { x: p.x + bx * .35 + (Math.random() - .5) * .35, y: .08 + Math.random() * .18, z: p.z + bz * .35 + (Math.random() - .5) * .35 }, { x: bx * .6, y: .35, z: bz * .6 }, .45, .12, .025, 0xc7f1ff, .2, true, .75);
       } else if (a.charId === 'phantom') {
         if (Math.random() < dt * 12) this.puff(T.glow, { x: p.x + bx * 0.4, y: 0.4 + Math.random() * 1.2, z: p.z + bz * 0.4 }, { x: 0, y: 0.6, z: 0 }, 0.5, 0.6, 0.15, 0x9060ff, 0, false, 0.7);
       } else if (a.charId === 'cannon') {

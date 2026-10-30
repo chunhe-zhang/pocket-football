@@ -50,6 +50,8 @@ export const PLAYER = {
   accel: 20,
   decel: 26,
   turnRate: 11,
+  shadowBlinkDistance: 5.5, // longer, directional shadow blink
+  shadowCatchRange: 6.0,
   chargeTime: 0.24,       // seconds to reach full power (quick: a shot is a snap, not a wind-up)
   chargeAutoRelease: 0.25,
   passChargeTime: 0.10,  // I/K: full charge and automatic release in 100 ms

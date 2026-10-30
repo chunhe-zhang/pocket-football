@@ -458,7 +458,7 @@ export class Athlete {
     if (kind === 'phantom') {
       // blink in right next to the ball, then slide through it
       const bd = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
-      if (bd > 1.6 && bd < 5 && !ball.heldBy) {
+      if (bd > 1.6 && bd < PLAYER.shadowCatchRange && !ball.heldBy) {
         from = this.pos.clone();
         dir.set(ball.pos.x - this.pos.x, 0, ball.pos.z - this.pos.z).normalize();
         const q = new THREE.Vector3(ball.pos.x - dir.x * 1.0, 0, ball.pos.z - dir.z * 1.0);
@@ -1326,7 +1326,7 @@ export class Athlete {
         this.char.play('dash', { duration: P.dur + 0.1 }); break;
       }
       case 'phantom': {          // vanish and reappear behind them
-        P.dur = 0.4; P.to = behind(3.8); P.jumped = false;
+        P.dur = 0.4; P.to = this.pos.clone().addScaledVector(dir, PLAYER.shadowBlinkDistance); clampToArena(P.to, .8); pushOutOfObstacles(P.to, .5); P.jumped = false;
         if (this._offBall) {     // off the ball: reappear right at the ball, on my side of it
           const b = g.ball, q = new THREE.Vector3(b.pos.x - dir.x * 0.55, 0, b.pos.z - dir.z * 0.55);
           clampToArena(q, 0.8); pushOutOfObstacles(q, 0.5); P.to = q;
@@ -1405,7 +1405,7 @@ export class Athlete {
     const car = g.possessor && this._isOpp(g.possessor) ? g.possessor : null;
     const tgt = car ? car.pos : b.pos, d = Math.hypot(tgt.x - this.pos.x, tgt.z - this.pos.z);
     const near = (r) => g.live.some((o) => this._isOpp(o) && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < r);
-    const reach = { blaze: 3.0, frost: 3.0, gale: 3.8, cannon: 4.0, thunder: 4.0, phantom: 4.5 }[kind] || 0;
+    const reach = { blaze: 3.0, frost: 3.0, gale: 3.8, cannon: 4.0, thunder: 4.0, phantom: PLAYER.shadowCatchRange }[kind] || 0;
     const ok = kind === 'blaze' || kind === 'frost' ? near(reach) : d < reach && d > 0.8;
     if (!ok) return false;
     this.intent.move.set(tgt.x - this.pos.x, tgt.z - this.pos.z).normalize();
