@@ -60,34 +60,45 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, 
 // ---- load assets --------------------------------------------------------------
 const loader = new GLTFLoader();
 // some static hosts refuse .glb/.vrm; fall back to a base64 text copy if one is published
-async function loadModel(url, from, to, label) {
-  const progress = (e) => { if (e.total) ui.loading(from + (to - from) * (e.loaded / e.total), label); };
+// every file downloads at once; one bar shows how much of the whole set has arrived
+const fileProgress = new Map();
+let loadLabel = '正在载入球员和六元素角色…';
+function reportLoad() {
+  let got = 0, all = 0;
+  for (const [, f] of fileProgress) { got += f.loaded * f.w; all += f.w; }
+  ui.loading(all ? 0.9 * got / all : 0, loadLabel);
+}
+async function loadModel(url, weight = 1) {
+  fileProgress.set(url, { loaded: 0, w: weight });
+  const progress = (e) => { if (e.total) { fileProgress.get(url).loaded = e.loaded / e.total; reportLoad(); } };
   try {
-    return await loader.loadAsync(url, progress);
+    const g = await loader.loadAsync(url, progress);
+    fileProgress.get(url).loaded = 1; reportLoad();
+    return g;
   } catch (err) {
     const res = await fetch(url + '.b64.txt');
     if (!res.ok) throw err;
     const bin = Uint8Array.from(atob((await res.text()).trim()), (c) => c.charCodeAt(0));
+    fileProgress.get(url).loaded = 1; reportLoad();
     return await loader.parseAsync(bin.buffer, url.replace(/[^/]*$/, ''));
   }
 }
+const loadJSON = (url) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+const ELEMENTS = ['thunder', 'blaze', 'frost', 'gale', 'phantom', 'cannon'];
+const modelFile = (id) => (id === 'thunder' ? './assets/models/rai-lightning.vrm' : `./assets/models/${id}.vrm`);
 let template;
 try {
-  const anims = await loadModel('./assets/models/Xbot.glb', 0, 0.3, '正在载入动作数据…');
-  const vrm = await loadModel('./assets/models/player.vrm', 0.3, 0.88, '正在载入球员模型…');
-  ui.loading(0.9, '载入足球动作捕捉…');
-  const mocap = await fetch('./assets/anim/mocap.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const precision = await fetch('./assets/anim/precision-mocap.json').then(r => r.ok ? r.json() : null).catch(() => null);
+  // the base rig and animations, the motion capture, and all six element players — together
+  const [anims, vrm, mocap, precision, anderson, ...els] = await Promise.all([
+    loadModel('./assets/models/Xbot.glb', 0.5), loadModel('./assets/models/player.vrm', 1),
+    loadJSON('./assets/anim/mocap.json'), loadJSON('./assets/anim/precision-mocap.json'), loadJSON('./assets/anim/anderson-football.json'),
+    ...ELEMENTS.map((id) => loadModel(modelFile(id), 1)),
+  ]);
   if (mocap && precision) mocap.supplements = precision.takes;
-  const anderson = await fetch('./assets/anim/anderson-football.json').then(r => r.ok ? r.json() : null).catch(() => null);
   if (mocap && anderson) mocap.supplements = [...(mocap.supplements || []), ...anderson.takes];
-  ui.loading(0.92, '套用动作捕捉动画…');
+  loadLabel = '套用动作捕捉动画…'; ui.loading(0.92, loadLabel);
   template = new AvatarTemplate(vrm, anims, mocap);
-  const rai = await loadModel('./assets/models/rai-lightning.vrm', 0.92, 0.95, '正在载入雷元素角色…');
-  const thunder = new AvatarTemplate(rai, anims, mocap);
-  thunder.authoredThunder = true;
-  thunder.authoredElement = 'thunder';
-  template.variants = new Map([['thunder', thunder]]);
+  template.variants = new Map();
   const textureCache = new Map(), geometryCache = new Map();
   const shareVariant = (gltf, id) => {
     gltf.scene.traverse((o) => {
@@ -106,14 +117,14 @@ try {
       }
     });
   };
-  shareVariant(rai, 'thunder');
-  await Promise.all(['blaze', 'frost', 'gale', 'phantom', 'cannon'].map(async (id) => {
-    const gltf = await loadModel(`./assets/models/${id}.vrm`, 0.95, 0.98, '正在载入五元素角色…');
-    shareVariant(gltf, id);
-    const variant = new AvatarTemplate(gltf, anims, mocap);
+  ELEMENTS.forEach((id, i) => {
+    shareVariant(els[i], id);
+    const variant = new AvatarTemplate(els[i], anims, mocap);
     variant.authoredElement = id;
+    if (id === 'thunder') variant.authoredThunder = true;
     template.variants.set(id, variant);
-  }));
+  });
+  ui.loading(0.97, '六元素角色就位');
 } catch (err) {
   ui.loading(0, '模型载入失败：请通过本地服务器或 GitHub Pages 打开（不能直接双击 index.html）。');
   throw err;
@@ -166,7 +177,7 @@ function frame(now = performance.now()) {
   draw(dt || 1 / 60);
   autoQuality(dt);
   // live character models in the picker (menu / lobby)
-  if (ui.showroom) ui.showroom.update(dt || 1 / 60, [...document.querySelectorAll('.char-card canvas')].filter((c) => c.offsetParent));
+  if (ui.showroom) ui.showroom.update(dt || 1 / 60, [...document.querySelectorAll('.char-card canvas, .hero-cv')].filter((c) => c.offsetParent));
   input.endFrame();
 }
 // keep the frame rate: if the glow costs too much on this device, step it down

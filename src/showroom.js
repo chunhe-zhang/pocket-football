@@ -7,7 +7,7 @@ import { Character } from './character.js';
 // wears a kit in its own colour, breathes in its idle pose and the selected one slowly turns round
 // and celebrates when it's picked.
 
-const W = 150, H = 190;
+const W = 210, H = 266;
 
 export class Showroom {
   constructor(template) {
@@ -79,11 +79,15 @@ export class Showroom {
       const c = this.camera;
       const scale = Math.max(1, m.height / 1.65);
       c.position.set(m.x, 1.05 * scale, 4.25 * scale); c.lookAt(m.x, m.height * 0.52, 0);
+      // the cover's big stage portrait is drawn at a higher resolution than the little cards
+      const hero = cv.classList.contains('hero-cv'), k = hero ? Math.min(3, Math.max(2, this.dpr * 1.6)) : this.dpr;
+      if (hero) r.setPixelRatio(k);
       r.render(this.scene, c);
       const ctx = cv._ctx || (cv._ctx = cv.getContext('2d'));
-      if (cv.width !== W * this.dpr) { cv.width = W * this.dpr; cv.height = H * this.dpr; }
+      if (cv.width !== Math.round(W * k)) { cv.width = Math.round(W * k); cv.height = Math.round(H * k); }
       ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(r.domElement, 0, 0, cv.width, cv.height);
+      if (hero) r.setPixelRatio(this.dpr);
       cv._drawn = true;
     });
   }

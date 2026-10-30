@@ -131,8 +131,13 @@ export class UI {
     const cur = CHAR[this.settings.chars[who]] || CHARS[0];
     for (const b of document.querySelectorAll('.char-card')) b.classList.toggle('on', b.dataset.c === cur.id);
     this.showroom?.select(cur.id, !!this._cheer);
+    // the cover's stage: the picked element's brush character behind its player, in its colour
+    const menu = $('#menu'); if (menu) menu.style.setProperty('--cc', cur.css);
+    const gl = $('#hero-glyph'); if (gl) gl.textContent = cur.name;
+    const hn = $('#hero-name'); if (hn) hn.textContent = `${cur.name} · ${cur.skill}`;
+    const hc = $('.hero-cv'); if (hc) hc.dataset.c = cur.id;
     const m5 = this._m5mode();
-    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? this._campLine(cur.id) : ''}${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
+    for (const nEl of document.querySelectorAll('.char-note')) nEl.innerHTML = `<span class="cn-h"><b style="color:${cur.css}">${cur.icon} ${cur.name} · ${cur.skill}</b>：</span>${cur.desc}。<b>过人</b>：${cur.move}（带球时按抢断键，4 秒一次，冷却时是普通闪身步）。每一脚爆射（轻点的传球除外）都是必杀射门。${m5 ? this._campLine(cur.id) : ''}${m5 ? '6v6 里你选的角色是你一开场控制的球员，队友和对手的角色随机。' : '电脑的角色随机。'}`;
   }
 
   _sendMyChar() {
