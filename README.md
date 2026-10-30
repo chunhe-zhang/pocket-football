@@ -1,5 +1,7 @@
 # Pocket Football
 
+封面版本号读取 `package.json` 的 `version`。每次发布游戏更新时递增该版本号，并随更新一起发布；封面会自动显示新版本。
+
 操作与控球修正：J 射门、U 挑射均为约 0.24 秒短蓄力；I 近距离平传、K 远距离挑传约 0.24 秒蓄满，松开出脚；轻点只保留约 0.04 秒准备。元素技能中/结束后的 J，以及接元素传球后的 J，保留免蓄力出球。门将统一从脚部开大脚，接球队员优先缓冲停球；无人干扰的连续带球有控球保护，真实铲抢、受击和主动出球仍会结束控球。队伍在宽度与纵深上进一步拉开。
 
 Anderson Rohr's native 60 FPS football captures now supply close-control dribbling, side-foot passes, three strikes and high/mid/low keeper reaches. Captured reaches anticipate the actual ball while existing glove/body collisions decide the save. The original 21-action, three-skeleton pack stays in the owner's local archive; see [source and license](assets/anim/anderson.README.md).

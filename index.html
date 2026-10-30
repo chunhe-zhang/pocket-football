@@ -4,6 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Pocket Football</title>
+  <script type="module">
+    // package.json is the single source of the version shown on the cover.
+    fetch('./package.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(pkg => {
+      if (typeof pkg?.version === 'string' && /^\d+\.\d+\.\d+$/.test(pkg.version)) {
+        const el = document.getElementById('cover-version'); if (el) el.textContent = `Version ${pkg.version}`;
+      }
+    }).catch(() => {});
+  </script>
   <meta name="description" content="足球网页游戏：四门混战、2v2、6v6 比赛，每个角色有自己的必杀射门。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&display=swap" />
@@ -55,6 +63,7 @@
   <div id="menu" class="overlay">
     <div class="menu-card">
       <div class="brand">POCKET<span>FOOTBALL</span></div>
+      <div class="cover-version" id="cover-version">Version 1.0.0</div>
       <p class="tag">四门混战 · 2v2 组队 · 6v6 正式比赛 · 每个角色都有自己的必杀射门</p>
       <div class="seg tabs" data-key="net">
         <button data-v="local" class="on">本地游戏</button>

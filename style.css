@@ -24,6 +24,7 @@ button { font-family: var(--font); cursor: pointer; }
 .menu-card.small { width: min(300px, 100%); text-align: center; }
 .brand { font-weight: 800; font-size: 46px; letter-spacing: 1px; line-height: 0.95; font-style: italic; }
 .brand span { display: block; color: var(--gold); }
+.cover-version { display: inline-block; margin-top: 10px; padding: 3px 9px; border: 1px solid rgba(255, 210, 63, .35); border-radius: 5px; color: #ffdf74; font-size: 13px; letter-spacing: .08em; font-weight: 700; }
 .tag { color: var(--muted); margin: 6px 0 16px; font-size: 17px; letter-spacing: 0.5px; }
 .title { font-size: 34px; font-weight: 800; font-style: italic; margin-bottom: 10px; }
 .row { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 10px; margin: 10px 0; }
