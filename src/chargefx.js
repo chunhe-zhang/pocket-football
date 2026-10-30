@@ -107,18 +107,38 @@ export class ChargeFx {
       const pv = this.previews[i];
       const type = game?.controllers[i]?.type;
       const mineHere = type === 'human' || type === 'self';
-      const shot = a.charging && (a.chargeType === 'kick' || a.chargeType === 'chip') && mineHere && !a.out;
+      const shot = a.charging && mineHere && !a.out;
       pv.pts.visible = pv.ring.visible = shot;
       if (!shot) return;
       a.aimDir(aim);
       const plan = a.shotPlan(a.chargeType, Math.max(0.12, a.charge), aim);
       const { speed, elev } = a.strikeSpeed(a.chargeType, Math.max(0.12, a.charge), plan.aim);
       const v = new THREE.Vector3(plan.aim.x * Math.cos(elev) * speed, Math.sin(elev) * speed, plan.aim.z * Math.cos(elev) * speed);
+      const isPass = a.chargeType === 'pass' || (a.chargeType === 'chip' && !a.chargeLobShot);
+      const receiver = isPass && (a.intendTo || a.passTo);
+      let passPoint = null;
+      if (receiver) {
+        plan.goal = null;
+        if (a.chargeType === 'chip') {
+          const loft = a._loftTo(receiver, .42 + .18 * a.charge, 'feet');
+          v.copy(loft.aim).multiplyScalar(loft.vh); v.y = loft.vy; passPoint = loft.target;
+        } else {
+          const lead = a.passLead(receiver, .14 + .3 * a.charge);
+          passPoint = new THREE.Vector3(lead.x, BALL.r, lead.z);
+          plan.aim.copy(passPoint).sub(game.ball.pos).setY(0).normalize();
+          v.copy(plan.aim).multiplyScalar(lead.speed); v.y = lead.speed * .02;
+        }
+      }
       const b = game.ball.pos;
       const start = Math.hypot(b.x - a.pos.x, b.z - a.pos.z) < 1.4 ? b.clone() : a.pos.clone().addScaledVector(plan.aim, 0.55).setY(BALL.r);
       const arr = pv.pts.geometry.attributes.position.array;
       const { n, hit } = this._simulate(start, v, plan.goal, arr);
-      pv.pts.geometry.setDrawRange(0, n); pv.pts.geometry.attributes.position.needsUpdate = true;
+      let drawN = n;
+      if (passPoint) {
+        const distance = Math.hypot(passPoint.x - start.x, passPoint.z - start.z);
+        for (let j = 1; j < n; j++) if (Math.hypot(arr[j * 3] - start.x, arr[j * 3 + 2] - start.z) >= distance) { drawN = j + 1; break; }
+      }
+      pv.pts.geometry.setDrawRange(0, drawN); pv.pts.geometry.attributes.position.needsUpdate = true;
       const over = a.charge > 0.95, perfect = plan.perfect;
       let onTarget = false;
       if (hit && plan.goal) {
@@ -127,9 +147,12 @@ export class ChargeFx {
         pv.ring.position.copy(hit).addScaledVector(new THREE.Vector3(plan.goal.inward.x, 0, plan.goal.inward.z), 0.05);
         pv.ring.rotation.set(0, plan.goal.axis === 'x' ? Math.PI / 2 : 0, 0);
         pv.ring.visible = true;
+      } else if (passPoint) {
+        pv.ring.position.set(passPoint.x, .07, passPoint.z); pv.ring.rotation.set(-Math.PI / 2, 0, 0); pv.ring.visible = true;
       } else pv.ring.visible = false;
       let col = !onTarget && hit ? 0xff5a4a : over ? 0xff5a4a : perfect ? 0xffd23f : 0xffffff;
       if (a.chargeType === 'kick' && a.charge >= 0.3) col = a.charDef.color;   // this one will be the special
+      if (isPass) col = 0x70e3ff;
       pv.ring.material.color.setHex(col); pv.pts.material.color.setHex(col);
       pv.cross.visible = !onTarget && !!hit;
       const s = perfect ? 1 + Math.sin(time * 18) * 0.08 : 1; pv.ring.scale.setScalar(s);
@@ -146,7 +169,7 @@ export class ChargeFx {
       it.ringMat.uniforms.uProgress.value = c;
       it.ringMat.uniforms.uTime.value = time;
       it.ringMat.uniforms.uOpacity.value = it.opacity;
-      if (a.charging) it.isPass = a.chargeType === 'pass'; else if (a.armed) it.isPass = a.armed.type === 'pass';
+      if (a.charging) it.isPass = a.chargeType === 'pass' || (a.chargeType === 'chip' && !a.chargeLobShot); else if (a.armed) it.isPass = a.armed.type === 'pass' || (a.armed.type === 'chip' && !a.armed.lobShot);
       it.ringMat.uniforms.uPass.value = it.isPass ? 1 : 0;
       // ring "front" follows the player's facing
       it.ring.rotation.z = a.facing + Math.PI;
@@ -156,8 +179,8 @@ export class ChargeFx {
       let len = 0.9 + 1.6 * c;
       if (it.isPass) {
         // a pass arrow reaches out towards where the ball will be played
-        const r = a.passTo || a.mate;
-        if (r) { const t = a.passLead(r, c); len = Math.max(0.6, Math.min(Math.hypot(t.x - a.pos.x, t.z - a.pos.z) - 1.1, 0.8 + 3.2 * c)); }
+        const r = a.intendTo || a.passTo || a.armed?.passTo || a.mate;
+        if (r) { const t = a.passLead(r, c); aim.set(t.x - a.pos.x, 0, t.z - a.pos.z).normalize(); it.arrowPivot.rotation.y = Math.atan2(aim.x, aim.z) + Math.PI; len = Math.max(0.6, Math.min(Math.hypot(t.x - a.pos.x, t.z - a.pos.z) - 1.1, 0.8 + 3.2 * c)); }
         it.arrowMat.color.setHSL(0.42 + 0.18 * c, 0.85, 0.62);
       } else it.arrowMat.color.setHSL(0.33 - 0.33 * c, 0.9, 0.6);
       it.arrow.scale.set(1, len, 1);
