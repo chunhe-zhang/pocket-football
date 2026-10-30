@@ -345,7 +345,7 @@ button { font-family: var(--font); cursor: pointer; }
 .cover .setup #panel-local, .cover .setup #panel-online { display: flex; flex-direction: column; }
 .cover .setup #panel-local.hidden, .cover .setup #panel-online.hidden { display: none; }
 .cover .setup #btn-start { position: sticky; bottom: 0; order: 99; margin: 22px -26px 0; width: calc(100% + 52px); border-radius: 0; padding: 19px; font-size: 28px;
-  letter-spacing: 0.5em; font-style: italic; background: linear-gradient(100deg, #ffd23f, #ffb92e); color: var(--navy);
+  letter-spacing: 0.5em; font-style: normal; transform: none; background: linear-gradient(100deg, #ffd23f, #ffb92e); color: var(--navy);
   box-shadow: 0 -14px 28px rgba(7, 11, 30, 0.9); }
 .cover .setup #btn-start:hover { filter: brightness(1.06); }
 .cover .setup .help { margin: 0 0 20px; border-top: 1px solid var(--hair); padding-top: 12px; }
