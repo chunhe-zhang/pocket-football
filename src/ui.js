@@ -11,11 +11,11 @@ const HELP = {
   1: `<div class="grid">
     <b>移动</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键</span>
     <b>射门</b><span>按住 <kbd>Space</kbd> 或 <kbd>J</kbd> 蓄力，松开出脚，蓄满是重炮。瞄到球门附近会自动修正到门框以内</span>
-    <b>平传</b><span>轻按 <kbd>I</kbd> 或 <kbd>Q</kbd> 极速短蓄力，优先传给方向上较近的空位队友</span>
+    <b>平传</b><span>轻按 <kbd>I</kbd> 或 <kbd>Q</kbd> 短蓄力，优先传给方向上较近的空位队友</span>
     <b>瞄准</b><span>蓄力时第一下的方向定大方向，之后按住方向键准星会慢慢转过去，点一下转一点，想打多细的角度都行（手柄、手机摇杆直接指哪打哪）。地上的小点和门上的圈是球会飞的路线</span>
     <b>完美射门</b><span>在蓄力条的金色框里松手：没有偏差；蓄满再松手力量最大但会偏、会往上飘</span>
     <b>挑射</b><span>按住 <kbd>U</kbd> 短蓄力，松开吊门；J 和 U 约 0.24 秒蓄满</span>
-    <b>挑传</b><span>轻按 <kbd>K</kbd> 极速短蓄力，优先找方向上较远的空位队友，落点便于停球</span>
+    <b>挑传</b><span>轻按 <kbd>K</kbd> 短蓄力，优先找方向上较远的空位队友，落点便于停球</span>
     <b>一脚出球</b><span>队友的球还在路上就按键：跑过去不停球直接打——地滚球一脚射门/一脚传，空中球就是凌空抽射或头球。配合打出来的射门更准更狠，回传给刚传你的人就是撞墙配合</span>
     <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：起跳头球攻门（会自动修正到门框里）；按 <kbd>I</kbd> 是头球摆渡给队友；按 <kbd>U</kbd> 是挑射；未主动出脚时先停稳来球</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
@@ -31,7 +31,7 @@ const HELP = {
   pads: `<div class="grid">
     <b>P3</b><span>手柄 1：左摇杆移动和瞄准 · A 射门/头球 · Y 平传 · B 挑传 · LB 挑射 · X 抢断/闪身步 · RB 冲刺</span>
     <b>P4</b><span>手柄 2：同上</span></div>`,
-  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>传球</b><span>贴地传给指着的队友</span><b>挑传</b><span>极速短蓄力，传给队友</span><b>挑射</b><span>短蓄力后吊门</span><b>抢断 / 冲刺</b><span>带球时“抢断”键是闪身步</span></div>',
+  touch: '<div class="grid"><b>左摇杆</b><span>移动，蓄力时就是瞄准</span><b>射门</b><span>按住蓄力，松开出脚；球在空中时是头球</span><b>传球</b><span>贴地传给指着的队友</span><b>挑传</b><span>短蓄力，传给队友</span><b>挑射</b><span>短蓄力后吊门</span><b>抢断 / 冲刺</b><span>带球时“抢断”键是闪身步</span></div>',
 };
 
 export class UI {
@@ -217,7 +217,7 @@ export class UI {
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传（极速短蓄力）　·　<b>U</b> 挑射（短蓄力）　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
+      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传（短蓄力）　·　<b>U</b> 挑射（短蓄力）　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
       : `P1：WASD + F 射门 / R 平传 / G 挑传 / H 抢断　·　P2：方向键 + Enter / , / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);

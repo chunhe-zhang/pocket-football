@@ -105,7 +105,7 @@ export class Game {
   /** is this goal one I mustn't score in (my own, or my team-mate's)? */
   friendlyGoal(ath, gt) { return this.m5 ? ath.end === gt : gt === ath.team || this.sameSide(ath.team, gt); }
   /** who's guarding this goal */
-  keeperOf(gt) { return this.m5 ? this.athletes.find((a) => a.end === gt && a.role === 'gk') || null : this.athletes[gt] || null; }
+  keeperOf(gt) { return this.m5 ? this.athletes.find((a) => a.end === gt && a.role === 'gk' && !a.out) || null : this.athletes[gt] || null; }
 
   // ------------------------------------------------------------- 5v5 roster --
   _makeRoster10() {
@@ -362,7 +362,8 @@ export class Game {
    */
   _setupPractice() {
     const A = this.athletes, me = A[this.cursors[0]?.idx ?? 0], opt = this.settings.practice || 'gk';
-    const keep = new Set([me, A.find((a) => a.gi !== me.gi && a.role === 'gk')]);
+    const keep = new Set([me]);
+    if (opt !== 'empty') keep.add(A.find((a) => a.gi !== me.gi && a.role === 'gk'));
     if (opt === 'mate' || opt === 'both') keep.add(A.find((a) => a.gi === me.gi && a.role === (me.role === 'mid' ? 'fwd' : 'mid')));
     if (opt === 'opp' || opt === 'both') keep.add(A.find((a) => a.gi !== me.gi && a.role === 'back'));
     for (const a of A) if (!keep.has(a)) { a.out = true; a.char.group.visible = false; a.place(60 + a.team * 3, 60, 0); }

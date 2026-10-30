@@ -128,7 +128,8 @@ export class Athlete {
    */
   passLead(rcv, power) {
     const ball = this.game.ball, p = clamp(power, 0, 1);
-    const arrive = 5.2 + 8 * Math.pow(p, 1.4);
+    const skillPass = this._skillShot || this.kick?.skill || ((this._fromArmed || (this.kick?.armed && this.kick?.feeder)) && this.game.ball.chain?.els?.length);
+    const arrive = (skillPass ? 5.2 : 6.6) + 8 * Math.pow(p, 1.4);
     // lead direction: where they're running, else towards the goal they'd attack
     let lx = rcv.vel.x, lz = rcv.vel.z, ls = Math.hypot(lx, lz);
     if (ls < 1.5) { const gt = rcv.goalTarget(); lx = gt.x - rcv.pos.x; lz = gt.z - rcv.pos.z; ls = Math.hypot(lx, lz) || 1; }
@@ -252,7 +253,7 @@ export class Athlete {
         if (hs && hs.t < 0.45 && hs.y > Athlete.MAXH[this.chargeType] + 0.1 && (headBall || !this._volleyLater(this.chargeType))) { this.char.face('angry', 0); this.charging = false; this.charge = 0; this._needRelease = true; this._startHeader(this.chargeType === 'chip' ? 'lob' : this.chargeType === 'pass' ? 'pass' : 'shot'); }
         else if (coming && this._inStrikeReach(this.chargeType)) { this.char.face('angry', 0); this._needRelease = true; this._fromArmed = this._feederFor() || true; this._release(); this._fromArmed = false; }
         else if (coming && this.chargeHold > PLAYER.chargeAutoRelease) { /* keep it cocked until the ball gets here */ }
-        else if (quickPass ? (this.charge >= 1 - 1e-6 || (!held && this.charge * PLAYER.passChargeTime >= PLAYER.passMinChargeTime)) : (!held || this.chargeHold > PLAYER.chargeAutoRelease)) {
+        else if (quickPass ? ((!held && this.charge * PLAYER.passChargeTime >= PLAYER.passMinChargeTime) || this.chargeHold > PLAYER.chargeAutoRelease) : (!held || this.chargeHold > PLAYER.chargeAutoRelease)) {
           this.char.face('angry', 0); if (quickPass) this._needRelease = true; this._release();
         }
         else this.char.windup = this.charge;
@@ -2899,7 +2900,7 @@ export class Athlete {
     this.passTarget = null; this.passT = -1;
     if (b.passTo === this) { b.passTo = null; b.passToT = 0; }
     b.dribbleBy = this; b.dribbleGuard = 0.2;
-    this.gather = b.pos.y > R + 0.12 ? { t: 0, dur: clamp(0.15 + b.pos.y * 0.13, 0.18, 0.42), height: b.pos.y } : null;
+    this.gather = b.pos.y > R + 0.12 ? { t: 0, dur: clamp(0.18 + b.pos.y * 0.15, 0.22, 0.48), height: b.pos.y } : null;
     this.dribbling = true;
     this.lastTouchTime = g.time;
     this.touchCD = cd;

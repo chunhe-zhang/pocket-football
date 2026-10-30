@@ -54,7 +54,7 @@ export const PLAYER = {
   shadowCatchRange: 6.0,
   chargeTime: 0.24,       // seconds to reach full power (quick: a shot is a snap, not a wind-up)
   chargeAutoRelease: 0.25,
-  passChargeTime: 0.10,  // I/K: full charge and automatic release in 100 ms
+  passChargeTime: 0.24,  // I/K fill at the same rate as shots
   passMinChargeTime: 0.04, // even a tap has a tiny, buffered preparation
   staminaDrain: 0.32,
   staminaRegen: 0.38,
