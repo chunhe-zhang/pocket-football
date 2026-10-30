@@ -187,7 +187,7 @@ export const beats = (a, b) => !!a && !!b && CAMP_BEATS[CAMP[a]] === CAMP[b];
 /**
  * Combo shots: a move where several players hit the ball first time, one after another, ends in a
  * shot carrying every one of their elements. Two elements make one of these named pairs (key: the
- * two ids sorted); three or more players make a 合击 that nothing stops.
+ * two ids sorted); three or more distinct elements make a multi-element 合击.
  *   gk: what it does to the goalkeeper: 'teleport' (vanishes and reappears in the net),
  *       'blast' / 'through' (straight through him), 'freeze' (frozen, the ball spills), 'parry'
  *       (too hot to hold: beaten away). aura: what it does to anyone it flies past.
@@ -210,12 +210,15 @@ export const COMBOS = {
   'cannon+phantom':  { name: '幽灵巨石', gk: 'through', invis: true, big: true },
 };
 const NUM = ['', '', '双', '三', '四', '五', '六'];
-/** what a strike carrying these elements (one per player in the move, repeats allowed) is */
+/** The distinct elements carried by a move. Repeated passes never add a tier. */
+export function comboElements(els = []) {
+  return [...new Set(els.filter(id => CHAR[id]))];
+}
+/** What a strike carrying these distinct elements is. */
 export function comboOf(els) {
-  const ids = [...new Set(els)].sort(), n = els.length;
+  const ids = comboElements(els).sort(), n = ids.length;
   if (n <= 1) return { ids, n, level: 1, key: ids.join('+'), name: '', gk: 'save' };
-  if (n >= 3) return { ids, n, level: 3, key: ids.join('+'), name: `${NUM[Math.min(6, n)]}人合击`, gk: 'through', aura: 'knock', big: true };
-  if (ids.length === 1) return { ids, n, level: 2, key: ids[0], name: `双${CHAR[ids[0]].name}合击`, gk: 'parry', pierceGk: 0.3 };
+  if (n >= 3) return { ids, n, level: 3, key: ids.join('+'), name: `${NUM[Math.min(6, n)]}元素合击`, gk: 'through', aura: 'knock', big: true };
   return { ids, n, level: 2, key: ids.join('+'), ...COMBOS[ids.join('+')] };
 }
 export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
@@ -436,17 +439,18 @@ export function inBigBox(team, x, z) {
 /**
  * How good a chance a shot is (射门评分), the one number that sets how hard it is to keep out:
  *   where it's struck from — 小禁区 3, 大禁区 2, outside the box in the opponents' half 1, own half 0 —
- *   plus how it was made — on your own 0, first time off a team-mate (a 连携) 1, a 三人合击 or more 2.
+ *   plus distinct elements — one element 0, two elements 1, three or more elements 2.
  * About: 0 almost never goes in, 3 usually does, 4+ always does (its pace, its placement and what it
  * does to the keeper follow from it; a keeper who can't move is a different story).
  */
-export function shotScore(x, z, tx, tz, people = 1) {
+export function shotScore(x, z, tx, tz, elements = 1) {
   let gi = -1, best = Infinity;
   GOALS.forEach((g, i) => { const d = Math.hypot(g.centre.x - tx, g.centre.z - tz); if (d < best) { best = d; gi = i; } });
   const zone = shotZone(x, z, tx, tz);
   let pos = zone === 'small' ? 3 : zone === 'box' ? 2 : 1;
   if (pos === 1 && gi >= 0) { const g = GOALS[gi]; if ((g.axis === 'x' ? x : z) * Math.sign(g.centre[g.axis]) <= 0) pos = 0; }   // still in my own half
-  return pos + (people >= 3 ? 2 : people === 2 ? 1 : 0);
+  const count = Array.isArray(elements) ? comboElements(elements).length : elements;
+  return pos + (count >= 3 ? 2 : count === 2 ? 1 : 0);
 }
 /** where a shot is struck from, relative to the goal it's aimed at: 'small' (小禁区) | 'box' (大禁区) | 'out' */
 export function shotZone(x, z, tx, tz) {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sphereContact, advanceFreeBall } from './contact-physics.js';
-import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf, waveOff, waveSlope } from './config.js';
+import { FIELD, BALL, goalIndexFor, clampToArena, OBSTACLES, halfOf, islandClosest, padAt, inShape, inOwnBox, comboOf, comboElements, waveOff, waveSlope } from './config.js';
 
 const { goalDepth: GD, postR } = FIELD;   // goal width / height come from the map (FIELD.goalHalfW / goalH)
 const R = BALL.r;
@@ -187,6 +187,7 @@ export class Ball {
    */
   startSpecial(els, owner, dir, power = 1, goal = null) {
     if (typeof els === 'string') els = [els];
+    els = comboElements(els);
     const l = Math.hypot(dir.x, dir.z) || 1, c = { ...comboOf(els) };
     // from range the keeper has time: a two-man combo's unstoppable trick (through him, teleport,
     // blast) often fades into a plain thunderbolt he can get to; even a 合击 from very far sometimes
@@ -199,7 +200,7 @@ export class Ball {
     if (c.level >= 2) c.pierceGk = S >= 4 ? 1 : (c.pierceGk || 0) * [0, 0.2, 0.5, 1, 1, 1][S];
     if (c.level >= 2 && c.aura && Math.random() < c.range) c.aura = null;     // the aura doesn't carry that far
     this.special = { els, ids: c.ids, combo: c, type: c.ids.length === 1 ? c.ids[0] : c.key, has: (id) => c.ids.includes(id), owner, power, t: 0, hit: new Set(), aura: new Set(), dx: dir.x / l, dz: dir.z / l, sgn: Math.random() < 0.5 ? -1 : 1, goal };
-    this.specialType = c.key + (c.n > c.ids.length ? '!' : '');      // '!' = more players than elements (stronger look)
+    this.specialType = c.key;
     this.spin.set(0, 0, 0); this.hidden = false;
     this.passEls = null;
     return c;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { constrainCarry } from './ball-motion.js';
-import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, shotZone, shotScore } from './config.js';
+import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, comboElements, shotZone, shotScore } from './config.js';
 
 // what a shot's 评分 (config.shotScore, 0..5) does to it: pace, the top speed, and how much harder it is to save
 const S_PACE = [0.74, 0.87, 1.08, 1.2, 1.25, 1.3], S_CAP_SOLO = [24, 28, 33, 38, 38, 38], S_CAP_COMBO = [26, 29, 33, 43, 46, 48];
@@ -1853,7 +1853,7 @@ export class Athlete {
       ball.spin.multiplyScalar(0.2);
       ball.lastTouch = this; this.lastTouchTime = g.time; this.touchCD = 0.3; this.ignoreBall = 0.25; this.stats.touches++;
       ball.guardT = 0; ball.loftKind = null; ball.dribbleGuard = 0; ball.endSpecial();
-      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos); { const t2 = this.goalTarget(); ball.shotZone = shotZone(this.pos.x, this.pos.z, t2.x, t2.z); ball.shotS = shotScore(this.pos.x, this.pos.z, t2.x, t2.z, chain.length); }
+      ball.chain = { els: chain, last: this }; ball.shotDist = this.goalTarget().distanceTo(this.pos); { const t2 = this.goalTarget(); ball.shotZone = shotZone(this.pos.x, this.pos.z, t2.x, t2.z); ball.shotS = shotScore(this.pos.x, this.pos.z, t2.x, t2.z, chain); }
       if (special) { ball.startSpecial(chain, this, h.aim, 0.8, this.goalTarget()); g.onSpecial?.(this, special); }
       else if (mate) { this._elemPass(chain); ball.passTo = mate; ball.passToT = 1.3; }
       if (!mate) this.passT = -1;
@@ -2393,7 +2393,7 @@ export class Athlete {
     const gt = this.goalTarget(), zone = shotZone(this.pos.x, this.pos.z, gt.x, gt.z);
     // the shot's 评分 (where from + how it was made) sets its pace: a run through to the 小禁区 is struck
     // with everything, a 三人合击 even more; a hopeful one from your own half is something a keeper tracks
-    const S = shotScore(this.pos.x, this.pos.z, gt.x, gt.z, chain.length);
+    const S = shotScore(this.pos.x, this.pos.z, gt.x, gt.z, chain);
     if (k.type === 'kick' && special) {
       speed *= S_PACE[S];
       speed = Math.min(speed, special.level > 1 ? S_CAP_COMBO[S] : S_CAP_SOLO[S]);
@@ -2461,12 +2461,11 @@ export class Athlete {
   /** a word over my head for a moment (also sent to guests) */
   flair(text, quiet = false) { this.flairText = text; this.flairT = this.game.time; if (!quiet) this.game.sfx.combo?.(/凌空|倒钩|鱼跃|合击/.test(text) ? 2 : 1); this.game.emit?.({ e: 'flair', i: this.team, s: text, q: quiet ? 1 : 0 }); }
 
-  /** the elements of the passing move this strike belongs to (one per player, most recent last) */
+  /** Keep every distinct element in the passing move, once each. */
   _chainFor(prev, firstTime) {
     const c = this.game.ball.chain;
-    const els = firstTime && c && prev && c.last === prev && prev !== this && !this._isOpp(prev) ? c.els.slice(-5) : [];
-    els.push(this.charId);
-    return els;
+    const els = firstTime && c && prev && c.last === prev && prev !== this && !this._isOpp(prev) ? c.els : [];
+    return comboElements([...els, this.charId]);
   }
   /** how fast an element shot flies: a solo one only a little quicker than a normal shot, a combo much more */
   _elemSpeed(speed, c, lo) {

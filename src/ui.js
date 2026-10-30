@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR, CAMP, CAMP_NAME, beats } from './config.js';
+import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR, CAMP, CAMP_NAME, beats, comboElements } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -22,7 +22,7 @@ const HELP = {
     <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲（范围大、威力强，但铲空了会躺地、扣体力）；在自己的禁区里是扑救</span>
     <b>过人</b><span>带球时按 <kbd>L</kbd>：放出角色专属过人（雷 Z 字闪电冲刺、影瞬移、风高高腾空飞越（空中还能凌空射门）、火怒吼震飞、冰把人冻成冰雕、土低头冲撞），4 秒一次；冷却中按是普通闪身步。技能放到一半或刚放完时按射门/传球，立刻以最舒服的力度出脚（技能射门）</span>
     <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。每一脚爆射（蓄力超过 30%，轻点的传球除外）都是必杀；地上的预览线会变成角色的颜色。单人必杀对门将效果不大（冰除外）</span>
-    <b>元素连携</b><span>每个一脚出球的队友都把自己的元素加到球上：两人连携有组合特效（雷+影瞬移进门、土+火炸飞门将…），三人以上是合击，门将挡不住</span>
+    <b>元素连携</b><span>每个一脚出球的队友都把自己的元素加到球上：两种不同元素连携有组合特效（雷+影瞬移进门、土+火炸飞门将…），三种不同元素以上是多元素合击，重复元素不累加，门将挡不住</span>
     <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
@@ -286,14 +286,15 @@ export class UI {
     clearTimeout(this._toastT); this._toastT = setTimeout(() => { k.style.transition = 'opacity 0.8s'; k.style.opacity = '0'; }, 1300);
   }
 
-  /** A short, non-blocking three-player cut-in: the real shot continues underneath. */
+  /** Every multi-element strike gets the same non-blocking animated cut-in. */
   comboCinematic(ids) {
-    const elements = ids.filter(id => CHAR[id]).slice(-6);
-    if (elements.length < 3) return;
+    const elements = comboElements(ids);
+    if (elements.length < 2) return;
     this._comboCutin?.remove(); clearTimeout(this._comboCutinTimer);
     const root = document.createElement('div'); root.className = 'combo-cutin';
-    root.setAttribute('aria-label', `${['','','','三','四','五','六'][elements.length]}人合击：` + elements.map(id => CHAR[id].name).join('、'));
-    const title = document.createElement('div'); title.className = 'combo-cutin-title'; title.textContent = `${['','','','三','四','五','六'][elements.length]}人合击`; root.appendChild(title);
+    const name = `${['','','双','三','四','五','六'][elements.length]}元素合击`;
+    root.setAttribute('aria-label', name + '：' + elements.map(id => CHAR[id].name).join('、'));
+    const title = document.createElement('div'); title.className = 'combo-cutin-title'; title.textContent = name; root.appendChild(title);
     const row = document.createElement('div'); row.className = 'combo-cutin-row';
     elements.forEach((id, i) => {
       const card = document.createElement('div'); card.className = 'combo-cutin-card';

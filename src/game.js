@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SnapshotTimeline, sampleBallSnapshot } from './ball-motion.js';
-import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats, shotScore } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats, shotScore, comboElements } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -565,7 +565,7 @@ export class Game {
     if (!k.isPass && !(k.loft && !k.lobShot)) {
       // Display the actual distance/chain rating, never the charge percentage.
       const target = ath.goalTarget();
-      const score = this.ball.shotS ?? shotScore(ath.pos.x, ath.pos.z, target.x, target.z, this.ball.chain?.els?.length || 1);
+      const score = this.ball.shotS ?? shotScore(ath.pos.x, ath.pos.z, target.x, target.z, this.ball.chain?.els || [ath.charId]);
       this.ui.onShotPower(ath, score);
       this.emit({ e: 'shotPower', i: ath.team, score });
     }
@@ -616,17 +616,15 @@ export class Game {
 
   /** an element shot leaves the boot (c: comboOf(the move's elements) — or a character for old callers) */
   onSpecial(ath, c) {
-    const ids = c.ids || [c.id], lv = c.level || 1;
+    const ids = comboElements(c.ids || [c.id]), lv = Math.min(3, Math.max(1, ids.length));
     ath.stats.specials = (ath.stats.specials || 0) + 1;
     if (lv > 1) ath.stats.combos = (ath.stats.combos || 0) + 1;
     this.hitstop = Math.max(this.hitstop, 0.05); this.shake = Math.max(this.shake, lv > 1 ? 0.25 : 0.15); this.emit({ e: 'shake', v: 0.15 });
     this.sfx.kick(1); ids.forEach((id, k) => setTimeout(() => this.sfx.element(id, 'shot', k ? 0.75 : 1), k * 70));
     if (lv > 1) this.sfx.combo?.(lv >= 3 ? 3 : 2);
     if (lv === 2) this.slowmo = Math.max(this.slowmo, .9);
-    if (lv >= 3) {
-      const chain = (this.ball.chain?.els || ids).filter(id => CHAR[id]).slice(-6);
-      while (chain.length < 3) chain.unshift(ids[0]);
-      this.ui.comboCinematic(chain); this.emit({ e: 'comboCinematic', ids: chain });
+    if (lv >= 2) {
+      this.ui.comboCinematic(ids); this.emit({ e: 'comboCinematic', ids });
     }
     this.sfx.crowd(lv > 1 ? 0.35 : 0.2, 0.6); this.sfx.ooh();
     for (const id of ids) this.fx(PART_OF[id], this.ball.pos, { x: 0, z: 0 }, Math.round(30 / Math.sqrt(ids.length)) + (lv > 1 ? 10 : 0), lv > 1 ? 7 : 5);
