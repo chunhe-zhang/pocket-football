@@ -614,6 +614,12 @@ export class Game {
     this.hitstop = Math.max(this.hitstop, 0.05); this.shake = Math.max(this.shake, lv > 1 ? 0.25 : 0.15); this.emit({ e: 'shake', v: 0.15 });
     this.sfx.kick(1); ids.forEach((id, k) => setTimeout(() => this.sfx.element(id, 'shot', k ? 0.75 : 1), k * 70));
     if (lv > 1) this.sfx.combo?.(lv >= 3 ? 3 : 2);
+    if (lv === 2) this.slowmo = Math.max(this.slowmo, .9);
+    if (lv >= 3) {
+      const chain = (this.ball.chain?.els || ids).filter(id => CHAR[id]).slice(-6);
+      while (chain.length < 3) chain.unshift(ids[0]);
+      this.ui.comboCinematic(chain); this.emit({ e: 'comboCinematic', ids: chain });
+    }
     this.sfx.crowd(lv > 1 ? 0.35 : 0.2, 0.6); this.sfx.ooh();
     for (const id of ids) this.fx(PART_OF[id], this.ball.pos, { x: 0, z: 0 }, Math.round(30 / Math.sqrt(ids.length)) + (lv > 1 ? 10 : 0), lv > 1 ? 7 : 5);
     if (lv > 1) this.onImpact({ pos: this.ball.pos }, CHAR[ids[0]].color);
@@ -1487,6 +1493,7 @@ export class Game {
     switch (e.e) {
       case 'sfx': this.realSfx[e.n]?.(...(e.a || [])); break;
       case 'ch': { const c = this.athletes[e.i]?.char; if (c) c[e.m](...(e.a || [])); break; }
+      case 'comboCinematic': if (Array.isArray(e.ids)) this.ui.comboCinematic(e.ids); break;
       case 'banner': this.ui.banner(e.big, e.small); break;
       case 'bulge': this.pitch.bulgeNet(e.team, new THREE.Vector3().fromArray(e.p), e.v); break;
       case 'cheer': this.pitch.cheer(0, 1); break;

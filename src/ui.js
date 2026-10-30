@@ -259,6 +259,26 @@ export class UI {
     clearTimeout(this._toastT); this._toastT = setTimeout(() => { k.style.transition = 'opacity 0.8s'; k.style.opacity = '0'; }, 1300);
   }
 
+  /** A short, non-blocking three-player cut-in: the real shot continues underneath. */
+  comboCinematic(ids) {
+    const elements = ids.filter(id => CHAR[id]).slice(-6);
+    if (elements.length < 3) return;
+    this._comboCutin?.remove(); clearTimeout(this._comboCutinTimer);
+    const root = document.createElement('div'); root.className = 'combo-cutin';
+    root.setAttribute('aria-label', `${['','','','三','四','五','六'][elements.length]}人合击：` + elements.map(id => CHAR[id].name).join('、'));
+    const title = document.createElement('div'); title.className = 'combo-cutin-title'; title.textContent = `${['','','','三','四','五','六'][elements.length]}人合击`; root.appendChild(title);
+    const row = document.createElement('div'); row.className = 'combo-cutin-row';
+    elements.forEach((id, i) => {
+      const card = document.createElement('div'); card.className = 'combo-cutin-card';
+      card.style.setProperty('--element', CHAR[id].css); card.style.setProperty('--order', i);
+      const icon = document.createElement('span'); icon.className = 'combo-cutin-icon'; icon.textContent = CHAR[id].icon;
+      const label = document.createElement('span'); label.textContent = CHAR[id].name;
+      card.append(icon, label); row.appendChild(card);
+    });
+    root.appendChild(row); document.body.appendChild(root); this._comboCutin = root;
+    this._comboCutinTimer = setTimeout(() => { root.remove(); if (this._comboCutin === root) this._comboCutin = null; }, 1550);
+  }
+
   onScore(g) {
     if (g.m5 && g.practice) {
       $('#clock').innerHTML = `<span class="score5"><span class="t" style="background:${TEAMS[0].css}">练习场</span><span class="n">进球 ${g.conceded[1]}</span></span>`;
