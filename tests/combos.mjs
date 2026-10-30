@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { CHARS, GOALS, comboOf, comboElements, shotScore, setMap } from '../src/config.js';
+import { CHARS, GOALS, comboOf, comboElements, shotScore, setMap, MULTI_COMBO_NAMES } from '../src/config.js';
+
+const moveNames = new Set();
+for (let mask = 0; mask < 1 << CHARS.length; mask++) {
+  const ids = CHARS.filter((_, i) => mask & 1 << i).map(c => c.id);
+  if (ids.length < 2) continue;
+  const combo = comboOf(ids);
+  assert.ok(typeof combo.name === 'string' && combo.name.length > 0, `move name missing: ${combo.key}`);
+  assert.equal(comboOf([...ids].reverse().concat(ids)).name, combo.name, 'name is independent of pass order and repetitions');
+  if (ids.length >= 3) assert.equal(MULTI_COMBO_NAMES[combo.key], combo.name);
+  moveNames.add(combo.name);
+}
+assert.equal(moveNames.size, 57, 'every two-to-six-element combination has its own name');
+assert.equal(Object.keys(MULTI_COMBO_NAMES).length, 42);
+assert.equal(comboOf(['thunder', 'blaze']).name, '雷火流星');
 
 const two = ['thunder', 'blaze'];
 const repeated = ['thunder', 'blaze', 'thunder', 'blaze', 'thunder'];

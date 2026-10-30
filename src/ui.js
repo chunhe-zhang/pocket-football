@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR, CAMP, CAMP_NAME, beats, comboElements } from './config.js';
+import { TEAMS, SIDES, FIELD, GOALS, CHARS, CHAR, CAMP, CAMP_NAME, beats, comboElements, comboOf } from './config.js';
 import { NetClient } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -292,9 +292,11 @@ export class UI {
     if (elements.length < 2) return;
     this._comboCutin?.remove(); clearTimeout(this._comboCutinTimer);
     const root = document.createElement('div'); root.className = 'combo-cutin';
-    const name = `${['','','双','三','四','五','六'][elements.length]}元素合击`;
-    root.setAttribute('aria-label', name + '：' + elements.map(id => CHAR[id].name).join('、'));
+    const type = `${['','','双','三','四','五','六'][elements.length]}元素合击`;
+    const name = comboOf(elements).name;
+    root.setAttribute('aria-label', name + ' · ' + type + '：' + elements.map(id => CHAR[id].name).join('、'));
     const title = document.createElement('div'); title.className = 'combo-cutin-title'; title.textContent = name; root.appendChild(title);
+    const subtitle = document.createElement('div'); subtitle.className = 'combo-cutin-type'; subtitle.textContent = type; root.appendChild(subtitle);
     const row = document.createElement('div'); row.className = 'combo-cutin-row';
     elements.forEach((id, i) => {
       const card = document.createElement('div'); card.className = 'combo-cutin-card';

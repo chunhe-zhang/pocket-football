@@ -231,6 +231,7 @@ button { font-family: var(--font); cursor: pointer; }
 /* Multi-element combo: a brief animated cut-in above the action; input stays live. */
 .combo-cutin { position: fixed; z-index: 80; top: 13%; left: 50%; transform: translateX(-50%); pointer-events: none; width: min(440px, 92vw); text-align: center; animation: combo-show 1.55s both; }
 .combo-cutin-title { color: #fff; font-weight: 900; font-size: clamp(23px, 5vw, 36px); letter-spacing: .16em; text-shadow: 0 2px 4px #111, 0 0 18px #f7e47d; animation: combo-title .32s ease-out both; }
+.combo-cutin-type { margin-top:3px; color:rgba(255,255,255,.75); font:500 11px/1.4 system-ui,sans-serif; letter-spacing:.2em; text-shadow:0 1px 3px #111; }
 .combo-cutin-row { display: flex; justify-content: center; gap: clamp(6px, 2vw, 14px); margin-top: 6px; }
 .combo-cutin-card { max-width:112px; color: white; border: 2px solid var(--element); border-radius: 13px; background: linear-gradient(140deg, #161c30ef, #101326df); box-shadow: 0 0 15px var(--element), inset 0 0 12px #ffffff1c; width: clamp(74px, 22vw, 112px); min-width: 0; flex: 1 1 0; padding: 8px 3px; font-size: 17px; font-weight: 800; animation: combo-card .38s cubic-bezier(.2,1.4,.4,1) both; animation-delay: calc(var(--order) * .1s); }
 .combo-cutin-icon { display: block; font-size: clamp(25px, 6vw, 39px); line-height: 1.15; filter: drop-shadow(0 0 6px var(--element)); }

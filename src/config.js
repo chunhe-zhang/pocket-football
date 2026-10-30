@@ -209,7 +209,52 @@ export const COMBOS = {
   'cannon+gale':     { name: '沙暴', gk: 'parry', aura: 'quake', pierceGk: 0.35 },
   'cannon+phantom':  { name: '幽灵巨石', gk: 'through', invis: true, big: true },
 };
-const NUM = ['', '', '双', '三', '四', '五', '六'];
+// A stable move name for every three-to-six-element combination. Keys use
+// the same canonical order as the two-element COMBOS table above.
+export const MULTI_COMBO_NAMES = {
+  'blaze+cannon+frost': '熔霜裂地',
+  'blaze+cannon+gale': '炎岚裂地',
+  'blaze+cannon+phantom': '冥炎地狱',
+  'blaze+cannon+thunder': '天雷地火',
+  'blaze+frost+gale': '冰焰风暴',
+  'blaze+frost+phantom': '幽冥霜焰',
+  'blaze+frost+thunder': '霜焰雷鸣',
+  'blaze+gale+phantom': '幻焰龙卷',
+  'blaze+gale+thunder': '雷焰风暴',
+  'blaze+phantom+thunder': '幽雷焚影',
+  'cannon+frost+gale': '霜岚裂岩',
+  'cannon+frost+phantom': '冥霜地葬',
+  'cannon+frost+thunder': '寒雷震岳',
+  'cannon+gale+phantom': '幽岚崩山',
+  'cannon+gale+thunder': '天岚震岳',
+  'cannon+phantom+thunder': '冥雷裂地',
+  'frost+gale+phantom': '幽霜风暴',
+  'frost+gale+thunder': '极寒雷暴',
+  'frost+phantom+thunder': '寒影雷狱',
+  'gale+phantom+thunder': '幻岚雷闪',
+  'blaze+cannon+frost+gale': '霜焰裂空',
+  'blaze+cannon+frost+phantom': '冥焰霜葬',
+  'blaze+cannon+frost+thunder': '霜雷炼狱',
+  'blaze+cannon+gale+phantom': '幽岚焚岳',
+  'blaze+cannon+gale+thunder': '雷火崩天',
+  'blaze+cannon+phantom+thunder': '冥雷焚岳',
+  'blaze+frost+gale+phantom': '幻界冰焰',
+  'blaze+frost+gale+thunder': '冰焰天劫',
+  'blaze+frost+phantom+thunder': '幽霜雷焰',
+  'blaze+gale+phantom+thunder': '幻焰雷龙',
+  'cannon+frost+gale+phantom': '幽霜绝域',
+  'cannon+frost+gale+thunder': '霜岚震天',
+  'cannon+frost+phantom+thunder': '冥雷寒狱',
+  'cannon+gale+phantom+thunder': '幽岚雷葬',
+  'frost+gale+phantom+thunder': '幻霜天罚',
+  'blaze+cannon+frost+gale+phantom': '幽界焚霜',
+  'blaze+cannon+frost+gale+thunder': '天劫裂界',
+  'blaze+cannon+frost+phantom+thunder': '冥雷灭界',
+  'blaze+cannon+gale+phantom+thunder': '幻焰崩天',
+  'blaze+frost+gale+phantom+thunder': '极夜天劫',
+  'cannon+frost+gale+phantom+thunder': '幽霜裂界',
+  'blaze+cannon+frost+gale+phantom+thunder': '六极终焉',
+};
 /** The distinct elements carried by a move. Repeated passes never add a tier. */
 export function comboElements(els = []) {
   return [...new Set(els.filter(id => CHAR[id]))];
@@ -218,7 +263,7 @@ export function comboElements(els = []) {
 export function comboOf(els) {
   const ids = comboElements(els).sort(), n = ids.length;
   if (n <= 1) return { ids, n, level: 1, key: ids.join('+'), name: '', gk: 'save' };
-  if (n >= 3) return { ids, n, level: 3, key: ids.join('+'), name: `${NUM[Math.min(6, n)]}元素合击`, gk: 'through', aura: 'knock', big: true };
+  if (n >= 3) return { ids, n, level: 3, key: ids.join('+'), name: MULTI_COMBO_NAMES[ids.join('+')], gk: 'through', aura: 'knock', big: true };
   return { ids, n, level: 2, key: ids.join('+'), ...COMBOS[ids.join('+')] };
 }
 export const randomChar = () => CHARS[Math.floor(Math.random() * CHARS.length)].id;
