@@ -15,7 +15,7 @@ void main(){
  float veins=pow(1.-abs(sin((p.x+p.y*.42)*39.+n*2.)),18.);
  float branches=pow(1.-abs(sin((p.x-p.y*.67)*51.+seed)),28.)*.45;
  vec3 color=mix(vec3(.35,.72,.86),vec3(.88,.98,1.),veins);
- gl_FragColor=vec4(color,film*(.065+veins*.42+branches*.25)*opacity);
+ gl_FragColor=vec4(color,film*(.14+veins*.55+branches*.30)*opacity);
 }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
   });

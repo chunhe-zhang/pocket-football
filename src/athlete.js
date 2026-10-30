@@ -1013,6 +1013,7 @@ export class Athlete {
     this.char.play(T.g, { duration: T.dur + 0.1, amp: kind === 'cannon' ? 0.8 : kind === 'gale' ? 0.6 : 1 });
     this.char.face('angry', 0.6); this.faceT = 0.5;
     g.sfx.element?.(kind, 'slide', 0.6);
+    if (kind === 'thunder') g.onSlide?.(this, kind);
   }
 
   _tackleMoveMotion(dt) {

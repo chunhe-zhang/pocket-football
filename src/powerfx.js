@@ -194,7 +194,7 @@ export class PowerFx {
         }
         d.visible = true; d.position.set(p.x, .022 + n * .00001, p.z);
         d.rotation.z = p.angle || 0;
-        d.material.uniforms.opacity.value = Math.min(1, u * 2.5) * .72;
+        d.material.uniforms.opacity.value = Math.min(1, u * 2.5) * 1.0;
         d.material.uniforms.seed.value = p.x * .37 + p.z * .23;
         n++;
       }
@@ -226,7 +226,7 @@ export class PowerFx {
         if (Math.random() < dt * 14) this.puff(T.flame, { x: p.x + bx * 0.3, y: 0.25 + Math.random() * 0.8, z: p.z + bz * 0.3 }, { x: bx * 2, y: 1.5, z: bz * 2 }, 0.4, 0.45, 0.1, 0xffffff, -1, true, 0.85);
       } else if (a.charId === 'frost') {
         if (Math.random() < dt * 7) this.puff(T.smoke, { x: p.x + bx * .35, y: .1, z: p.z + bz * .35 }, { x: bx * .5, y: .25, z: bz * .5 }, .5, .3, .8, 0xd9f4ff, 0, true, .16);
-        if (Math.random() < dt * 12) this.puff(T.frostShard, { x: p.x + bx * .35 + (Math.random() - .5) * .35, y: .08 + Math.random() * .18, z: p.z + bz * .35 + (Math.random() - .5) * .35 }, { x: bx * .6, y: .35, z: bz * .6 }, .45, .12, .025, 0xc7f1ff, .2, true, .75);
+        if (Math.random() < dt * 20) this.puff(T.frostShard, { x: p.x + bx * .35 + (Math.random() - .5) * .35, y: .08 + Math.random() * .18, z: p.z + bz * .35 + (Math.random() - .5) * .35 }, { x: bx * .6, y: .35, z: bz * .6 }, .55, .18, .035, 0xc7f1ff, .2, true, .75);
       } else if (a.charId === 'phantom') {
         if (Math.random() < dt * 12) this.puff(T.glow, { x: p.x + bx * 0.4, y: 0.4 + Math.random() * 1.2, z: p.z + bz * 0.4 }, { x: 0, y: 0.6, z: 0 }, 0.5, 0.6, 0.15, 0x9060ff, 0, false, 0.7);
       } else if (a.charId === 'cannon') {
@@ -466,17 +466,6 @@ export class PowerFx {
           if (Math.random() < 0.7) { const a1 = Math.random() * 6.28; this.bolt({ x: p.x, y: 1.1, z: p.z }, { x: p.x + Math.cos(a1) * 0.9, y: 0.2 + Math.random(), z: p.z + Math.sin(a1) * 0.9 }, 0.08, 0.05, 0xffffff); }
           if (Math.random() < 0.4) this.puff(T.streak, { x: p.x, y: 0.6 + Math.random() * 0.8, z: p.z }, { x: 0, y: 0, z: 0 }, 0.2, 0.9, 0.3, 0x6fd8ff, 0, false, 0.6);
         }
-        if (!f.struck && t >= 0.42 && !f.off) {      // (off the ball — 闪电抢断 — no strike from the sky)
-          f.struck = true;
-          this.bolt({ x: p.x + 0.4, y: 9, z: p.z - 0.6 }, { x: p.x, y: 0.1, z: p.z }, 0.3, 0.35, 0xdff9ff);
-          this.bolt({ x: p.x - 0.5, y: 8, z: p.z + 0.3 }, { x: p.x, y: 0.1, z: p.z }, 0.22, 0.18);
-          for (let k = 0; k < 6; k++) {
-            const angle = k * Math.PI / 3 + .2;
-            this.bolt({ x: p.x, y: .15, z: p.z }, { x: p.x + Math.cos(angle) * 2.1, y: .08, z: p.z + Math.sin(angle) * 2.1 }, .26, .035, 0xbca4ff);
-          }
-          this.shock(p.x, p.z, 0x6fe0ff, 4, 0.45);
-          this.puff(T.glow, { x: p.x, y: 0.5, z: p.z }, { x: 0, y: 0, z: 0 }, 0.3, 1.2, 3.2, 0x3fb8ff, 0, false, 0.6);
-        }
         f.done = t > 0.7;
       } else if (f.kind === 'phantom') {
         // a portal swallows me, another spits me out; purple wisps trail between them
@@ -500,7 +489,7 @@ export class PowerFx {
         f.done = true;
       } else if (f.kind.startsWith('slide:')) {
         // every character's slide tackle carries their element, and shows exactly what it covers
-        const k = f.kind.slice(6), on = t < (k === 'frost' ? 0.75 : k === 'thunder' ? 0.5 : 0.6) && (a.slide !== null || t < 0.1);
+        const k = f.kind.slice(6), on = t < (k === 'frost' ? 0.75 : k === 'thunder' ? 0.5 : 0.6) && (a.slide !== null || a.tm?.type === k || a.game?.role === 'guest' || t < 0.1);
         const col = SLIDE_COL[k] || 0xffffff, reach = a.slide?.reach || (k === 'cannon' ? 1.5 : 1.15);
         if (!f.box) { f.box = this.boxes.find((m) => !m.userData.busy) || this.boxes[0]; f.box.userData.busy = true; this.shock(p.x, p.z, col, 2.2, 0.35); this.puff(T.glow, { x: p.x, y: 0.4, z: p.z }, { x: 0, y: 0, z: 0 }, 0.25, 1.2, 2.6, col, 0, false, 0.6); }
         const bx = f.box, fade = on ? Math.min(1, t * 10) : Math.max(0, 1 - (t - 0.6) * 6);
@@ -513,7 +502,7 @@ export class PowerFx {
           // the rim crackles with the element
           if (on && Math.random() < 0.9) {
             const u = Math.random() * 2 - 1, ex = p.x + fx * reach + -fz * u * W * 0.5, ez = p.z + fz * reach + fx * u * W * 0.5;
-            if (k === 'thunder') this.bolt({ x: p.x, y: 0.3, z: p.z }, { x: ex, y: 0.15, z: ez }, 0.07, 0.07, 0xdff9ff);
+            if (k === 'thunder') this.bolt({ x: p.x, y: 0.45, z: p.z }, { x: ex, y: 0.2, z: ez }, 0.18, 0.13, 0xdff9ff);
             else if (k === 'blaze') this.puff(T.flame, { x: ex, y: 0.2, z: ez }, { x: fx * 2, y: 2.4, z: fz * 2 }, 0.45, 0.6, 0.2, 0xffffff, -1, true, 0.95);
             else if (k === 'frost') this.puff(T.snow, { x: ex, y: 0.25, z: ez }, { x: fx, y: 1, z: fz }, 0.6, 0.45, 0.25, 0xe6f8ff, 0, true);
             else if (k === 'gale') this.puff(T.wind, { x: ex, y: 0.35, z: ez }, { x: -fx * 4, y: 0.5, z: -fz * 4 }, 0.3, 0.5, 0.7, 0x9fffc0, 0, false, 0.8);
