@@ -134,9 +134,9 @@ export class UI {
     tagsRoot.innerHTML = '';
     this.tags = game.athletes.map((a) => {
       const el = document.createElement('div'); el.className = 'tag-el';
-      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div>`;
+      el.innerHTML = `<div class="perf">完美!</div><span class="lbl" style="background:${a.css}"></span><div class="stam"><i></i><em>体力</em></div><div class="meter"><i></i><span class="pct"></span></div><span class="shot-power" hidden></span>`;
       tagsRoot.appendChild(el);
-      return { el, perf: el.querySelector('.perf'), lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i') };
+      return { el, perf: el.querySelector('.perf'), lbl: el.querySelector('.lbl'), meter: el.querySelector('.meter'), fill: el.querySelector('.meter i'), pct: el.querySelector('.meter .pct'), stam: el.querySelector('.stam'), stamFill: el.querySelector('.stam i'), power: el.querySelector('.shot-power') };
     });
   }
 
@@ -352,14 +352,27 @@ export class UI {
     clearTimeout(this._bannerT); this._bannerT = setTimeout(() => b.classList.remove('show'), 2600);
   }
 
+  onShotPower(ath, score) {
+    if (!Number.isFinite(score) || score < 0 || score > 5) return;
+    ath.lastShotPower = { score, at: performance.now() / 1000 };
+  }
+
   updateHud(g) {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
     $('#clock').classList.toggle('low', g.m5 ? g.clock < 15 && !g.golden : !g.side && left === 2);
     if (g.m5 && !g.practice) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : '') + (g.half || 1); if (tm && key !== this._clockKey) { this._clockKey = key; if ((g.golden && !$('#clock .gold')) || $('#clock .hf')?.textContent !== (g.golden ? '' : g.half === 2 ? '下半场' : '上半场')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }
-    const w = innerWidth, h = innerHeight;
+    const w = innerWidth, h = innerHeight, hudTime = performance.now() / 1000;
     g.athletes.forEach((a, i) => {
       const t = this.tags[i];
+      const shot = a.lastShotPower, shotAge = shot ? hudTime - shot.at : Infinity;
+      const showPower = !!shot && shotAge >= 0 && shotAge < 1.6;
+      t.power.hidden = !showPower;
+      if (showPower) {
+        const text = `POWER ${shot.score}/5`;
+        if (t.power.textContent !== text) t.power.textContent = text;
+        t.power.style.opacity = String(Math.min(1, (1.6 - shotAge) / 0.3) * 0.86);
+      }
       if (g.fpAth === a) { t.el.style.display = ''; t.el.style.transform = `translate(${w / 2}px, ${h * 0.93}px) translate(-50%, -100%)`; }   // first person: my own tag (and charge meter) sits at the bottom
       else {
         this._v.set(a.pos.x, 2.0, a.pos.z).project(this.camera);

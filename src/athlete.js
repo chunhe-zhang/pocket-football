@@ -74,6 +74,7 @@ export class Athlete {
 
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
+    this.lastShotPower = null;
     this.receivedFrom = null; this.receivedAt = -9; this.giveGoT = -9; this.giveGoTo = null;
     this.kick = null; this.gather = null; this.chargeLobShot = false; this.elementReceiveUntil = -9; this.elementFeeder = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
@@ -1865,7 +1866,7 @@ export class Athlete {
       if (big) { g.hitstop = Math.max(g.hitstop, 0.06); g.shake = Math.max(g.shake, 0.12); }
       g.rumble(this, big ? 0.8 : 0.5, 90);
       if (!h.jumped) this.char.play('header', { duration: 0.45, contact: 0.3 });
-      g.onKick(this, { type: 'header', power: sp / 22 }, ball.vel);
+      g.onKick(this, { type: 'header', power: sp / 22, isPass: !!mate || !!h.soft || !!h.pass }, ball.vel);
       return;
     }
     if (!h.jumped && (h.t > 1.2 || (!spot && h.t > 0.7))) this.header = null;   // never got there

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SnapshotTimeline, sampleBallSnapshot } from './ball-motion.js';
-import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats } from './config.js';
+import { FIELD, TEAMS, MATCH, BALL, GOALS, SIDES, MAPS, CHAR, CHARS, setMap, randomChar, inOwnBox, beats, shotScore } from './config.js';
 import { Pitch } from './pitch.js';
 import { Ball } from './ball.js';
 import { Character } from './character.js';
@@ -562,6 +562,13 @@ export class Game {
   // ------------------------------------------------------------ callbacks --
   onKick(ath, k, vel) {
     if (k.type === 'pass') { this.sfx.pass(k.power); return; }
+    if (!k.isPass && !(k.loft && !k.lobShot)) {
+      // Display the actual distance/chain rating, never the charge percentage.
+      const target = ath.goalTarget();
+      const score = this.ball.shotS ?? shotScore(ath.pos.x, ath.pos.z, target.x, target.z, this.ball.chain?.els?.length || 1);
+      this.ui.onShotPower(ath, score);
+      this.emit({ e: 'shotPower', i: ath.team, score });
+    }
     // a special shot leaves the boot: the air ripples round the ball and the frame's edges light up
     if (this.ball.specialType && this.post) {
       const id = this.ball.specialType.replace('!', '').split('+')[0];
@@ -1512,6 +1519,7 @@ export class Game {
       case 'elementHit': this.elementFx.hit(e.id, new THREE.Vector3().fromArray(e.p), e.big); break;
       case 'zap': { const a = this.athletes[e.i]; if (a && e.k === 'frost') a.iceT = e.t || 1.8; break; }
       case 'perfect': { const a = this.athletes[e.i]; if (a) a.lastPerfectT = this.time; break; }
+      case 'shotPower': { const a = this.athletes[e.i]; if (a) this.ui.onShotPower(a, e.score); break; }
       case 'flair': { const a = this.athletes[e.i]; if (a) { a.flairText = e.s; a.flairT = this.time; } break; }
       case 'kickoff': for (const a of this.athletes) a.char.teleported(); this.focus = null; break;
     }
