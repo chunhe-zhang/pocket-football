@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Expressions } from './expressions.js';
 import { addBootDetails, clothWeave } from './avatar-details.js';
 import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtils.js';
 
@@ -350,42 +351,6 @@ class SpringBones {
   }
 }
 
-// ---- expressions ---------------------------------------------------------------
-class Expressions {
-  constructor(presets, node) {
-    this.binds = {};
-    this.meshes = new Set();
-    for (const [name, p] of Object.entries(presets)) {
-      this.binds[name] = (p.morphTargetBinds || []).flatMap((b) => {
-        const o = node(b.node); if (!o) return [];
-        const meshes = []; o.traverse((m) => { if (m.isMesh && m.morphTargetInfluences) meshes.push(m); });
-        meshes.forEach((m) => this.meshes.add(m));
-        return meshes.map((m) => ({ m, index: b.index, weight: b.weight ?? 1 }));
-      });
-    }
-    this.target = {}; this.value = {};
-    this.blinkT = 2 + Math.random() * 3; this.blink = 0;
-  }
-  set(name, w) { if (this.binds[name]) this.target[name] = w; }
-  clear() { for (const k in this.target) this.target[k] = 0; }
-  update(dt) {
-    // natural blinking unless a strong emotion is showing
-    this.blinkT -= dt;
-    if (this.blinkT < 0) { this.blink = 0.16; this.blinkT = 2 + Math.random() * 4; }
-    this.blink = Math.max(0, this.blink - dt);
-    const blinkW = this.blink > 0 ? Math.sin((1 - this.blink / 0.16) * Math.PI) : 0;
-    for (const m of this.meshes) m.morphTargetInfluences.fill(0);
-    const apply = (name, w) => { if (w > 0.001) for (const b of this.binds[name] || []) b.m.morphTargetInfluences[b.index] += w * b.weight; };
-    let emotion = 0;
-    for (const k in this.binds) {
-      this.value[k] = (this.value[k] || 0) + ((this.target[k] || 0) - (this.value[k] || 0)) * Math.min(1, dt * 10);
-      if (k !== 'blink') { apply(k, this.value[k]); if (['happy', 'sad', 'angry', 'surprised'].includes(k)) emotion = Math.max(emotion, this.value[k]); }
-    }
-    apply('blink', blinkW * (1 - emotion));
-    for (const m of this.meshes) for (let i = 0; i < m.morphTargetInfluences.length; i++) m.morphTargetInfluences[i] = Math.min(1, m.morphTargetInfluences[i]);
-  }
-}
-
 // ---- look ------------------------------------------------------------------------
 let GRADIENT = null;
 function gradient() {
@@ -434,8 +399,9 @@ function celMaterial(t, kind) {
     sh.uniforms.uRim = { value: new THREE.Color(...P.rim) };
     sh.uniforms.uRimK = { value: P.rimK };
     sh.uniforms.uRing = { value: P.ring ? 1 : 0 };
+    sh.uniforms.uSheen = { value: kind === 'cloth' ? 0.055 : kind === 'skin' ? 0.025 : 0 };
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uShadow; uniform vec3 uBand; uniform vec3 uRim; uniform float uRimK; uniform float uRing;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 uShadow; uniform vec3 uBand; uniform vec3 uRim; uniform float uRimK; uniform float uRing; uniform float uSheen;')
       .replace('#include <opaque_fragment>', `
         {
           #if NUM_DIR_LIGHTS > 0
@@ -452,10 +418,11 @@ function celMaterial(t, kind) {
           vec3 c = mix( base * uShadow, base, lit ) + base * uBand * band * 3.0;
           float rim = pow( 1.0 - clamp( dot( N, V ), 0.0, 1.0 ), 4.0 );
           c += uRim * rim * uRimK * ( 0.35 + 0.65 * lit );
+          c += base * pow( max( dot( N, normalize( L + V ) ), 0.0 ), 24.0 ) * uSheen * lit;
           #ifdef USE_MAP
             if ( uRing > 0.5 ) {
               float ring = smoothstep( 0.28, 0.36, N.y ) * ( 1.0 - smoothstep( 0.46, 0.56, N.y ) );
-              float strands = 0.6 + 0.4 * sin( vMapUv.x * 140.0 );
+              float strands = 0.8 + 0.2 * sin( vMapUv.x * 140.0 ) * clamp( 1.0 - fwidth( vMapUv.x ) * 140.0, 0.0, 1.0 );
               c += vec3( 1.0, 0.98, 0.96 ) * ring * strands * 0.2 * ( 0.4 + 0.6 * lit );
             }
           #endif
@@ -463,7 +430,7 @@ function celMaterial(t, kind) {
         }
         #include <opaque_fragment>`);
   };
-  t.customProgramCacheKey = () => 'cel-' + kind;
+  t.customProgramCacheKey = () => 'cel-v2-' + kind;
   return t;
 }
 
@@ -481,8 +448,12 @@ function styleAvatar(root, kit, authoredThunder = false) {
   const add = [];
   root.traverse((o) => {
     if (!o.isMesh) return;
-    o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+    o.geometry.computeBoundingSphere();
+    const radius = o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
+    o.castShadow = o.name !== 'Face' && (o.isSkinnedMesh || radius > 0.14);
+    o.receiveShadow = false; o.frustumCulled = false;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (!o.isSkinnedMesh && radius < 0.085 && mats.some(m => /^(RAI|ELEMENT) \/ /.test(m.name || ''))) o.userData.detailRadius = radius;
     let wantsOutline = false;
     const olMats = [];
     const next = mats.map((m) => {
@@ -493,6 +464,7 @@ function styleAvatar(root, kit, authoredThunder = false) {
       }
       if (/EYE|FACE(MOUTH|EYELINE|BROW)|HIGHLIGHT/.test(n)) { const b = m.clone(); b.toneMapped = false; olMats.push(OL.dark); return b; } // eyes and face parts stay unlit
       let map = m.map;
+      if (map) map.anisotropy = Math.max(4, map.anisotropy || 1);
       if (/TOPS/.test(n) && map && !authoredThunder) map = tintedTexture(map, kit.shirt, (g, w, h) => {
         // squad number on the back panel of the shirt texture
         g.fillStyle = kit.number;
@@ -505,9 +477,10 @@ function styleAvatar(root, kit, authoredThunder = false) {
       if (/HAIR/.test(n) && map && kit.hair && !authoredThunder) map = tintedTexture(map, kit.hair, null, kit.hairMode || 'multiply');
       const isSkin = /SKIN|BODY/.test(n) && !/TOPS|BOTTOMS/.test(n), isHair = /HAIR/.test(n);
       const t = new THREE.MeshToonMaterial({
-        name: m.name, map, color: m.color, gradientMap: gradient(),
+        name: m.name, map, color: m.color ?? 0xffffff, gradientMap: gradient(),
         transparent: m.transparent, alphaTest: m.alphaTest, side: m.side, opacity: m.opacity,
       });
+      t.alphaToCoverage = !m.transparent && m.alphaTest > 0;
       if (/TOPS|BOTTOMS/.test(n)) { t.bumpMap = clothWeave(); t.bumpScale = 0.0008; }
       t.emissive = new THREE.Color(0xffffff); t.emissiveMap = map; t.emissiveIntensity = isSkin ? 0.22 : 0.12;
       celMaterial(t, /FACE/.test(n) ? 'face' : isSkin ? 'skin' : isHair ? 'hair' : 'cloth');

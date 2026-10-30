@@ -32,6 +32,7 @@ export function addBootDetails(root, bones) {
     const forward = tip.clone().sub(ankle).setY(0).normalize();
     const right = new THREE.Vector3().crossVectors(Y, forward).normalize();
     const group = new THREE.Group(); group.name = 'Football boot detail ' + side;
+    group.userData.detailDistance = 18;
     const frame = new THREE.Matrix4().makeBasis(right, Y, forward);
     group.position.copy(ankle); group.quaternion.setFromRotationMatrix(frame);
     root.add(group); root.updateMatrixWorld(true); foot.attach(group);

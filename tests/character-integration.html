@@ -1,0 +1,73 @@
+<!doctype html><meta charset="utf-8"><title>Character quality integration</title>
+<style>body{font:15px system-ui;background:#101625;color:#eef2ff;margin:16px}button{padding:10px;margin:4px}pre{white-space:pre-wrap}iframe{width:100%;height:650px}canvas{max-width:100%}</style>
+<h1>Character quality integration</h1><pre id="results">Loading real models…</pre>
+<button id="run" disabled>Run integration</button><button data-face="relaxed">Relaxed</button><button data-face="happy">Happy</button><button data-face="surprised">Surprised</button><button data-face="angry">Focused</button>
+<div id="preview"></div><iframe src="../?fx=off"></iframe>
+<script type="module">
+const results=document.querySelector('#results'), frame=document.querySelector('iframe');
+const assert=(ok,message)=>{if(!ok)throw Error(message);};
+let w,g,ch,scene,camera,renderer,last=performance.now();
+const timer=setInterval(()=>{
+ w=frame.contentWindow;g=w.__game;if(!g?.ui.showroom?.models.size)return;
+ clearInterval(timer);w.__hold=true;
+ const room=g.ui.showroom;
+ ch=new g.athletes[0].char.constructor(g.template,{shirt:'#34304f',shorts:'#262236',number:'#ffffff',no:'07',outline:0x1b1630,characterId:'thunder'});
+ ch.setPresentation(0);ch.setFacing(0.12);
+ scene=new room.scene.constructor();scene.add(ch.group);
+ for(const light of room.scene.children.filter(object=>object.isLight))scene.add(light.clone());
+ camera=room.camera.clone();camera.aspect=2;camera.updateProjectionMatrix();camera.position.set(0,1.48,1.52);camera.lookAt(0,1.43,0);
+ renderer=new room.renderer.constructor({antialias:true});renderer.setClearColor('#19243a');renderer.setSize(1000,500);renderer.setPixelRatio(1.5);renderer.outputColorSpace=room.renderer.outputColorSpace;renderer.toneMapping=room.renderer.toneMapping;renderer.toneMappingExposure=1.1;
+ const preview=document.createElement('canvas');preview.width=1500;preview.height=750;preview.style.width='1000px';preview.style.height='500px';document.querySelector('#preview').append(preview);const context=preview.getContext('2d');
+ document.querySelector('#run').disabled=false;results.textContent='Ready. Preview uses the real shipped model, expression mixer and materials.';
+ const draw=now=>{const dt=Math.min(0.05,(now-last)/1000);last=now;ch.update(dt,{speed:0});ch.updateVisualDetails(camera,500);renderer.render(scene,camera);context.drawImage(renderer.domElement,0,0);preview.dataset.frames=String(renderer.info.render.frame);requestAnimationFrame(draw);};requestAnimationFrame(draw);
+},250);
+document.querySelectorAll('[data-face]').forEach(button=>button.onclick=()=>ch?.face(button.dataset.face,button.dataset.face==='angry'?0.28:0.65));
+document.querySelector('#run').onclick=async()=>{
+ const report={};
+ try{
+  const room=g.ui.showroom;
+  report.portrait={calls:room.renderer.info.render.calls,triangles:room.renderer.info.render.triangles,visibleRigs:[...room.models.values()].filter(m=>m.ch.group.visible).length};
+  assert(report.portrait.visibleRigs===1,'other portrait rigs submitted');
+  const c=g.athletes[0].char;c.presentation=null;c.gestures=[];c.stopEmotes();c.setIdlePose(null);
+  report.framerates=[];
+  for(const fps of [30,60,144]){
+   c.dribbling=true;
+   for(let i=0;i<fps*3;i++){
+    const t=i/fps,speed=t<0.5?t*11:5.5;
+    c.update(1/fps,{speed,vf:speed,vr:0});
+    for(const bone of Object.values(c.bones))if(bone?.isBone)assert(bone.quaternion.toArray().every(Number.isFinite),'invalid bone quaternion');
+   }
+   assert(c.loco.fastDrib?.a.getEffectiveWeight()>0.85,'fast dribble never takes over');
+   const sum=c.actions.idle.getEffectiveWeight()+(c.actions.idle2?.getEffectiveWeight()||0)+(c._idlePrevious?.a.getEffectiveWeight()||0)+c._locoEntries.reduce((n,e)=>n+e.a.getEffectiveWeight(),0);
+   assert(Math.abs(sum-1)<0.005,'locomotion blend budget '+sum);
+   report.framerates.push({fps,fastDribbleWeight:c.loco.fastDrib.a.getEffectiveWeight(),weightSum:sum});
+  }
+  c.dribbling=false;
+  for(let i=0;i<90;i++)c.update(1/60,{speed:0});
+  c.setIdlePose('offensive_idle');for(let i=0;i<90;i++)c.update(1/60,{speed:0});
+  c.setIdlePose('and_defend');c.update(1/60,{speed:0});
+  assert(c._idlePrevious?.a.getEffectiveWeight()>0.7,'defence switch lost outgoing pose');
+  for(let i=0;i<120;i++)c.update(1/60,{speed:0});
+  assert(!c._idlePrevious,'outgoing pose not retired');report.readyPoseCrossfade=true;
+  const pc=room.camera.clone();pc.fov=40;pc.aspect=1;pc.far=100;pc.updateProjectionMatrix();pc.position.set(0,1,40);c.updateVisualDetails(pc,720);
+  assert(c._visualDetails.some(o=>!o.visible),'distant detail not retired');report.distantDetailsHidden=c._visualDetails.filter(o=>!o.visible).length;
+  c.teleported();assert(Object.values(c._lock||{}).every(lock=>!lock.on&&lock.w===0),'teleport kept foot anchors');
+  const original=Object.getOwnPropertyDescriptor(w.navigator,'getGamepads');let pulses=[];
+  Object.defineProperty(w.navigator,'getGamepads',{configurable:true,value:()=>[{vibrationActuator:{playEffect(type,options){pulses.push(options);return Promise.reject(Error('test actuator unavailable'));}}}]});
+  const oldControllers=g.controllers;g.controllers=[{type:'human',scheme:'pad0'}];g._haptics=new Map();
+  try {g.rumble(g.athletes[0],0.9,100);g.rumble(g.athletes[0],0.12,24);assert(pulses.length===1,'touch overwrote strong kick');}
+  finally{g.controllers=oldControllers;if(original)Object.defineProperty(w.navigator,'getGamepads',original);else delete w.navigator.getGamepads;}
+  await Promise.resolve();report.hapticPriority=true;
+  g.start({...g.ui.settings,mode:'match5',humans:1});
+  const initial=g.athletes.map(athlete=>athlete.pos.clone());
+  for(let i=0;i<900;i++)w.__step(1,1/60,false);
+  const travelled=Math.max(...g.athletes.map((athlete,i)=>athlete.pos.distanceTo(initial[i])));
+  assert(travelled>1,'match players never left their kickoff positions');
+  assert(g.athletes.length===12,'6v6 roster failed');
+  assert(g.ball.pos.toArray().every(Number.isFinite),'invalid ball position');
+  for(const athlete of g.athletes)assert(athlete.pos.toArray().every(Number.isFinite),'invalid athlete position');
+  report.match={players:g.athletes.length,secondsSimulated:15,maxPlayerDisplacement:travelled,ball:g.ball.pos.toArray()};
+  results.textContent='PASS '+JSON.stringify(report,null,2);
+ }catch(error){results.textContent='FAIL '+error.stack;}
+};
+</script>

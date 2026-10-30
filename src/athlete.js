@@ -75,6 +75,7 @@ export class Athlete {
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.lastShotPower = null;
+    this._footStepIndex = null;
     this.receivedFrom = null; this.receivedAt = -9; this.giveGoT = -9; this.giveGoTo = null;
     this.kick = null; this.gather = null; this.chargeLobShot = false; this.elementReceiveUntil = -9; this.elementFeeder = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
@@ -2111,12 +2112,21 @@ export class Athlete {
     // outfield players in play stand like footballers (on their toes, ready), not the menu idle
     if (!this.isKeeper) {
       const st = this.game.state;
-      if ((st === 'play' || st === 'kickoff') && !this.char._i2on) this.char.setIdlePose('offensive_idle');
-      else if (!(st === 'play' || st === 'kickoff') && this.char._i2on) this.char.setIdlePose(null);
+      const carrier = this.game.possessor;
+      const radius = this.char._defendingReady ? 5.5 : 4.5;
+      const defending = carrier && carrier !== this && this._isOpp(carrier) && carrier.pos.distanceToSquared(this.pos) < radius * radius;
+      this.char._defendingReady = !!defending;
+      const pose = st === 'play' || st === 'kickoff' ? (defending && this.char.allClips.and_defend ? 'and_defend' : 'offensive_idle') : null;
+      if (this.char._readyPose !== pose || (!!pose !== !!this.char._i2on)) {
+        this.char.setIdlePose(pose); this.char._readyPose = pose;
+      }
     }
     const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
     const vf = this.vel.x * fx + this.vel.z * fz, vr = -this.vel.x * fz + this.vel.z * fx;
     this.char.update(dt, { speed: hs, vf, vr, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });
+    const step = Math.floor((this.char.cycN + this.char.phase) * 2);
+    if (step !== this._footStepIndex && Number.isFinite(this._footStepIndex) && hs > 0.8 && dt > 0 && !this.air && !this.slide && !this.dive && this._isHumanCtl() && this.game.state === 'play') this.game.sfx.footstep(hs, this.sprinting);
+    this._footStepIndex = step;
   }
 
   // ---------------------------------------------------------------------------
@@ -2437,7 +2447,7 @@ export class Athlete {
     if (p > 0.4 && footTouched) g.fx('spark', ball.pos, { x: dir.x, z: dir.z }, Math.round(4 + 10 * p), 2 + 4 * p);
     if (p > 0.55 && k.type !== 'pass') g.fx('grass', this.char.anklePos('L', this._fb), { x: -k.aim.x, z: -k.aim.z }, Math.round(6 + 10 * p), 1.5 + p * 2);
     g.rumble(this, k.type === 'pass' ? 0.2 + 0.3 * p : 0.3 + 0.7 * p, 60 + 80 * p);
-    this.char.face('aa', 0.6 + 0.4 * p); this.faceT = 0.35;
+    this.char.face('aa', 0.24 + 0.28 * p); this.faceT = 0.35;
     this.lastTouchTime = g.time;
     this.passT = this.passTarget ? g.time : -1;
     if (this.passTarget && (k.type === 'pass' || k.loft) && (this.role !== 'back' || this._isHumanCtl())) {
@@ -2875,6 +2885,7 @@ export class Athlete {
         ball.vel.y = Math.max(ball.vel.y, 0.12 + Math.min(sp, 7) * 0.015);
         ball.pos.y = Math.max(ball.pos.y, R + 0.005);
         g.sfx.touch();
+        g.rumble(this, 0.12, 24);
         this.stats.touches++;
       }
       if (tt.t >= tt.dur * 1.3) this.touch = null;

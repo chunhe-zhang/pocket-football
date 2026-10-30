@@ -606,6 +606,7 @@ export class Character {
       };
       for (const k of ['FL', 'FR', 'L', 'R', 'BL', 'BR', 'B']) if (has('jog_' + k)) cache.loco.dir[k] = m('jog_' + k);
       if (has('dribble_jog')) cache.loco.drib = m('dribble_jog');
+      if (has('and_dribble_run')) cache.loco.fastDrib = m('and_dribble_run');
       if (has('and_dribble_control')) cache.loco.closeDrib = m('and_dribble_control');
       // the keeper's side-shuffle: one clip each way (the mirror is the other way)
       if (has('goalkeeper_sidestep')) {
@@ -628,7 +629,10 @@ export class Character {
     const ent = (e) => e && { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.4, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration / e.cy };
     this.loco.drib = ent(L.drib);
     this.loco.closeDrib = ent(L.closeDrib); this._closeW = 0;
+    this.loco.fastDrib = ent(L.fastDrib); this._fastDribW = 0;
     this.loco.gk = L.gk && { L: ent(L.gk.L), R: ent(L.gk.R) };
+    this._locoEntries = [...this.loco.fwd, ...Object.values(this.loco.dir), this.loco.drib, this.loco.closeDrib, this.loco.fastDrib, this.loco.gk?.L, this.loco.gk?.R].filter(Boolean);
+    this._locoBlendW = {};
     this.cycN = 0; this.dribbling = false; this.keeper = false; this._dribW = 0; this._gkW = 0;
     if (!L.fwd.some((e) => e.n === 'run')) this.actions.run.setEffectiveWeight(0);
     this.locoW = {};
@@ -645,9 +649,9 @@ export class Character {
       const planted = active && p.y < floor + 0.035 * sc && this.ik[s].w < 0.05;
       if (planted && !lk.on) { lk.on = true; lk.p.copy(p); }
       if (lk.on && (!planted || Math.hypot(p.x - lk.p.x, p.z - lk.p.z) > 0.22 * sc)) lk.on = false;
-      lk.w += ((lk.on ? 1 : 0) - lk.w) * Math.min(1, dt * (lk.on ? 25 : 18));
+      lk.w += ((lk.on ? 1 : 0) - lk.w) * (1 - Math.exp(-dt * (lk.on ? 25 : 18)));
       if (lk.w > 0.01) {
-        if (!lk.on) lk.p.lerp(p, Math.min(1, dt * 18));               // let go smoothly as the heel comes up
+        if (!lk.on) lk.p.lerp(p, (1 - Math.exp(-dt * 18)));               // let go smoothly as the heel comes up
         this._lt = (this._lt || new THREE.Vector3()).set(lk.p.x, p.y, lk.p.z);
         this._legIK(up, low, foot, this._lt, lk.w);
       }
@@ -1174,7 +1178,8 @@ export class Character {
     const clip = name && this.allClips[name];
     if (!clip) { this._i2on = false; return false; }
     if (!this.actions.idle2 || this.actions.idle2.getClip() !== clip) {
-      this.actions.idle2?.stop();
+      this._idlePrevious?.a.stop();
+      this._idlePrevious = this.actions.idle2 ? { a: this.actions.idle2, w: this._i2w } : null;
       const a = this.mixer.clipAction(clip); a.reset(); a.setLoop(THREE.LoopRepeat); a.setEffectiveWeight(0); a.play();
       a.timeScale = /idle/.test(name) ? 0.72 : 1;
       this.actions.idle2 = a; this._i2w = 0;
@@ -1184,7 +1189,11 @@ export class Character {
   stopMocap(fade = 0.15) { if (this.mocap) { const m = this.mocap; m.dur = Math.min(m.dur, m.t + fade); m.fo = fade; } }
   mocapPlaying(name) { return !!this.mocap && (!name || this.mocap.name === name); }
 
-  face(name, w) { this.expr?.set(name, w); if (name === 'aa') this._faceBusyT = w > 0 ? 0.6 : 0; }
+  face(name, w) {
+    const duration = name === 'happy' || name === 'sad' ? 1.8 : name === 'angry' ? 0.55 : 0.65;
+    this.expr?.pulse(name, w, duration);
+    if (name === 'aa') this._faceBusyT = w > 0 ? duration : 0;
+  }
 
   /** A damped response to actual contact, layered over the captured pose. */
   receiveImpact(normal, speed, part = 'chest') {
@@ -1240,7 +1249,10 @@ export class Character {
     return out;
   }
 
-  teleported() { this.springs && (this.springs.needsReset = true); }
+  teleported() {
+    this.springs && (this.springs.needsReset = true);
+    for (const lock of Object.values(this._lock || {})) { lock.on = false; lock.w = 0; }
+  }
 
   /** A calm, planted presentation pose, independent of the gameplay ready loop. */
   setPresentation(personality = 0) {
@@ -1250,6 +1262,21 @@ export class Character {
   }
 
   acknowledge() { if (this.presentation) this.presentation.ack = 0; }
+
+  /** Keep silhouette-defining geometry; retire only subpixel decorative detail. */
+  updateVisualDetails(camera, viewportHeight) {
+    if (!this._visualDetails) {
+      this._visualDetails = [];
+      this.root.traverse(object => { if (object.userData.detailRadius || object.userData.detailDistance) this._visualDetails.push(object); });
+    }
+    const distance = Math.max(0.1, this.group.position.distanceTo(camera.position));
+    const pixels = viewportHeight / (2 * Math.tan(camera.fov * Math.PI / 360) * distance) * this.group.scale.x;
+    for (const object of this._visualDetails) {
+      const data = object.userData;
+      if (data.detailDistance) object.visible = distance < data.detailDistance + (object.visible ? 2 : -1);
+      else object.visible = data.detailRadius * pixels > (object.visible ? 1.25 : 1.8);
+    }
+  }
 
   _presentationTick(dt) {
     const p = this.presentation; if (!p) return;
@@ -1305,12 +1332,12 @@ export class Character {
   _details(dt, speed, fatigue, ch, yaw, pitch) {
     const b = this.bones, r = this.right, f = this.forward;
     // -- breathing and fatigue
-    this.fatigue += (fatigue - this.fatigue) * Math.min(1, dt * 2);
+    this.fatigue += (fatigue - this.fatigue) * (1 - Math.exp(-dt * 2));
     const fat = this.fatigue;
     this.breath += dt * (1.6 + fat * 4.2 + Math.min(speed, 7) * 0.25);
     const still = clamp(1 - speed / 1.4, 0, 1), busy = this.gestures.length > 0 || this._wu > 0.05;
     const tiredW = clamp((fat - 0.55) / 0.35, 0, 1) * still * (busy ? 0 : 1);
-    this.tired += (tiredW - this.tired) * Math.min(1, dt * 3);
+    this.tired += (tiredW - this.tired) * (1 - Math.exp(-dt * 3));
     const amp = 0.012 + fat * 0.035 + this.tired * 0.03;
     const inhale = Math.sin(this.breath);
     this._rot(b.spine2 || b.spine1, r, -amp * inhale);
@@ -1333,18 +1360,23 @@ export class Character {
     }
     this._faceBusyT = Math.max(0, (this._faceBusyT || 0) - dt);
     if (!(this._faceBusyT > 0) && this.expr) this.expr.set('aa', Math.max(0, fat - 0.4) * (0.35 + 0.35 * (inhale * 0.5 + 0.5)));
+    if (this.expr && !this.expr.emoting) {
+      const nearBall = this.lookTarget && this.lookTarget.distanceToSquared(this.group.position) < 12;
+      this.expr.set('relaxed', this.presentation ? 0.12 : speed < 0.5 && !nearBall ? 0.035 : 0);
+      this.expr.set('angry', !this.presentation && nearBall && (this.dribbling || this.windup > 0.05) ? 0.12 : 0);
+    }
     // -- eyes: they get there first and go further than the head
     if (this._eyes.length) {
       const ey = clamp(yaw - this.look.yaw * 0.9, -0.35, 0.35) * 0.7 + Math.sin(this.breath * 0.37) * 0.02;
       const ep = clamp(pitch - this.look.pitch * 0.8, -0.25, 0.25) * 0.6;
-      this._eyeY = (this._eyeY || 0) + (ey - (this._eyeY || 0)) * Math.min(1, dt * 18);
-      this._eyeP = (this._eyeP || 0) + (ep - (this._eyeP || 0)) * Math.min(1, dt * 18);
-      for (const e of this._eyes) { e.bn.quaternion.copy(e.rest); this._rot(e.bn, UP, this._eyeY); this._rot(e.bn, r, -this._eyeP); }
+      this._eyeY = (this._eyeY || 0) + (ey - (this._eyeY || 0)) * (1 - Math.exp(-dt * 18));
+      this._eyeP = (this._eyeP || 0) + (ep - (this._eyeP || 0)) * (1 - Math.exp(-dt * 18));
+      for (const e of this._eyes) { e.bn.quaternion.copy(e.rest); this._rot(e.bn, UP, this._eyeY * (this.expr?.lookWeight ?? 1)); this._rot(e.bn, r, -this._eyeP * (this.expr?.lookWeight ?? 1)); }
     }
     // -- hands: loose at rest, fists when sprinting or celebrating
     const celebrating = this.gestures.some((g) => (g.name === 'celebrate' || g.name === 'fistPump' || g.name === 'roar') && !g.stopping);
     const want = celebrating ? 1.05 : 0.22 + clamp((speed - 2.5) / 3.5, 0, 1) * 0.7;
-    this.curl += (want - this.curl) * Math.min(1, dt * 8);
+    this.curl += (want - this.curl) * (1 - Math.exp(-dt * 8));
     for (const fg of this._fingers) { fg.bn.quaternion.copy(fg.rest); this._qa.setFromAxisAngle(fg.axis, fg.sign * this.curl * fg.k * 1.1); fg.bn.quaternion.multiply(this._qa); }
     // -- feet stay on the grass
     const kc = this.kickCalib, airborne = (ch.hop || 0) > 0.02 || this.airY > 0.02 || this.tumble;
@@ -1388,7 +1420,7 @@ export class Character {
   }
 
   update(dt, { speed = 0, turnRate = 0, fatigue = 0, shield = 0, vf = null, vr = 0 } = {}) {
-    this.shieldW = (this.shieldW || 0) + (shield - (this.shieldW || 0)) * Math.min(1, dt * 6);
+    this.shieldW = (this.shieldW || 0) + (shield - (this.shieldW || 0)) * (1 - Math.exp(-dt * 6));
     this._styleTick?.(dt);
     this.speed = speed;
     // --- locomotion blend with phase sync -----------------------------------
@@ -1401,7 +1433,7 @@ export class Character {
     if (vf === null) vf = speed;
     let th = speed > 0.05 ? Math.atan2(vr, vf) : 0;
     if (speed > 3.8) th *= clamp(1 - (speed - 3.8) / 2.5, 0.35, 1);       // flat out, the legs run where the body points
-    this._th = wrapAngle((this._th ?? th) + wrapAngle(th - (this._th ?? th)) * Math.min(1, dt * 14));
+    this._th = wrapAngle((this._th ?? th) + wrapAngle(th - (this._th ?? th)) * (1 - Math.exp(-dt * 14)));
     th = this._th;
     const LW = this.locoW, LO = this.loco;
     for (const k in LW) LW[k] = 0;
@@ -1428,7 +1460,7 @@ export class Character {
     const DR = LO.drib;
     if (DR) {
       const want = this.dribbling ? clamp((speed - 1.1) / 0.8, 0, 1) * clamp((4.3 - speed) / 0.8, 0, 1) : 0;
-      this._dribW += (want - this._dribW) * Math.min(1, dt * 6);
+      this._dribW += (want - this._dribW) * (1 - Math.exp(-dt * 6));
       const w = this._dribW * fwdShare;
       if (w > 0.001) {
         for (const e of F) { stride -= (LW[e.n] / Math.max(move, 1e-4)) * (this._dribW) * e.len; LW[e.n] *= 1 - this._dribW; }
@@ -1444,10 +1476,20 @@ export class Character {
       LW[close.n] = this._closeW * fwdShare * move;
       stride = stride * (1 - this._closeW * fwdShare) + close.len * this._closeW * fwdShare;
     }
+    // The authored faster control take gives sprint dribbling its own posture,
+    // with the measured foot-contact phase shared by the lower-speed takes.
+    const fast = LO.fastDrib;
+    if (fast) {
+      const want = this.dribbling ? smooth(clamp((speed - 3.0) / 2.0, 0, 1)) : 0;
+      this._fastDribW += (want - this._fastDribW) * (1 - Math.exp(-dt * 8));
+      for (const e of [...F, DR, close]) if (e) LW[e.n] *= 1 - this._fastDribW;
+      const w = this._fastDribW * fwdShare;
+      LW[fast.n] = w * move; stride = stride * (1 - w) + fast.len * w;
+    }
     // a keeper shuffles sideways in his crouch instead of jogging
     const GK = LO.gk;
     if (GK) {
-      this._gkW += ((this.keeper ? 1 : 0) - this._gkW) * Math.min(1, dt * 5);
+      this._gkW += ((this.keeper ? 1 : 0) - this._gkW) * (1 - Math.exp(-dt * 5));
       for (const k of ['L', 'R']) {
         const d = LO.dir[k], e = GK[k], w = (secW[k] || 0) * this._gkW;
         if (!e) continue;
@@ -1457,8 +1499,9 @@ export class Character {
     }
     // the jog clips are a jog: run them quicker (more steps), not longer, when the player goes faster sideways
     stride = Math.max(0.35, stride);
-    const ph = this.phase + (dt * Math.max(speed, 0)) / stride;
-    if (ph >= 1) this.cycN++;
+    this._stride = (this._stride ?? stride) + (stride - (this._stride ?? stride)) * (1 - Math.exp(-dt * 10));
+    const ph = this.phase + (dt * Math.max(speed, 0)) / this._stride;
+    if (ph >= 1) this.cycN += Math.floor(ph);
     this.phase = ph % 1;
     // motion capture one-shot: its envelope weight takes over from the locomotion clips
     let MW = 0, rootYaw = 0;
@@ -1493,19 +1536,32 @@ export class Character {
     // a different standing pose (a keeper set on his toes) shares the idle slot
     const i2 = this.actions.idle2;
     if (i2) {
-      this._i2w += ((this._i2on ? 1 : 0) - this._i2w) * Math.min(1, dt * 5);
+      this._i2w += ((this._i2on ? 1 : 0) - this._i2w) * (1 - Math.exp(-dt * 5));
       i2.setEffectiveWeight(wIdle * this._i2w * (1 - MW));
       if (this._i2w < 0.002 && !this._i2on) { i2.stop(); this.actions.idle2 = null; }
     }
-    const iw = i2 ? 1 - this._i2w : 1;
+    let previousIdleWeight = 0;
+    if (this._idlePrevious) {
+      const previous = this._idlePrevious;
+      previous.w *= Math.exp(-dt * 5);
+      previousIdleWeight = Math.min(previous.w, 1 - (i2 ? this._i2w : 0));
+      previous.a.setEffectiveWeight(wIdle * previousIdleWeight * (1 - MW));
+      if (previous.w < 0.002) { previous.a.stop(); this._idlePrevious = null; }
+    }
+    const iw = Math.max(0, (i2 ? 1 - this._i2w : 1) - previousIdleWeight);
     this.actions.idle.setEffectiveWeight(wIdle * iw * (1 - MW));
-    for (const e of [...LO.fwd, ...Object.values(LO.dir), LO.drib, LO.closeDrib, LO.gk?.L, LO.gk?.R]) {
-      if (!e) continue;
-      e.a.setEffectiveWeight((LW[e.n] || 0) * (1 - MW));
+    let movingWeight = 0;
+    for (const e of this._locoEntries) {
+      const old = this._locoBlendW[e.n] || 0;
+      this._locoBlendW[e.n] = old + ((LW[e.n] || 0) - old) * (1 - Math.exp(-dt * 14));
+      movingWeight += this._locoBlendW[e.n];
+    }
+    for (const e of this._locoEntries) {
+      e.a.setEffectiveWeight(movingWeight > 1e-6 ? this._locoBlendW[e.n] / movingWeight * move * (1 - MW) : 0);
       e.a.time = (((((this.cycN % e.cy) + this.phase) / e.cy) + e.po) % 1) * e.d;
     }
     for (const k in this.emoteWeights) {
-      this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * Math.min(1, dt * 4);
+      this.emoteWeights[k] += (this.emoteTargets[k] - this.emoteWeights[k]) * (1 - Math.exp(-dt * 4));
       this.actions[k]?.setEffectiveWeight(this.emoteWeights[k]);
     }
     // PropertyMixer skips writes for unchanged keyframes. Restore last frame's
@@ -1515,7 +1571,7 @@ export class Character {
     this.root.position.y = 0;
     // sprinting is not just running faster: higher knees, a longer stride, arms pumping hard, body further over
     // the ball — the run clip's limb swing is exaggerated away from the bind pose by up to ~35%
-    this._sprintW += (clamp((speed - 4.4) / 1.3, 0, 1) - this._sprintW) * Math.min(1, dt * 6);
+    this._sprintW += (clamp((speed - 4.4) / 1.3, 0, 1) - this._sprintW) * (1 - Math.exp(-dt * 6));
     if (this._sprintW * keep > 0.01) {
       const k = 1 + (this.loco.fwd.length > 2 ? 0.12 : 0.35) * this._sprintW * keep, qi = this._qp, qr = this._qa;
       for (const { bn, q } of this._bindQ) {
@@ -1532,15 +1588,15 @@ export class Character {
 
     // --- procedural layers ----------------------------------------------------
     const f = this.forward, r = this.right, b = this.bones;
-    this.turnVel += (turnRate - this.turnVel) * Math.min(1, dt * 8);
+    this.turnVel += (turnRate - this.turnVel) * (1 - Math.exp(-dt * 8));
     // lean with speed, plus into acceleration (forward) and against braking (back)
     if (dt > 0) {
       const acc = (speed - this._prevSpeed) / dt;
-      this.accel += (clamp(acc, -30, 30) - this.accel) * Math.min(1, dt * 10);
+      this.accel += (clamp(acc, -30, 30) - this.accel) * (1 - Math.exp(-dt * 10));
     }
     this._prevSpeed = speed;
     const lean = clamp(speed / 7, 0, 1) * 0.16 + clamp(this.accel * 0.012, -0.16, 0.12) + 0.1 * (this._sprintW || 0);
-    this._lean += (lean - this._lean) * Math.min(1, dt * 12);
+    this._lean += (lean - this._lean) * (1 - Math.exp(-dt * 12));
     this._rot(b.spine, r, -this._lean * keep);
     this._rot(b.hips, f, clamp(-this.turnVel * speed * 0.012, -0.18, 0.18) * keep);
     // a looser run: shoulders counter-rotate against the hips, the pelvis drops side to side, the body
@@ -1554,7 +1610,7 @@ export class Character {
         this._rot(b.head, UP, -Math.sin(ph) * 0.05 * rw);
         this.root.position.y += (Math.abs(Math.cos(ph)) - 0.6) * 0.03 * rw;
       }
-      this._bank = (this._bank || 0) + (clamp(this.turnVel * speed * 0.014, -0.2, 0.2) - (this._bank || 0)) * Math.min(1, dt * 8);
+      this._bank = (this._bank || 0) + (clamp(this.turnVel * speed * 0.014, -0.2, 0.2) - (this._bank || 0)) * (1 - Math.exp(-dt * 8));
       this._rot(b.spine1, f, -this._bank * keep);
     }
 
@@ -1600,7 +1656,7 @@ export class Character {
     this._rot(b.foreR, f, -(ch.elbowR || 0));
     // wind-up while charging: torso turns away and leans back a touch, arms open, and
     // (when not running) the striking leg cocks back; it fades as the strike takes over
-    this._wu += ((ch.thigh === undefined ? this.windup : 0) - this._wu) * Math.min(1, dt * 12);
+    this._wu += ((ch.thigh === undefined ? this.windup : 0) - this._wu) * (1 - Math.exp(-dt * 12));
     const wu = this._wu * keep;
     if (wu > 0.01) {
       const still = clamp(1 - speed / 3.2, 0, 1);
@@ -1650,7 +1706,7 @@ export class Character {
       pitch = clamp(Math.atan2(-dy, Math.hypot(dx, dz)), -0.5, 0.75);
     }
     // smooth, speed-limited head turn
-    const k = Math.min(1, dt * 5), maxStep = 4 * dt;
+    const k = (1 - Math.exp(-dt * 5)), maxStep = 4 * dt;
     this.look.yaw += clamp((yaw - this.look.yaw) * k, -maxStep, maxStep);
     this.look.pitch += clamp((pitch - this.look.pitch) * k, -maxStep, maxStep);
     const lk = 1 - 0.7 * MO;

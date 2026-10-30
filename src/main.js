@@ -149,6 +149,7 @@ post = new Post(renderer, scene, camera, { quality: params.get('fx') || (touch ?
 game.post = post; game.powerFx.post = post;
 let glowSweep = 0;
 const draw = (dt) => {
+  for (const athlete of game.athletes) if (!athlete.out) athlete.char.updateVisualDetails(camera, innerHeight);
   if (++glowSweep % 15 === 1) tagGlow(scene, post);
   post.update(dt); post.render();
 };

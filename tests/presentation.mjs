@@ -22,18 +22,19 @@ const room = Object.create(Showroom.prototype);
 Object.assign(room, { renderer: { setPixelRatio() {}, render() {} }, camera: { position: { set() {} }, lookAt() {} }, t: 0, frame: 0, dpr: 1, selected: 'thunder' });
 const counts = new Map();
 room._model = id => {
-  if (!counts.has(id)) counts.set(id, { time: 0, calls: 0, yaw: 0, x: 0, height: 1.65, ring: { material: {} }, ch: { setFacing() {}, update(dt) { const m = counts.get(id); m.time += dt; m.calls++; } } });
+  if (!counts.has(id)) counts.set(id, { time: 0, calls: 0, yaw: 0, x: 0, height: 1.65, disc: {}, ring: { material: {} }, ch: { group: {}, setFacing() {}, updateVisualDetails() {}, update(dt) { const m = counts.get(id); m.time += dt; m.calls++; } } });
   return counts.get(id);
 };
 const card = (id, hero = false) => ({ dataset: { c: id }, classList: { contains: () => hero }, getContext: () => ({ clearRect() {}, drawImage() {} }) });
 const cards = [card('thunder', true), card('thunder'), card('blaze'), card('frost')];
+room.models = counts;
 for (let i = 0; i < 120; i++) room.update(1 / 60, cards);
 for (const [id, m] of counts) { assert.equal(m.calls, 120, id); assert.ok(Math.abs(m.time - 2) < 1e-9, id); }
 assert.ok(Math.abs(counts.get('thunder').yaw) < 0.3, 'portrait never spins away');
 
 // The fixed-step accumulator must advance the same physics time at 30/60/144 Hz.
 const avatar = fs.readFileSync(new URL('../src/avatar.js', import.meta.url), 'utf8');
-const springCode = avatar.slice(avatar.indexOf('class SpringBones'), avatar.indexOf('// ---- expressions'));
+const springCode = avatar.slice(avatar.indexOf('class SpringBones'), avatar.indexOf('export function dyeHair'));
 const SpringBones = new Function(`${springCode}; return SpringBones;`)();
 for (const fps of [30, 60, 144]) {
   const s = Object.create(SpringBones.prototype); s.needsReset = false; s.accumulator = 0;

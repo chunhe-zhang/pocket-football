@@ -209,7 +209,10 @@ export class Game {
     if (!c || c.type !== 'human' || !c.scheme?.startsWith('pad')) return;
     const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
     const pad = pads[+c.scheme.slice(3)];
-    try { pad?.vibrationActuator?.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) }); } catch {}
+    const now = performance.now(), effects = this._haptics ||= new Map(), previous = effects.get(c.scheme);
+    if (previous && now < previous.until && strength < previous.strength) return;
+    effects.set(c.scheme, { until: now + ms, strength });
+    try { pad?.vibrationActuator?.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) })?.catch(() => {}); } catch {}
   }
 
   banner(big, small) { this.ui.banner(big, small); this.emit({ e: 'banner', big, small }); }

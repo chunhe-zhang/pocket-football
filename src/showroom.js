@@ -49,7 +49,7 @@ export class Showroom {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.52, 40), new THREE.MeshBasicMaterial({ color: def.css, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.004, 0);
     this.scene.add(ch.group, disc, ring);
-    m = { ch, x, yaw: 0.18, ring, height: this.template.variants?.get(id)?.height || this.template.height };
+    m = { ch, x, yaw: 0.18, ring, disc, height: this.template.variants?.get(id)?.height || this.template.height };
     this.models.set(id, m);
     return m;
   }
@@ -84,9 +84,17 @@ export class Showroom {
       const c = this.camera;
       const scale = Math.max(1, m.height / 1.65);
       c.position.set(m.x, 1.05 * scale, 4.25 * scale); c.lookAt(m.x, m.height * 0.52, 0);
+      m.ch.updateVisualDetails(c, H);
       // the cover's big stage portrait is drawn at a higher resolution than the little cards
       const hero = cv.classList.contains('hero-cv'), k = hero ? Math.min(3, Math.max(2, this.dpr * 1.6)) : this.dpr;
       if (hero) r.setPixelRatio(k);
+      // Skinned meshes deliberately bypass frustum culling to avoid limb pop.
+      // Hide the other five portraits explicitly instead of drawing all six
+      // rigs into every card and relying on GPU clipping to throw them away.
+      for (const other of this.models.values()) {
+        other.ch.group.visible = other === m;
+        other.ring.visible = other.disc.visible = other === m;
+      }
       r.render(this.scene, c);
       const ctx = cv._ctx || (cv._ctx = cv.getContext('2d'));
       if (cv.width !== Math.round(W * k)) { cv.width = Math.round(W * k); cv.height = Math.round(H * k); }

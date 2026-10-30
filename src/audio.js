@@ -163,6 +163,14 @@ export class Sfx {
     }
   }
 
+  /** Local player's planted step: quiet boot impact and grass. */
+  footstep(speed = 2, sprinting = false) {
+    if (!this.ok || this.now - (this._lastStep ?? -1) < 0.11) return;
+    const t = this._lastStep = this.now, level = Math.min(1, speed / 6);
+    this._tone(t, { f0: 100, f1: 48, peak: (sprinting ? 0.045 : 0.026) * level, d: 0.045 });
+    this._noise(t, { freq: 1800, q: 0.5, peak: 0.016 * level, d: 0.045, pink: true });
+  }
+
   /** side-footed pass: a rounder, softer knock */
   pass(power = 0.3) {
     if (!this.ok) return;

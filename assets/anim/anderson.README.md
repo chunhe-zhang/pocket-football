@@ -19,7 +19,9 @@ The source FBX files evaluate at 60 FPS. Twelve selected sections are converted 
 | and_gk_high | Anticipated high catch / block |
 | and_gk_mid | Anticipated middle-height block |
 | and_gk_low | Anticipated low gather |
-| and_dribble_cut, and_dribble_run, and_defend, and_throw_in | Available library sections, reserved for further integration |
+| and_dribble_run | High-speed forward dribbling, phase matched to the other locomotion clips |
+| and_defend | Defensive ready stance near an opposing ball carrier; crossfaded with distance hysteresis |
+| and_dribble_cut, and_throw_in | Available library sections, reserved for further integration |
 
 The goalkeeper sections are standing/hopping reaches and gathers. Existing lateral diving saves remain in use. A reach starts from predicted arrival time and height, with hand IK correcting for the target skeleton's proportions. Catch/parry outcomes still require the existing actual glove/body collision checks; the captured pose alone does not award a save.
 
