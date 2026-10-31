@@ -1,0 +1,48 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>六元素特效实景验证</title>
+<style>*{box-sizing:border-box}body{margin:0;padding:20px;background:#101625;color:#eef3ff;font:15px system-ui}h1{margin:0;font-size:24px}header{display:flex;gap:20px;align-items:center;margin-bottom:12px}button{background:#27344c;border:1px solid #5d708f;border-radius:6px;color:white;padding:8px 14px;cursor:pointer}#gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.card{background:#1a263b;border:1px solid #3e4d66;border-radius:12px;overflow:hidden;position:relative}.card canvas{width:100%;display:block;aspect-ratio:1.258}.label{position:absolute;left:15px;top:10px;font-weight:700;font-size:19px;text-shadow:0 1px 5px #000}.caption{position:absolute;bottom:8px;width:100%;text-align:center;color:#d6deeb;font-size:13px;text-shadow:0 1px 5px #000}iframe{position:absolute;left:-2000px;width:1000px;height:700px}details{margin-top:10px}pre{white-space:pre-wrap}#state{font-size:13px;color:#afbdd4}</style>
+<header><h1>GENSHIN FOOTBALL · 六元素常驻特效</h1><button id="angle">切换俯视</button><button id="day">切换晴天</button><button id="run">运行检查</button><span id="state">载入真实模型…</span></header>
+<div id="gallery"></div><details><summary>验证结果</summary><pre id="results">Loading…</pre></details><iframe src="../?fx=off"></iframe>
+<script type="module">
+const ids=['thunder','blaze','frost','gale','phantom','cannon'];
+const labels=['雷 · 电弧缠身','火 · 烈焰附体','冰 · 霜晶环绕','风 · 三重风带','影 · 幽影法阵','土 · 浮岩护体'];
+const captions=['锯齿雷弧 / 电光微粒','四肢与躯干持续燃烧','立体冰晶 / 飘雪','加宽气流 / 旋转风叶','暗色核心 / 紫色幽流','棱角岩块 / 琥珀裂纹'];
+const gallery=document.querySelector('#gallery'), result=document.querySelector('#results'), state=document.querySelector('#state');
+let w,g,room,overhead=false,day=false,models=[],canvases=[],last=performance.now();
+ids.forEach((id,i)=>{const card=document.createElement('div');card.className='card';card.innerHTML=`<div class="label">${labels[i]}</div><canvas></canvas><div class="caption">${captions[i]}</div>`;gallery.append(card);const cv=card.querySelector('canvas');cv.width=780;cv.height=620;canvases.push(cv);});
+const timer=setInterval(()=>{
+ w=document.querySelector('iframe').contentWindow;g=w.__game;if(!g?.ui.showroom?.models.size)return;
+ clearInterval(timer);w.__hold=true;room=g.ui.showroom;g.ui.showroom=null;
+ models=ids.map(id=>room._model(id));room.renderer.setPixelRatio(1);room.renderer.setSize(780,620,false);room.renderer.setClearColor('#1a263b',1);room.camera.aspect=780/620;room.camera.fov=28;room.camera.updateProjectionMatrix();
+ const draw=now=>{const dt=Math.max(0,Math.min(.05,(now-last)/1000));last=now;
+  models.forEach((m,i)=>{
+   m.ch.update(dt,{speed:0});for(const other of models){other.ch.group.visible=other===m;other.ring.visible=other.disc.visible=false;}
+   if(overhead)room.camera.position.set(m.x,4.2,2.8);else room.camera.position.set(m.x,1.22,4.35);
+   room.camera.lookAt(m.x,.82,0);m.ch.updateVisualDetails(room.camera,620);room.renderer.render(room.scene,room.camera);
+   canvases[i].getContext('2d').drawImage(room.renderer.domElement,0,0);canvases[i].dataset.drawCalls=room.renderer.info.render.calls;
+  });requestAnimationFrame(draw);
+ };requestAnimationFrame(draw);state.textContent='真实模型 · 无后期辉光 · 常驻待机';result.textContent='Ready';
+},250);
+document.querySelector('#angle').onclick=()=>{overhead=!overhead;document.querySelector('#angle').textContent=overhead?'切换近景':'切换俯视';};
+document.querySelector('#day').onclick=()=>{day=!day;room.renderer.setClearColor(day?'#a0be7a':'#1a263b',1);document.querySelector('#day').textContent=day?'切换暗色':'切换晴天';};
+document.querySelector('#run').onclick=async()=>{
+ result.textContent='Running…';state.textContent='检查中…';
+ const assert=(ok,message)=>{if(!ok)throw Error(message);};const report={signatures:[],switches:0};
+ try{
+  for(const [i,m] of models.entries()){
+   const a=m.ch.elementAura;assert(a?.id===ids[i],'wrong element');assert(a.meshes.length<=3,'too many aura draws');
+   const materials=new Set(a.meshes.map(mesh=>mesh.material)),geometries=new Set(a.meshes.map(mesh=>mesh.geometry));
+   for(let n=0;n<120;n++)m.ch.update(1/60,{speed:n<60?5:0});
+   assert(a.meshes.every(mesh=>materials.has(mesh.material)&&geometries.has(mesh.geometry)),'allocated per-frame resources');
+   assert(a.anchors.every(v=>v.toArray().every(Number.isFinite)),'invalid fire anchors');
+   report.signatures.push({element:ids[i],draws:a.meshes.length,instances:a.particles.geometry.instanceCount,energy:a.energy});
+   await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const ch=models[0].ch;for(const id of ['blaze','gale','phantom','cannon','frost','thunder']){ch.setStyle(id);ch.group.updateMatrixWorld(true);ch.update(1/60,{speed:0});assert(ch.group.children.filter(o=>o.userData.elementAura).length===1,'aura leaked across character switch');report.switches++;}
+  g.start({...g.ui.settings,mode:'match5',humans:1});for(let i=0;i<900;i++){w.__step(1,1/60,false);if(i%60===59)await new Promise(resolve=>setTimeout(resolve,0));}
+  assert(g.athletes.length===12,'wrong roster');assert(g.athletes.every(a=>a.char.elementAura?.id===a.charId),'missing duplicate element aura');
+  report.match={players:12,auraDraws:g.athletes.reduce((n,a)=>n+a.char.elementAura.meshes.length,0),seconds:15};
+  const shadow=g.athletes.find(a=>a.charId==='phantom');g.elementFx.ghost(shadow,'phantom',shadow.pos);const ghost=g.elementFx.ghosts.at(-1);assert(!ghost.root.children.some(o=>o.userData.elementAura),'ghost duplicated aura');report.ghostExcludesAura=true;
+  result.textContent='PASS '+JSON.stringify(report,null,2);state.textContent='PASS · 六元素与十二人比赛检查';
+ }catch(error){result.textContent='FAIL '+error.stack;state.textContent='FAIL';}
+};
+</script></html>

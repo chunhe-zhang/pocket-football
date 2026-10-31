@@ -2121,6 +2121,7 @@ export class Athlete {
         this.char.setIdlePose(pose); this.char._readyPose = pose;
       }
     }
+    if (this.char.elementAura) this.char.elementAura.surge = this.power?.type === this.charId || this.tm?.type === this.charId ? 1 : 0;
     const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
     const vf = this.vel.x * fx + this.vel.z * fz, vr = -this.vel.x * fz + this.vel.z * fx;
     this.char.update(dt, { speed: hs, vf, vr, turnRate: this.turnRate, fatigue: 1 - (this.stamina ?? 1), shield: this.dribbling ? (this.shieldK || 0) * (this.shieldSide || 0) : 0 });

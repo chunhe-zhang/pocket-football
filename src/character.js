@@ -3,6 +3,7 @@ import { clone as cloneSkinned } from '../vendor/three/addons/utils/SkeletonUtil
 import { ANIM } from './config.js';
 import { dyeHair } from './avatar.js';
 import { AnimationPose } from './animation-pose.js';
+import { ElementAura } from './element-aura.js';
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const yawAt = (c, t) => {
@@ -724,6 +725,7 @@ export class Character {
     if (this._modelTemplate !== wanted) {
       // Keep the Character and its world group stable: network wrappers,
       // gameplay references, position, visibility and squad scale stay valid.
+      this.elementAura?.dispose();
       const group = this.group, oldRoot = this.root;
       this.mixer.stopAllAction(); this.mixer.uncacheRoot(oldRoot);
       for (const o of this._acc || []) o.parent?.remove(o);
@@ -741,6 +743,8 @@ export class Character {
     }
     if (this._style === id) return;
     this._style = id;
+    this.elementAura?.dispose();
+    this.elementAura = new ElementAura(this, id);
     for (const o of this._acc || []) o.parent?.remove(o);
     this._acc = []; this._orbit = []; this._sway = []; this._flick = [];
     if (this.authoredElement) return; // ornaments and outfit are fitted in each VRM
@@ -1265,6 +1269,7 @@ export class Character {
 
   /** Keep silhouette-defining geometry; retire only subpixel decorative detail. */
   updateVisualDetails(camera, viewportHeight) {
+    this.elementAura?.setView(camera, viewportHeight);
     if (!this._visualDetails) {
       this._visualDetails = [];
       this.root.traverse(object => { if (object.userData.detailRadius || object.userData.detailDistance) this._visualDetails.push(object); });
@@ -1719,5 +1724,6 @@ export class Character {
     this.constraints?.update();
     this.springs?.update(dt);
     this.expr?.update(dt);
+    this.elementAura?.update(dt);
   }
 }

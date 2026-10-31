@@ -25,7 +25,7 @@ room._model = id => {
   if (!counts.has(id)) counts.set(id, { time: 0, calls: 0, yaw: 0, x: 0, height: 1.65, disc: {}, ring: { material: {} }, ch: { group: {}, setFacing() {}, updateVisualDetails() {}, update(dt) { const m = counts.get(id); m.time += dt; m.calls++; } } });
   return counts.get(id);
 };
-const card = (id, hero = false) => ({ dataset: { c: id }, classList: { contains: () => hero }, getContext: () => ({ clearRect() {}, drawImage() {} }) });
+const card = (id, hero = false) => ({ closest: () => null, dataset: { c: id }, classList: { contains: () => hero }, getContext: () => ({ clearRect() {}, drawImage() {} }) });
 const cards = [card('thunder', true), card('thunder'), card('blaze'), card('frost')];
 room.models = counts;
 for (let i = 0; i < 120; i++) room.update(1 / 60, cards);

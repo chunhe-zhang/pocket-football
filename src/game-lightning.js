@@ -43,22 +43,16 @@ export class GameLightningFx {
     const actors = game.athletes.filter(a => !a.out && a.charId === 'thunder' && a.char.group.visible);
     const live = new Set(actors);
     for (const [a, s] of this.states) if (!live.has(a)) {
-      this.fx.group.remove(s.ring.mesh); s.ring.m.dispose();
-      const i = this.fx.rings.indexOf(s.ring); if (i >= 0) this.fx.rings.splice(i, 1);
       this.states.delete(a);
     }
     let charging = null;
     for (const a of actors) {
       let s = this.states.get(a);
       if (!s) {
-        const ring = this.fx.makeRing(a.pos, 1.9, 9999); ring.permanent = true;
-        s = { ring, last: a.pos.clone(), clock: 0, aura: 0 }; this.states.set(a, s);
+        s = { last: a.pos.clone(), clock: 0, aura: 0 }; this.states.set(a, s);
       }
       const skill = a.power?.type === 'thunder' || a.tm?.type === 'thunder';
       const moving = a.sprinting || skill || a.slide;
-      s.ring.mesh.position.set(a.pos.x, 0.025, a.pos.z);
-      s.ring.mesh.visible = game.state === 'play' || a.charging;
-      s.ring.m.uniforms.opacity.value = a.charging ? 0.35 + a.charge * 0.35 : moving ? 0.4 : 0.12;
       if (a.charging && (!charging || a.charge > charging.charge)) charging = a;
       s.clock -= dt; s.aura -= dt;
       const d = s.last.distanceTo(a.pos);

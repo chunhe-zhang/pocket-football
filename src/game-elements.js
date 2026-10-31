@@ -11,7 +11,7 @@ export class GameElementFx {
   }
   ids(ball){return (ball.specialType||'').replaceAll('!','').split('+').filter(id=>this.effects.has(id));}
   ghost(a,id,pos){
-    if(!a||this.ghosts.length>=10)return;const root=cloneSkinned(a.char.group),materials=[];root.visible=true;root.position.copy(pos);root.traverse(o=>{if(!o.isMesh)return;const make=()=>{const m=new THREE.MeshBasicMaterial({color:ELEMENTS[id].color,transparent:true,opacity:.16,depthWrite:false,side:THREE.DoubleSide});materials.push(m);return m;};o.material=Array.isArray(o.material)?o.material.map(make):make();o.castShadow=false;});this.scene.add(root);this.ghosts.push({root,materials,age:0});
+    if(!a||this.ghosts.length>=10)return;const root=cloneSkinned(a.char.group),materials=[];root.visible=true;root.position.copy(pos);for(const child of [...root.children])if(child.userData.elementAura)root.remove(child);root.traverse(o=>{if(!o.isMesh)return;const make=()=>{const m=new THREE.MeshBasicMaterial({color:ELEMENTS[id].color,transparent:true,opacity:.16,depthWrite:false,side:THREE.DoubleSide});materials.push(m);return m;};o.material=Array.isArray(o.material)?o.material.map(make):make();o.castShadow=false;});this.scene.add(root);this.ghosts.push({root,materials,age:0});
   }
   start(a,kind){if(!this.effects.has(kind))return;this.effects.get(kind).linger=1.8;this.stats.starts++;this.pending.push({a,id:kind,t:kind==='blaze'?.2:.08});}
   hit(id,pos,big=false){if((this.cooldowns.get(id)||0)>0)return false;const fx=this.effects.get(id);if(!fx)return false;this.actor=[...this.states.keys()].find(a=>a.charId===id&&!a.out);this.cooldowns.set(id,big?.22:.12);this.stats.hits++;fx.linger=Math.max(fx.linger||0,1.6);fx.group.visible=true;if(big)fx.impact(pos);else{fx.emit(pos,30,{speed:2.2,life:.6,size:id==='blaze'?.16:.07});if(id==='frost'||id==='cannon')fx.debris(pos,12,2);fx.ringAt(pos,.75,.45);}return true;}
@@ -23,7 +23,7 @@ export class GameElementFx {
   update(dt,game){
     this.time+=dt;for(const [id,t] of this.cooldowns)this.cooldowns.set(id,Math.max(0,t-dt));
     const active=!['menu','ended'].includes(game.state),live=new Set(active?game.athletes.filter(a=>!a.out&&this.effects.has(a.charId)&&(a.char.group.visible||a.charId==='phantom')):[]);
-    for(const [a,s] of this.states)if(!live.has(a)||a.charId!==s.id){const fx=this.effects.get(s.id);fx.group.remove(s.ring.mesh);s.ring.m.dispose();const i=fx.pool.rings.indexOf(s.ring);if(i>=0)fx.pool.rings.splice(i,1);this.states.delete(a);}
+    for(const [a,s] of this.states)if(!live.has(a)||a.charId!==s.id){this.states.delete(a);}
     if(!active){this.pending.length=0;this.flight.clear();for(const fx of this.effects.values()){if(fx.group.visible)fx.clear();fx.group.visible=false;}this.updateGhosts(dt);return;}
     for(let i=this.pending.length-1;i>=0;i--){const p=this.pending[i];p.t-=dt;if(p.t<=0){const fx=this.effects.get(p.id);if(!p.a.out){this.actor=p.a;if(p.id==='phantom')fx.portalBurst(p.a.pos);else fx.impact(p.a.pos);}this.pending.splice(i,1);}}
     const shotIds=this.ids(game.ball),ball=game.ball;
@@ -31,11 +31,11 @@ export class GameElementFx {
       const actors=[...live].filter(a=>a.charId===id),shooting=shotIds.includes(id)&&!ball.hidden&&!ball.heldBy,old=this.flight.get(id);
       fx.linger=Math.max(0,(fx.linger||0)-dt);
       if(!actors.length&&!shooting&&!fx.linger){if(fx.group.visible)fx.clear();fx.group.visible=false;this.flight.delete(id);continue;}
-      fx.group.visible=true;fx.visibleAura=actors.length>0;fx.skillStrength=actors.some(a=>a.power?.type===id||a.tm?.type===id)?1:0;
+      fx.group.visible=true;fx.visibleAura=false;fx.skillStrength=actors.some(a=>a.power?.type===id||a.tm?.type===id)?1:0;
       const primary=actors.find(a=>a.charging)||actors[0];if(primary)fx.setOrigin(primary.pos);else fx.setOrigin(ball.pos);
       let charge=0,chargePos=ball.pos;
       for(const a of actors){
-        let s=this.states.get(a);if(!s){const ring=fx.ringAt(a.pos,1.7,9999);ring.permanent=true;s={id,ring,last:a.pos.clone(),moveClock:0,auraClock:0};this.states.set(a,s);}
+        let s=this.states.get(a);if(!s){s={id,last:a.pos.clone(),moveClock:0,auraClock:0};this.states.set(a,s);}
         const skill=a.power?.type===id||a.tm?.type===id,moving=a.sprinting||skill||a.slide||(id==='frost'&&a.vel.lengthSq()>4);
         s.moveClock-=dt;s.auraClock-=dt;const d=s.last.distanceTo(a.pos);
         if(moving&&s.moveClock<=0&&d>.05&&d<7){this.actor=a;if(id==='phantom'&&d>.7)fx.dash(s.last,a.pos);else{fx.emit(a.pos.clone().add(new V(0,id==='frost'?.08:.18,0)),id==='blaze'?6:id==='frost'?2:3,{speed:id==='frost'?.25:1,life:id==='frost'?.45:.6,size:id==='blaze'?.17:id==='frost'?.035:.055,...(id==='frost'?{up:.4}:{})});if((id==='frost'||id==='cannon')&&skill)fx.debris(a.pos,2,1.3);}s.moveClock=.09;}
@@ -50,7 +50,6 @@ export class GameElementFx {
         flight.clock-=dt;if(flight.clock<=0){const dist=flight.p.distanceTo(ball.pos);if(dist<12){const count=Math.min(5,Math.max(1,Math.ceil(dist/.3)));for(let k=1;k<=count;k++)fx.emit(new V().lerpVectors(flight.p,ball.pos,k/count),3,{speed:.6,life:.5,size:id==='blaze'?.18:.065});if(id==='frost'||id==='cannon')fx.debris(ball.pos,1,1.1);}flight.p.copy(ball.pos);flight.clock=.045;}flight.special=ball.special;this.flight.set(id,flight);
       }else this.flight.delete(id);
       fx.update(dt,this.time);
-      for(const a of actors){const s=this.states.get(a);s.ring.mesh.position.set(a.pos.x,.023,a.pos.z);s.ring.mesh.visible=a!==primary;s.ring.m.uniforms.opacity.value=a.charging?.5:(a.sprinting||a.power)?.3:.16;}
     }
     this.updateGhosts(dt);
   }
