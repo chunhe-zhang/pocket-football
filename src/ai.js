@@ -366,7 +366,7 @@ export class AIController {
         this._goTo(q.x, q.z, 0.3, 1.5); return;
       }
       const poke = myDist < 1.6;
-      if (Math.random() < (poke ? 0.45 * this.cfg.skill + 0.12 : 0.12 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // a slide that misses is costly now
+      if (Math.random() < (poke ? 0.28 * this.cfg.skill + 0.06 : 0.07 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // every tackle is a committed element slide: a miss is costly
         const tx = bp.x - me.pos.x, tz = bp.z - me.pos.z;
         plan.move.set(tx, tz).normalize();
         plan.tackle = true;
@@ -889,7 +889,7 @@ export class AIController {
         const hf = holder.forward, fromBehind = ((holder.pos.x - me.pos.x) * hf.x + (holder.pos.z - me.pos.z) * hf.z) > 0.4 * myDist;
         if (fromBehind || inOwnBox(me.end, me.pos.x, me.pos.z) || ((me.yellows || 0) > 0 && Math.random() < 0.7)) { this._goTo(bp.x, bp.z, 0.4, 3); return; }
       }
-      if (Math.random() < (poke ? 0.22 * this.cfg.skill + 0.08 : 0.04 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // 5v5: patient, fewer lunges
+      if (Math.random() < (poke ? 0.16 * this.cfg.skill + 0.05 : 0.03 * this.cfg.skill) * (this.cfg.tackle ?? 1)) {   // 5v5: patient, fewer lunges
         plan.move.set(bp.x - me.pos.x, bp.z - me.pos.z).normalize();
         plan.tackle = true;
         return;

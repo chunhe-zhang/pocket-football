@@ -255,7 +255,7 @@ export class UI {
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传　·　<b>U</b> 挑射　·　<b>L</b> 无球抢断／有球过人　·　<b>Shift</b> 冲刺`
+      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传　·　<b>U</b> 挑射　·　<b>L</b> 无球元素铲球／有球过人　·　<b>Shift</b> 冲刺`
       : `P1：WASD + F 射门 / R 平传 / G 挑传 / H 抢断　·　P2：方向键 + Enter / , / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -379,9 +379,9 @@ export class UI {
       const a = g.athletes[i]; if (!a || a.out) return;
       const mode = a.actionButtonMode();
       const key = ctl.scheme?.startsWith('pad') ? 'X' : ctl.scheme === 'p1' ? 'H' : ctl.scheme === 'p2' ? '.' : 'L';
-      const label = mode === 'skill' ? a.powerCD <= 0 ? '元素过人' : a.skillCD <= 0 ? '闪身步' : `过人冷却 ${a.skillCD.toFixed(1)}s` : mode === 'dive' ? '扑救' : '抢断 / 滑铲';
+      const label = mode === 'skill' ? a.powerCD <= 0 ? '元素过人' : a.skillCD <= 0 ? '闪身步' : `过人冷却 ${a.skillCD.toFixed(1)}s` : mode === 'dive' ? '扑救' : '元素铲球';
       actions.push(`${key} · ${label}`);
-      if (ctl.scheme === 'solo') $('#btn-tackle').textContent = mode === 'skill' ? '过人' : mode === 'dive' ? '扑救' : '抢断';
+      if (ctl.scheme === 'solo') $('#btn-tackle').textContent = mode === 'skill' ? '过人' : mode === 'dive' ? '扑救' : '铲球';
     });
     const actionText = actions.join('\n');
     if ($('#action-hint').textContent !== actionText) $('#action-hint').textContent = actionText;

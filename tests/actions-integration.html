@@ -19,15 +19,32 @@ const timer=setInterval(()=>{
   };
   for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const fps of [30,60,144])for(const cd of [0,3])for(const distance of [1.2,3.4]){
    reset(id,cd,distance);const mode=player.actionButtonMode();w.__step(1,1/fps,false);
-   assert(mode==='tackle'&&calls.length===1&&calls[0]===(distance<1.75?'_startPoke':'_startSlide'),`${id}/${fps}/${cd}/${distance}: ${calls}`);
-   assert(!player.power&&!player.tm,`${id}: off-ball element move`);
-   if(distance>1.75)assert(player.slide?.kind===null&&player.pos.distanceTo({x:0,y:0,z:-4})<.4,`${id}: elemental/teleport slide`);
+   // off the ball the key is always this character's element slide, at any distance, cooldown or speed
+   assert(mode==='tackle'&&calls.length===1&&calls[0]==='_startSlide',`${id}/${fps}/${cd}/${distance}: ${calls}`);
+   assert(!player.power&&!player.tm&&player.slide?.kind===id,`${id}: not an element slide`);
+   assert(player.slideCD===0,`${id}: slide has a cooldown`);
    report.defensive.push({id,fps,cd,distance,action:calls[0]});
   }
   for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const cd of [0,3]){
    reset(id,cd,.5,true);assert(player.actionButtonMode()==='skill',`${id}: own ball mode`);w.__step(1,1/60,false);
    assert(calls[0]===(cd===0?'_startPower':'_startSkill'),`${id}: on-ball action ${calls}`);report.attacking.push({id,cd,action:calls[0]});
   }
+  // the camp game: a slide whose camp beats the carrier's always wins the ball, its own way
+  const duel=(id,vs)=>{
+   reset(id,3,1.6);player.intent.tackle=true;other.out=false;other.charId=vs;other.char.setStyle(vs);other.place(0,player.pos.z+1.9,Math.PI);other.vel.set(0,0,0);other.frozen=false;other.stunT=0;other.power=null;other.trick=null;
+   g.ball.reset(0,player.pos.z+1.6);g.possessor=other;g.ball.lastTouch=other;other.dribbling=true;
+   w.__step(1,1/60,false);player.intent.tackle=false;let sp=0;
+   for(let i=0;i<40&&!player.slide?.won;i++)w.__step(1,1/60,false);
+   sp=Math.hypot(g.ball.vel.x,g.ball.vel.z);const won=!!player.slide?.won||g.ball.lastTouch===player;other.out=true;return {won,ballSpeed:+sp.toFixed(2)};
+  };
+  report.camps={};
+  for(const [id,vs] of [['frost','thunder'],['gale','phantom'],['blaze','gale'],['cannon','frost'],['thunder','blaze'],['phantom','cannon']]){
+   const r=duel(id,vs);report.camps[id+'>'+vs]=r;assert(r.won,`${id} vs ${vs}: favourable slide lost the ball`);
+   if(id==='frost'||id==='gale')assert(r.ballSpeed<3,`${id}: control slide did not keep the ball close`);else assert(r.ballSpeed>5,`${id}: ball not knocked away`);
+  }
+  // a slide that touches nothing: no cooldown, but a long lie-down
+  reset('blaze',3,12);w.__step(1,1/60,false);player.intent.tackle=false;for(let i=0;i<70;i++)w.__step(1,1/60,false);
+  assert(!player.slide&&player.stunT>0.6,'missed slide not punished: '+player.stunT);report.whiff={stun:+player.stunT.toFixed(2),cd:player.slideCD};
   reset('thunder',0,4);g.ball.lastTouch=player;g.possessor=player;player.dribbling=true;
   assert(player.actionButtonMode()==='tackle','stale possession triggered skill');
   for(const name of methods)player[name]=original[name];

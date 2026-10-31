@@ -188,16 +188,14 @@ export class Athlete {
         // the character's own move when it's ready, the quick 闪身步 in between
         if (!this.charging && !this.power) { if (this.powerCD <= 0) this._startPower(); else if (this.skillCD <= 0) this._startSkill(); }
       } else if (this.slideCD <= 0) {
-        const sp = Math.hypot(this.vel.x, this.vel.z);
-        const mateHas = holder && g.sameSide(holder.team, this.team);
         // in my own penalty box the tackle button is a goalkeeper dive
         if (inOwnBox(this.end, this.pos.x, this.pos.z) && (!this.role || this.role === 'gk')) {
           // a keeper at the feet of a dribbler (a slow ball close by) goes down on it; anything else is a dive
           if (this.isKeeper && bd < 1.9 && Math.hypot(b.vel.x, b.vel.z) < 8 && b.pos.y < 0.8) this._startPoke(); else this._startDive();
         }
-        else if (mateHas && bd < 2.5) { /* never tackle my own team-mate */ }
-        else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
-        else this._startSlide(true);
+        // everywhere else, off the ball, the button is always my element's slide tackle — no
+        // distance- or speed-dependent switching, so it does the same thing every time
+        else this._startSlide();
       }
     }
 
@@ -483,9 +481,17 @@ export class Athlete {
       }
     }
     const v0 = clamp(Math.max(sp, 4) + 2.6, 6.2, 9);
-    // a slide is a big, committed move: a long reach and the element hits hard, but a miss leaves you on the floor
-    this.slide = { t: 0, dur: 0.6, total: 0.85, dir, speed0: v0, poked: false, hit: new Set(), kind, decay: 1.25, reach: Athlete.SLIDE_REACH.def };
-    if (kind === 'thunder') { this.slide.speed0 = Math.min(12.5, v0 * 1.4); this.slide.dur = 0.5; }
+    // a slide is a big, committed move: no cooldown, but a slide that touches neither ball nor man
+    // leaves you on the floor for a long moment. Each camp slides its own way:
+    //  力量 (火 土): long reach, bowls people over, the ball is blasted away — but 灵巧 slips it
+    //  灵巧 (雷 影): a dash / a blink, very hard to avoid, the ball flies off loose
+    //  控制 (冰 风): freezes / blows the man up and the ball stays at my feet — weak on 力量, deadly on 灵巧
+    const camp = CAMP[kind] || 'force';
+    this.slide = { t: 0, dur: 0.6, total: 0.85, dir, speed0: v0, poked: false, won: false, hit: new Set(), kind, camp, decay: 1.25, reach: Athlete.SLIDE_REACH.def, sweep: 0.7 };
+    if (kind === 'blaze') { this.slide.reach = Athlete.SLIDE_REACH.blaze; }
+    if (kind === 'thunder') { this.slide.speed0 = Math.min(12.5, v0 * 1.4); this.slide.dur = 0.5; this.slide.reach = Athlete.SLIDE_REACH.agile; }
+    if (kind === 'phantom') { this.slide.reach = Athlete.SLIDE_REACH.agile; }
+    if (camp === 'agile') this.slide.sweep = 0.85;
     if (kind === 'frost') { this.slide.dur = 0.75; this.slide.total = 0.95; this.slide.decay = 0.8; }
     if (kind === 'cannon') { this.slide.reach = Athlete.SLIDE_REACH.cannon; }
     if (kind === 'gale') { this.slide.reach = Athlete.SLIDE_REACH.gale; this.slide.dur = 0.68; }
@@ -493,7 +499,7 @@ export class Athlete {
     this.facing = Math.atan2(dir.x, dir.z);
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null;
     this.stamina = Math.max(0, this.stamina - 0.15);
-    this.slideCD = 1.3;
+    this.slideCD = 0;
     this.char.play('slide', { duration: 0.85, kind, side: Math.random() < 0.5 ? 'Right' : 'Left' });
     this.char.face('angry', 0.6); this.faceT = 0.6;
     this.game.sfx.slide();
@@ -520,7 +526,7 @@ export class Athlete {
       // …and the people round it: drawn in towards the slide
       if (u < 0.75) this._whirl(new THREE.Vector3(this.pos.x + sl.dir.x * 0.9, 0, this.pos.z + sl.dir.z * 0.9), 3.0, 0.18, 0.85);
     }
-    this.vel.copy(sl.dir).multiplyScalar(sp);
+    this.vel.copy(sl.dir).multiplyScalar(sl.won && sl.camp === 'ctrl' ? sp * 0.35 : sp);   // control: pull up over the won ball
     this.pos.addScaledVector(this.vel, dt);
     if (u < 1 && Math.random() < dt * 30) g.fx('grass', this.pos, { x: -sl.dir.x, z: -sl.dir.z }, 2, 1.5);
     if (u < 0.8) {
@@ -531,30 +537,45 @@ export class Athlete {
       const near = ank.addScaledVector(ab, t);
       const reach = Math.hypot(ball.pos.x - near.x, ball.pos.z - near.z);
       // the element round the boot reaches further than the boot itself
-      const swept = Math.hypot(ball.pos.x - (this.pos.x + sl.dir.x * 0.55), ball.pos.z - (this.pos.z + sl.dir.z * 0.55)) < sl.reach * 0.7;
-      if (!sl.poked && (reach < R + 0.35 || swept) && ball.pos.y < 0.75 && !ball.heldBy) {
+      const swept = Math.hypot(ball.pos.x - (this.pos.x + sl.dir.x * 0.55), ball.pos.z - (this.pos.z + sl.dir.z * 0.55)) < sl.reach * sl.sweep;
+      const carrier = g.possessor, mate = carrier && carrier !== this && g.sameSide(carrier.team, this.team);
+      if (!sl.poked && !mate && (reach < R + 0.35 || swept) && ball.pos.y < 0.75 && !ball.heldBy) {
         sl.poked = true;
-        // a skill move in progress: the ball is lifted / rolled over the sliding boot
-        const carrier = g.possessor;
-        if (carrier && carrier !== this && carrier.dodging && Math.random() < 0.6) { ball.vel.y = Math.max(ball.vel.y, 2.2); g.sfx.touch(); return; }
-        // a dribbler sees it coming now and then and lifts the ball over the boot
-        if (carrier && carrier !== this && carrier.dribbling && this._isOpp(carrier) && Math.random() < 0.3) { ball.vel.y = Math.max(ball.vel.y, 2.0); carrier.flair('挑过!', true); g.sfx.touch(); return; }
-        const lateral = (Math.random() - 0.5) * 2.4;
-        ball.vel.set(sl.dir.x * (sp * 0.85 + 3.2) - sl.dir.z * lateral, 0.6 + Math.random() * 1.2, sl.dir.z * (sp * 0.85 + 3.2) + sl.dir.x * lateral);
-        ball.spin.set(0, (Math.random() - 0.5) * 20, 0);
-        ball.lastTouch = this; this.lastTouchTime = g.time; this.stats.touches++;
-        this.ignoreBall = 0.25;
-        g.sfx.kick(0.35);
+        // the camp game on the man with the ball: whoever's camp beats the other's decides it
+        const opp = carrier && carrier !== this && this._isOpp(carrier) ? carrier : null;
+        const iWin = opp && beats(sl.kind, opp.charId), heWins = opp && beats(opp.charId, sl.kind);
+        const lift = !opp ? 0 : iWin ? 0 : heWins ? 0.55 : opp.dodging ? 0.45 : opp.dribbling ? 0.12 : 0;
+        if (Math.random() < lift) {
+          // he reads it: the ball is lifted over the boot (灵巧 skips a 力量 slide, 控制 holds off 灵巧, 力量 rides 控制)
+          ball.vel.y = Math.max(ball.vel.y, 2.2); opp.flair(heWins ? (CAMP[opp.charId] === 'agile' ? '闪开!' : CAMP[opp.charId] === 'ctrl' ? '控住!' : '顶住!') : '挑过!', true); g.sfx.touch(); return;
+        }
+        sl.won = true;
+        if (sl.camp === 'ctrl') {
+          // ice / wind: the ball is stopped dead and kept close, just ahead of my slide
+          const k = Math.min(2.4, sp * 0.25 + 0.9), lat = (Math.random() - 0.5) * 0.4;
+          ball.vel.set(sl.dir.x * k - sl.dir.z * lat, 0.15, sl.dir.z * k + sl.dir.x * lat);
+          ball.spin.set(0, 0, 0); this.ignoreBall = 0.08;
+          g.fx(sl.kind === 'frost' ? 'ice' : 'wind', ball.pos, sl.dir, 10, 2);
+        } else {
+          // force blasts it away, agile knocks it flying loose: it's won off him, not kept
+          const force = sl.camp === 'force', lateral = (Math.random() - 0.5) * (force ? 6 : 8);
+          const k = force ? sp * 0.9 + 5 : sp * 0.75 + 4.5;
+          ball.vel.set(sl.dir.x * k - sl.dir.z * lateral, (force ? 1.4 : 0.9) + Math.random() * 1.4, sl.dir.z * k + sl.dir.x * lateral);
+          ball.spin.set(0, (Math.random() - 0.5) * 24, 0); this.ignoreBall = 0.3;
+          g.fx('grass', ball.pos, sl.dir, 10, 2.5);
+        }
+        if (opp) { opp.knockFree = Math.max(opp.knockFree || 0, 0.35); opp.dribbling = false; }
+        ball.lastTouch = this; this.lastTouchTime = g.time; this.stats.touches++; this.stats.tackles = (this.stats.tackles || 0) + 1;
+        g.sfx.kick(sl.camp === 'ctrl' ? 0.2 : 0.4);
         g.squashBall(sl.dir, 0.16);
-        g.fx('grass', ball.pos, sl.dir, 10, 2.5);
         g.onImpact?.({ pos: ball.pos }, this.charDef.color);
         g.rumble(this, 0.6, 90);
       }
       // and through anyone standing in the way
       for (const o of g.athletes) {
         // (a skill move carries you clear of slides — except a control slide (ice / wind) on an agile mid-dash: 控制克灵巧)
-        const caught = o.power && g.m5 && CAMP[sl.kind] === 'ctrl' && CAMP[o.charId] === 'agile';
-        if (o === this || sl.hit.has(o) || o.slide || (o.power && !caught) || g.sameSide(this.team, o.team)) continue;
+        const caught = o.power && CAMP[sl.kind] === 'ctrl' && CAMP[o.charId] === 'agile';
+        if (o === this || o.out || sl.hit.has(o) || o.slide || (o.power && !caught) || g.sameSide(this.team, o.team)) continue;
         const dx = o.pos.x - this.pos.x, dz = o.pos.z - this.pos.z, d = Math.hypot(dx, dz);
         const ahead = (dx * sl.dir.x + dz * sl.dir.z) / (d || 1);
         if (d < (sl.reach || 0.85) && ahead > 0.2) {
@@ -562,10 +583,11 @@ export class Athlete {
           g.onImpact?.(o, this.charDef.color);
           if (!caught) this._foulCheck(o, sl);       // catching a dash half-way is the counter, not a foul
           if (caught) { o._endPower(); if (sl.kind === 'frost') o._freezeRaw(0.9); else { o.knock(sl.dir, 2); o.stunT = 0.6; } o.flair('被截住!', true); g.ball.vel.set(sl.dir.x * 2, 0.5, sl.dir.z * 2); continue; }
-          if (o._counters(sl.kind)) { o._shrug(sl.kind, sl.dir); g.sfx.bump(sp); continue; }
+          if (beats(o.charId, sl.kind)) { o._shrug(sl.kind, sl.dir); g.sfx.bump(sp); continue; }
           // the character's element hits them too
           if (sl.kind === 'thunder') { o.zap('thunder', sl.dir); g.fx('bolt', { x: o.pos.x, y: 1, z: o.pos.z }, { x: 0, z: 0 }, 16, 3); }
-          else if (sl.kind === 'frost') o.freeze(1.4);
+          else if (sl.kind === 'frost') { if (CAMP[o.charId] === 'force') o._shrug('frost', sl.dir); else o._freezeRaw(beats('frost', o.charId) ? 1.6 : 1.2); }
+          else if (sl.kind === 'gale') { o.launch(sl.dir, 1.3, beats('gale', o.charId) ? 7.5 : 5.5); g.fx('wind', { x: o.pos.x, y: 0.6, z: o.pos.z }, { x: 0, z: 0 }, 20, 3.5); }
           else if (sl.kind === 'cannon') { o.launch(sl.dir, 5.5, 8); g.onImpact?.(o, 0xffd23f); g.shake = Math.max(g.shake, 0.2); }
           else if (sl.kind === 'blaze') { o.launch(sl.dir, 7, 3.2); g.fx('fire', { x: o.pos.x, y: 0.8, z: o.pos.z }, { x: 0, z: 0 }, 20, 3); }
           else { if (sp > 3) o.fall(sl.dir, sp); else o.knock(sl.dir, sp); if (sl.kind === 'blaze') g.fx('fire', { x: o.pos.x, y: 0.8, z: o.pos.z }, { x: 0, z: 0 }, 20, 3); }
@@ -576,9 +598,9 @@ export class Athlete {
     if (sl.t >= sl.total) {
       this.slide = null; this.vel.set(0, 0, 0);
       // missed everything: punished. Lying on the grass, out of breath, and no slide again for a while
-      if (!sl.poked && !sl.hit.size) {
-        this.stunT = 0.75; this.stamina = Math.max(0, this.stamina - 0.22); this.slideCD = 2.4;
-        this.char.play('stagger', { duration: 0.85, amp: 0.7 });
+      if (!sl.won && !sl.hit.size) {
+        this.stunT = 1.0; this.stamina = Math.max(0, this.stamina - 0.22);
+        this.char.play('stagger', { duration: 1.1, amp: 0.7 });
         this.char.face('surprised', 0.7); this.faceT = 0.7;
         this.flair('铲空了…', true);
         g.emit?.({ e: 'slideMiss', i: this.team });
@@ -1307,7 +1329,7 @@ export class Athlete {
 
   // ---- character moves (each character beats a defender their own way) -------------------
   static POWER_CD = 4;
-  static SLIDE_REACH = { def: 1.15, cannon: 1.5, gale: 1.35 };
+  static SLIDE_REACH = { def: 1.15, blaze: 1.3, cannon: 1.5, gale: 1.35, agile: 1.35 };
 
   _nearestOpp(maxD = 6, ahead = -1) {
     const g = this.game, f = this.forward;
