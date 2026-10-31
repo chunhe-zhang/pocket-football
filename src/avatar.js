@@ -142,6 +142,24 @@ export class AvatarTemplate {
       // so the game can turn the whole body itself (in step with the clip) and blending never spins the hips
       const deyaw = /^(turn|cut)/.test(name);
       let yawCurve = null;
+      // A looping gait captured with the actor facing away from the run (and_dribble_run is ~165° off):
+      // take that constant heading out of the hips so it blends with the other gaits instead of
+      // twisting the body side-on part-way through the blend (or running it backwards at full weight).
+      let yawFix = null;
+      if (c.loop && !deyaw) {
+        const hq = c.tr.find((tr) => tr.b === 'Hips' && tr.p === 'q');
+        if (hq && raw.rest.Hips) {
+          const Sp = Q(raw.prest.Hips), SbInv = Q(raw.rest.Hips).invert();
+          let sx = 0, cz = 0;
+          for (let k = 0; k < hq.v.length; k += 4) {
+            _q.fromArray(hq.v, k); _q2.copy(Sp).multiply(_q).multiply(SbInv);
+            if (mirror) _q2.set(_q2.x, -_q2.y, -_q2.z, _q2.w);
+            _v.set(0, 0, 1).applyQuaternion(_q2); const a = Math.atan2(_v.x, _v.z); sx += Math.sin(a); cz += Math.cos(a);
+          }
+          const mean = Math.atan2(sx, cz);
+          if (Math.abs(mean) > 1) yawFix = new THREE.Quaternion().setFromAxisAngle(_Y, -mean);
+        }
+      }
       for (const tr of c.tr) {
         const vname = MIXAMO_TO_VRM[mirror ? mir(tr.b) : tr.b], target = vname && this.human[vname];
         if (!target || !raw.rest[tr.b]) continue;
@@ -153,6 +171,7 @@ export class AvatarTemplate {
             _q.fromArray(tr.v, k);
             _q2.copy(Sp).multiply(_q).multiply(SbInv);                       // the rotation in the rest-world frame
             if (mirror) _q2.set(_q2.x, -_q2.y, -_q2.z, _q2.w);                  // reflected left ↔ right
+            if (yawFix && vname === 'hips') _q2.premultiply(yawFix);
             if (deyaw && vname === 'hips') {
               _v.set(0, 0, 1).applyQuaternion(_q2);
               let yaw = Math.atan2(_v.x, _v.z);
