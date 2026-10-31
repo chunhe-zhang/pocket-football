@@ -1,6 +1,6 @@
 {
   "name": "genshin-football",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "private": true,
   "description": "Four-goal mini football in the browser, with online rooms for up to 4 players",
   "scripts": {

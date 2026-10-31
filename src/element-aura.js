@@ -39,8 +39,21 @@ void main(){
   float cracks=band(sin(a*4.+r*3.),.03)*smoothstep(.5,.56,r)*(1.-smoothstep(.78,.9,r));
   ink+=cracks;haze=exp(-r*r*6.)*.12;c=mix(vec3(.28,.12,.035),tint,clamp(ink,0.,1.));
  #endif
- float alpha=clamp(ink*.76+haze,0.,.9)*(1.-smoothstep(.94,1.,r));
- if(alpha<.008)discard;gl_FragColor=vec4(c*(1.+energy*.18),alpha);
+ // Shared halo frame round every sigil: a bright hRim with a light sweep running round it,
+ // a counter-rotating rune band, a dashed outer ring and ripples rolling out from the feet.
+ float turn=a/6.28318,boost=.75+energy*.55;
+ float sweep=pow(fract(turn-clock*(.32+energy*.25)+float(ELEMENT)*.17),6.)+pow(fract(-turn-clock*.21+float(ELEMENT)*.41),10.)*.55;
+ float hRim=band(r-.80,.011)*(.55+sweep*1.1)+exp(-pow((r-.80)/.045,2.))*(.16+sweep*.35);
+ float cell=turn*48.-clock*.55,cf=fract(cell);
+ float glyph=step(.36,fract(sin(floor(cell)*91.7+float(ELEMENT)*13.)*43758.5453))*step(.2,cf)*step(cf,.8);
+ float runes=glyph*smoothstep(.835,.845,r)*(1.-smoothstep(.875,.885,r))*.55+band(r-.835,.004)*.45+band(r-.885,.004)*.45;
+ float outer=band(r-.93,.006)*step(.42,fract(turn*32.+clock*.12))*.6;
+ float ripple=pow(max(0.,sin((r-clock*.32)*24.)),12.)*smoothstep(.08,.2,r)*(1.-smoothstep(.6,.76,r))*.16;
+ float deco=(hRim+runes+outer)*boost+ripple;
+ vec3 dc=mix(tint*1.35,vec3(1.),clamp(sweep*.55+hRim*.15,0.,.7));
+ c=mix(c,dc,clamp(deco/(ink+deco+.001),0.,1.));
+ float alpha=clamp(ink*.76+haze+deco*.85,0.,.95)*(1.-smoothstep(.96,1.,r));
+ if(alpha<.008)discard;gl_FragColor=vec4(c*(1.+energy*.25),alpha);
 }`;
 const PLANE_VERTEX = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 
@@ -80,7 +93,7 @@ void main(){
   #elif ELEMENT == 4
    size=vec2(.11+seed*.07)*height;p.y*=.7;
   #else
-   p.y*=.35;size=vec2(.055+seed*.04)*height;
+   p.y*=.6;size=vec2(.045+seed*.035)*height;
   #endif
  #endif
  #if ELEMENT != 1
@@ -105,7 +118,7 @@ void main(){
  #elif ELEMENT == 4
   alpha=exp(-r*r*20.)*(.5+.5*sin(p.y*10.+clock*2.+vSeed*9.));c=mix(tint,vec3(.72,.45,1.),.5);
  #else
-  alpha=(1.-smoothstep(.17,.42,max(abs(p.x),abs(p.y))))*.55;
+  alpha=exp(-r*r*40.)+exp(-r*r*9.)*.25;c=mix(tint,vec3(1.,.93,.7),.45);
  #endif
  alpha*=vLife;if(alpha<.008)discard;gl_FragColor=vec4(c*(1.+energy*.20),alpha);
 }`;
@@ -213,8 +226,11 @@ export class ElementAura {
     if (id === 'blaze') {
       // Bone-tethered tongues cover boots, wrists and shoulders in one draw.
       this.silhouette = null;
-    } else if (id === 'frost' || id === 'cannon') {
-      const base = id === 'frost' ? new THREE.OctahedronGeometry(1, 0) : new THREE.IcosahedronGeometry(1, 0);
+    } else if (id === 'cannon') {
+      // Earth reads through its hexagonal floor sigil and rising motes; no orbiting rock ring.
+      this.silhouette = null;
+    } else if (id === 'frost') {
+      const base = new THREE.OctahedronGeometry(1, 0);
       const geometry = new THREE.InstancedBufferGeometry();geometry.index = base.index;geometry.attributes = {...base.attributes};
       geometry.setAttribute('seed', new THREE.InstancedBufferAttribute(Float32Array.from({length:6},(_,i)=>(i+.5)/6),1));geometry.instanceCount = 6;
       this.silhouette = this.mesh(geometry, STONE_VERTEX, STONE_FRAGMENT, false);
