@@ -75,7 +75,7 @@ export class Athlete {
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.lastShotPower = null;
-    this._footStepIndex = null; this.bufferedStrike = null;
+    this._footStepIndex = null; this.bufferedStrike = null;this._controlReleaseT=0;this._controlFootT=0;this._controlReachW=0;this._controlFoot=null;
     this.receivedFrom = null; this.receivedAt = -9; this.giveGoT = -9; this.giveGoTo = null;
     this.kick = null; this.gather = null; this.chargeLobShot = false; this.elementReceiveUntil = -9; this.elementFeeder = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
@@ -354,6 +354,7 @@ export class Athlete {
         const dl = desired.length();
         if (dl > 0.02) desired.multiplyScalar(Math.min(sp, dl * 6) / dl); else desired.set(0, 0, 0);
       }
+      this._controlApproach(desired,dt,target);
       this._locoTransition(desired, dt);
       const dv = this._w.copy(desired).sub(this.vel);
       // lightning's sprint is fast, so it gets sharper grip too: quick to turn, quick to stop
@@ -1926,6 +1927,7 @@ export class Athlete {
   _feet(dt) {
     const ik = this.char.ik, ball = this.game.ball, f = this.forward, ankleH = this.char.kickCalib.ankleHeight;
     for (const s of ['R', 'L']) { ik[s].w = 0; ik[s].sole = 0; }
+    this._controlIKSide=null;
     const k = this.kick;
     if (k && !k.hit && k.approach) {
       const u = k.t / k.dur, c = ANIM.kickContact;
@@ -1999,9 +2001,25 @@ export class Athlete {
       ik[s].target.copy(ball.pos); ik[s].target.y = ball.pos.y + R * 0.75 + ankleH * 0.4;
       ik[s].w = Math.max(ik[s].w, w); ik[s].sole = 0.32 * w;
     }
+    const owned=ball.lastTouch===this&&ball.carryBy===this&&ball.carryGuard>0;
+    const close=owned&&ball.pos.y<.42&&this.pos.distanceTo(ball.pos)<1.15&&!k&&!this.header&&!this.slide&&!this.dive&&!this.trick;
+    const moving=this.intent.move.lengthSq()>.04;
+    if(close&&(moving||this.charging||ball.groundSpeed>.18)){
+      this._controlFootT=Math.max(0,(this._controlFootT||0)-dt);
+      if(!this._controlFootT){
+        const left=this.char.footPos('L',new THREE.Vector3()).distanceToSquared(ball.pos),right=this.char.footPos('R',new THREE.Vector3()).distanceToSquared(ball.pos);
+        this._controlFoot=this.charging?'L':left<right?'L':'R';this._controlFootT=.18;
+      }
+      const side=this._controlFoot,ankle=this.char.anklePos(side,new THREE.Vector3()),toe=this.char.footPos(side,new THREE.Vector3());
+      const target=ball.pos.clone().sub(toe.clone().sub(ankle)).addScaledVector(f,-.14);target.y=ankleH+.02;
+      const reachable=ankle.distanceTo(target)<.40;
+      this._controlReachW=(this._controlReachW||0)+((reachable?.90:0)-(this._controlReachW||0))*(1-Math.exp(-dt*14));
+      if(reachable){ik[side].target.copy(target);ik[side].w=Math.max(ik[side].w,this._controlReachW);this._controlIKSide=side;}
+    }else this._controlReachW=0;
+
     for(const side of ['R','L'])if(ik[side].w>0){
       const actual=this.char.anklePos(side,new THREE.Vector3()),delta=ik[side].target.clone().sub(actual);
-      const limit=k?.support && side==='L'?.16:.10;
+      const limit=!k&&side===this._controlIKSide?.26:k?.support&&side==='L'?.16:.10;
       if(delta.length()>limit)ik[side].target.copy(actual).add(delta.setLength(limit));
       if(k && side==='R')ik[side].w=Math.min(ik[side].w,.45);
     }
@@ -2032,10 +2050,30 @@ export class Athlete {
    * outside foot when I change direction hard. The movement itself stays as responsive as before — only
    * the body tells the story.
    */
+  /** Feet approach the loose lead; the ball is never pulled back to the body. */
+  _controlApproach(desired,dt,maxSpeed) {
+    const b=this.game.ball,distance=this.pos.distanceTo(b.pos);
+    const owned=b.lastTouch===this&&b.carryBy===this&&b.carryGuard>0;
+    const wants=this.intent.move.lengthSq()>.04;
+    this._controlReleaseT=wants?0:(this._controlReleaseT||0)+dt;
+    if(!owned||distance>1.5||b.pos.y>.45||this.knockFree>0||this.frozen||this.trick||this.armed||this.charging||this.header||this.holding)return;
+    if(!wants&&this._controlReleaseT>1.0)return;
+    const direction=wants?new THREE.Vector3(this.intent.move.x,0,this.intent.move.y).normalize():b.groundSpeed>.5?b.vel.clone().setY(0).normalize():this.forward.clone();
+    const spot=b.pos.clone().addScaledVector(direction,wants?-.40:-.27).sub(this.pos);spot.y=0;
+    const control=b.vel.clone().setY(0).addScaledVector(spot,7);
+    let alignment=1;
+    if(wants){
+      const toBall=b.pos.clone().sub(this.pos).setY(0);alignment=toBall.dot(direction)/Math.max(.01,toBall.length());
+      if(alignment>.55){const deficit=desired.dot(direction)-control.dot(direction);if(deficit>0)control.addScaledVector(direction,deficit);}
+    }
+    const cap=wants?Math.max(.8,maxSpeed*1.15):Math.max(maxSpeed,Math.min(PLAYER.sprintSpeed*1.15,b.groundSpeed+1.2));if(control.length()>cap)control.setLength(cap);
+    desired.lerp(control,wants?(alignment<.35&&b.groundSpeed>1?1:.72):1);
+  }
+
   _locoTransition(desired, dt) {
     this._trT = Math.max(0, (this._trT || 0) - dt);
     const c = this.char, g = this.game;
-    if (this._trT > 0 || c.mocap || this.frozen || this.isKeeper || this.trick || this.kick || this.slide || this.dive || this.charging || this.header || this.power || this.stunT > 0 || this.air || this.holding || !(g.state === 'play' || g.state === 'kickoff')) return;
+    if (this._trT > 0 || c.mocap || this.dribbling || this.frozen || this.isKeeper || this.trick || this.kick || this.slide || this.dive || this.charging || this.header || this.power || this.stunT > 0 || this.air || this.holding || !(g.state === 'play' || g.state === 'kickoff')) return;
     const vs = Math.hypot(this.vel.x, this.vel.z), ds = Math.hypot(desired.x, desired.z);
     const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
     if (vs > 4.3 && ds < 0.4) {                                        // the brakes from full speed
@@ -2681,7 +2719,7 @@ export class Athlete {
 
     if (this.touchCD > 0) return false;
     const inZone = fwd > -0.4 && fwd < 1.05 + R && Math.abs(lat) < 0.85 && dist < 1.1 + R;
-    if (!inZone || by > 1.5 || !(this._bootContact('R') || this._bootContact('L'))) return false;
+    if (!inZone || by > 1.5 || !(this._bootContact('R',true) || this._bootContact('L',true))) return false;
 
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
     const rel = Math.hypot(rvx, rvz, ball.vel.y);
@@ -2797,44 +2835,48 @@ export class Athlete {
     const interval = sprinting ? 0.4 : sp > 3 ? 0.34 : 0.5;   // short, frequent touches
     const fwdNow = bx * d.x + bz * d.z;
     const latNow = bx * this.rightDir.x + bz * this.rightDir.z;
-    if (!this.touch && !this.charging && !this.kick && !this.trick) {
+    if (!this.touch && !this.kick && !this.trick) {
       const ph = this.char.phase;
       const swing = ph > 0.17 && ph < 0.37 ? 'Right' : ph > 0.67 && ph < 0.87 ? 'Left' : null;
       const back = fwdNow < near + 0.07;                    // ball has come back within reach
       const due = wants && sp > 0.8 && swing && back && this.dribbleT > interval * 0.6;
       const overdue = wants && sp > 0.8 && this.dribbleT > interval * 2.4;   // never let it drift
-      if (turning || due || overdue) {
-        let side = turning ? (latNow >= 0 ? 'Right' : 'Left') : swing || this.nextFoot;
-        if (!turning && Math.abs(latNow) > 0.12) side = latNow > 0 ? 'Right' : 'Left';
+      const settle=(!wants||this.charging)&&ball.groundSpeed>.18;
+      const restart=wants&&ball.groundSpeed<.8&&this.dribbleT>.10;
+      if (turning || due || overdue || settle || restart) {
+        let side = this._controlFoot ? (this._controlFoot==='L'?'Left':'Right') : turning ? (latNow >= 0 ? 'Right' : 'Left') : swing || this.nextFoot;
+        if (!this._controlFoot && !turning && Math.abs(latNow) > 0.12) side = latNow > 0 ? 'Right' : 'Left';
         this.nextFoot = side === 'Right' ? 'Left' : 'Right';
-        this.touch = { t: 0, dur: clamp(0.18 - sp * 0.01, 0.11, 0.17), side, turn: turning };
-        if (turning && dist < 0.7) this.char.play('touch', { side, amp: 0.22, duration: 0.2 });
+        this.touch = { t: 0, dur: clamp(0.18 - sp * 0.01, 0.11, 0.17), side, turn: turning, settle };
+        if ((turning||restart) && dist < 0.7) this.char.play('touch', { side, amp: restart?.28:.22, duration: 0.2 });
         this.dribbleT = 0;
       }
     }
     if (this.touch) {
       const tt = this.touch; tt.t += dt;
-      // the push happens when the boot actually gets to the ball (or as the swing ends)
-      let reached = false;
-      if (tt.t >= tt.dur * 0.35) {
-        const s = tt.side === 'Left' ? 'L' : 'R';
-        const toe = this.char.footPos(s, this._fa), ank = this.char.anklePos(s, this._fb);
-        const ab = toe.sub(ank), u = clamp(this._r.copy(ball.pos).sub(ank).dot(ab) / Math.max(ab.lengthSq(), 1e-6), 0, 1);
-        tt.gap = ank.addScaledVector(ab, u).distanceTo(ball.pos);
-        reached = tt.gap < R + 0.06;
+      let proof=this._bootContact(tt.side==='Left'?'L':'R',true);
+      if(!proof){const other=tt.side==='Left'?'R':'L';proof=this._bootContact(other,true);if(proof)tt.side=other==='L'?'Left':'Right';}
+      const reversing=wants&&sp>1&&this.vel.dot(d)<-sp*.30;
+      const braking=tt.settle||!wants||this.charging||reversing;
+      if(proof&&braking){
+        const target=this.vel.clone().multiplyScalar(.12).setY(0),weight=1-Math.exp(-dt*48);
+        ball.vel.x+=(target.x-ball.vel.x)*weight;ball.vel.z+=(target.z-ball.vel.z)*weight;
+        ball.spin.y*=Math.exp(-dt*12);
+        if(!tt.done){tt.done=true;recordContact(g,this,'settle',proof);g.sfx.touch();this.stats.touches++;}
       }
-      if ((this._bootContact(tt.side==='Left'?'L':'R',true)?.closing ?? 0)>.03 && !tt.done) {
-        tt.done = true;recordContact(g,this,'dribble',this._bootContact(tt.side==='Left'?'L':'R'));
+      if(proof && (proof.closing>.03 || (wants&&sp<1.2)) && !tt.done) {
+        tt.done = true;recordContact(g,this,'dribble',proof);
         this.knockDur = tt.turn ? 0.12 : interval * 0.75;
         this.knockT = this.knockDur;
         // the touch itself: the boot pushes the ball out ahead into my path, a little further than I'll run
         if (!tt.turn) {
-          const pushV = clamp(0.35 + sp * 0.07 + (sprinting ? 0.4 : 0), 0.35, 1.4);
-          ball.vel.x = this.vel.x + d.x * pushV; ball.vel.z = this.vel.z + d.z * pushV;
+          const carrySpeed=(sprinting?PLAYER.sprintSpeed:PLAYER.runSpeed)*this.speedMul;
+          const pushV=Math.max(sp,carrySpeed*.85)*.75+.35;
+          ball.vel.x = this.vel.x*.25 + d.x * pushV; ball.vel.z = this.vel.z*.25 + d.z * pushV;
         } else {
           // a turn touch: the inside / outside of the boot sends it off the new way from where it was met
-          const pushV = clamp(1.1 + sp * 0.18, 1.1, 2.6);
-          ball.vel.x = this.vel.x * 0.55 + d.x * pushV; ball.vel.z = this.vel.z * 0.55 + d.z * pushV;
+          const pushV = Math.max(clamp(1.1 + sp * 0.18, 1.1, 2.6),PLAYER.runSpeed*this.speedMul*.70);
+          ball.vel.x = this.vel.x * 0.15 + d.x * pushV; ball.vel.z = this.vel.z * 0.15 + d.z * pushV;
         }
         ball.vel.y = Math.max(ball.vel.y, 0.12 + Math.min(sp, 7) * 0.015);
         ball.pos.y = Math.max(ball.pos.y, R + 0.005);
@@ -2845,6 +2887,17 @@ export class Athlete {
       if (tt.t >= tt.dur * 1.3) this.touch = null;
     }
     return true;
+  }
+
+  collectBootContact(b,c,point) {
+    if(this.game.state!=='play'||this.frozen||this.stunT>0||this.kick||this.header||this.slide||this.poke||this.dive||b.heldBy||b.special||b.pos.y>.45)return false;
+    if(b.lastTouch&&b.lastTouch!==this&&b.carryGuard>0&&b.lastTouch.dribbling)return false;
+    if(b.vel.clone().sub(this.vel).length()>12)return false;
+    const proof={point:point.clone(),distance:b.pos.distanceTo(point),radius:R+c.r};
+    if(proof.distance>proof.radius+1e-6)return false;
+    b.vel.x=this.vel.x*.8+(b.vel.x-this.vel.x)*.16;b.vel.z=this.vel.z*.8+(b.vel.z-this.vel.z)*.16;
+    b.vel.y=Math.min(.12,b.vel.y);this.receive=null;this._took(.10);
+    recordContact(this.game,this,'collect',proof);this.game.sfx.touch();return true;
   }
 
   _took(cd) {
