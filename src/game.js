@@ -635,8 +635,26 @@ export class Game {
     this.rumble(ath, 1, 220);
   }
 
-  /** Receiver anticipation is solved at the boot; ordinary flight stays physical. */
-  _passAssist() { /* Receiver lead is solved at contact; no force steers a pass in flight. */ }
+  /**
+   * A pass on its way bends gently towards the team-mate it was meant for (more so when that's a
+   * human, who may have changed his run since it was played), so passes arrive where you are.
+   */
+  _passAssist(dt) {
+    const b = this.ball, lt = b.lastTouch, r = lt && lt.passTarget;
+    if (!r || r.out || b.heldBy || b.special || lt.passT < 0 || this.time - lt.passT > 2.4 || this.state !== 'play') return;
+    const v = b.vel, sp = Math.hypot(v.x, v.z); if (sp < 2.5) return;
+    const dx = r.pos.x - b.pos.x, dz = r.pos.z - b.pos.z, d = Math.hypot(dx, dz);
+    if (d < 1.1) return;
+    const t = d / sp, tx = dx + r.vel.x * t * 0.5, tz = dz + r.vel.z * t * 0.5;
+    let diff = Math.atan2(tx, tz) - Math.atan2(v.x, v.z);
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    if (Math.abs(diff) > 0.8) return;                                   // gone past him / never his
+    const isH = (a) => { const t = this.controllers[a.team]?.type; return t === 'human' || t === 'remote'; };
+    const human = isH(r) || isH(lt);                                   // a human's pass, or a pass to a human
+    const rate = (human ? 1.2 : 0.5) * dt, step = Math.max(-rate, Math.min(rate, diff));
+    const c = Math.cos(step), s = Math.sin(step), vx = v.x * c + v.z * s, vz = -v.x * s + v.z * c;
+    v.x = vx; v.z = vz;
+  }
 
   /**
    * A pass carries the move's elements: an opponent who cuts it out feels them (a mild version) and
@@ -861,14 +879,6 @@ export class Game {
 
   // ---------------------------------------------------------------- update --
   update(rawDt) {
-    // Never advance a moving boot by a whole low-FPS frame. The ball already
-    // substeps internally; the skeleton, action clock and contact must agree.
-    const steps=Math.max(1,Math.ceil(rawDt*60-1e-8)),dt=rawDt/steps;
-    for(let i=0;i<steps;i++){if(i)this.input.endFrame();this._updateStep(dt);}
-  }
-
-  _updateStep(rawDt) {
-    this.contactFrame=(this.contactFrame||0)+1;
     const input = this.input;
     if (input.wasPressed('KeyC')) this.cycleCamera();
     if (input.wasPressed('KeyM')) this.ui.toggleMute();
@@ -955,11 +965,6 @@ export class Game {
     const live = this.live;
     for (const a of live) a.update(dt);
     this._separatePlayers();
-    for(const a of live){
-      const delta=a.pos.clone().sub(a.char.group.position);
-      if(delta.lengthSq()>1e-12){a.char.group.position.copy(a.pos);a.char.group.updateMatrixWorld(true);for(const c of a.colliders||[]){c.pos.add(delta);c.b?.add(delta);}}
-      a.resolveStrikeContact();
-    }
 
     if (this.state !== 'kickoff' && this.state !== 'freekick') {
       const order = [...live].sort((p, q) => this._distBall(q) - this._distBall(p));
@@ -1128,7 +1133,6 @@ export class Game {
         a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push;
         // closing speed along the line between them
         const closing = (a.vel.x - b.vel.x) * nx + (a.vel.z - b.vel.z) * nz;
-        if(closing>.8&&!a.slide&&!b.slide){a.char.receiveImpact([-nx,0,-nz],closing,'chest');b.char.receiveImpact([nx,0,nz],closing,'chest');}
         if (closing > 6 && !a.slide && !b.slide && this.state === 'play') {
           // a hard shoulder-to-shoulder: the slower runner is pushed off balance
           const sa = a.vel.length(), sb = b.vel.length();

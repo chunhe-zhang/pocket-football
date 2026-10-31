@@ -4,16 +4,18 @@
 <script type="module">
 const output=document.querySelector('#results');
 const timer=setInterval(async()=>{
- const w=document.querySelector('iframe').contentWindow,g=w.__game;if(!g?.ui.game||g.athletes.length!==12)return;
+ const w=document.querySelector('iframe').contentWindow,g=w.__game;if(!g?.ui.game)return;
  clearInterval(timer);w.__hold=true;const report={scenarios:[]};
  try{
-  g.controllers=[];g.state='play';g.practice=true;g.slowmo=0;g.hitstop=0;
+  g.start({...g.ui.settings,mode:'match5',humans:1});g.controllers=[];g.state='play';g.practice=true;g.slowmo=0;g.hitstop=0;
   for(const a of g.athletes){a.place(-20,-12,0);a.frozen=true;a.intent.move.set(0,0);a.intent.kick=a.intent.lob=a.intent.pass=a.intent.sprint=false;}
   const player=g.athletes.find(a=>!a.isKeeper),assert=(ok,message)=>{if(!ok)throw Error(message);};
-  for(const fps of [30,60,144]){
+  for(const a of g.athletes)if(a!==player)a.out=true;
+  for(const fps of [30,60,144])for(const id of ['thunder','blaze','frost','gale','phantom','cannon']){
+   player.char.setStyle(id);player.charId=id;
    player.place(0,-5,0);player.frozen=false;player._needRelease=false;player.intent.sprint=false;
    g.ball.reset(-player.reachS,player.pos.z+player.reachF);g.ball.lastTouch=player;g.ball.carryBy=player;g.ball.carryGuard=1.2;player.lastTouchTime=g.time;
-   const scenario={fps,segments:[]};report.scenarios.push(scenario);
+   const scenario={fps,id,segments:[]};report.scenarios.push(scenario);
    for(const [name,x,z,seconds] of [['straight',0,1,1.2],['right90',1,0,.8],['reverse',-1,0,1.2],['release',0,0,1],['restart',0,1,1],['stopAgain',0,0,.8],['sprint',0,1,1.2],['stopSprint',0,0,1.2]]){
     player.intent.move.set(x,z);player.intent.sprint=name==='sprint';let maxGap=0;const from=player.pos.clone(),ballFrom=g.ball.pos.clone();
     for(let i=0;i<Math.ceil(seconds*fps);i++){w.__step(1,1/fps,false);maxGap=Math.max(maxGap,player.pos.distanceTo(g.ball.pos));}
@@ -24,8 +26,10 @@ const timer=setInterval(async()=>{
     if(name==='straight'||name==='restart'||name==='sprint')assert(ballTravel>1.4,`${fps} Hz ${name}: ball stuck (${ballTravel.toFixed(2)}m)`);
     assert(distance<1.4,`${fps} Hz ${name}: lost ball by ${distance.toFixed(2)}m`);
     if(name==='release'||name==='stopAgain'||name==='stopSprint')assert(speed<.65,`${fps} Hz ${name}: ball did not settle (${speed.toFixed(2)}m/s)`);
-    await new Promise(resolve=>setTimeout(resolve,0));
+    await Promise.resolve();
    }
+   const resting=player.pos.clone();for(let i=0;i<Math.ceil(fps*.3);i++)w.__step(1,1/fps,false);
+   assert(player.pos.distanceTo(resting)<.01,`${id} ${fps} Hz: movement after stopping`);
   }
   report.pickups=[];
   for(const id of ['thunder','blaze','frost','gale','phantom','cannon']){
@@ -34,9 +38,22 @@ const timer=setInterval(async()=>{
    for(let i=0;i<120;i++)w.__step(1,1/60,false);
    const distance=player.pos.distanceTo(g.ball.pos);report.pickups.push({id,distance,owned:g.ball.lastTouch===player});
    assert(g.ball.lastTouch===player&&distance<1.4,`${id}: could not collect loose ball`);
-   await new Promise(resolve=>setTimeout(resolve,0));
+   await Promise.resolve();
   }
-  assert(g.contactLog.every(e=>e.distance<=e.radius+1e-6),'contact without geometry');report.geometricContacts=true;
+  report.shots=[];
+  for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const type of ['pass','kick']){
+   player.char.setStyle(id);player.charId=id;player.place(0,-4,0);player.frozen=false;player.intent.move.set(0,0);player.intent.sprint=false;player._aimSet=true;player.aimAng=0;
+   g.ball.reset(-player.reachS,player.pos.z+player.reachF);g.ball.lastTouch=player;player.lastTouchTime=g.time;
+   player.chargeType=type;player.charge=type==='pass'?.35:.65;player.chargeLobShot=false;player._release();
+   let hit=false,maxSpeed=0;
+   for(let i=0;i<60;i++){w.__step(1,1/60,false);hit ||= !!player.kick?.hit;maxSpeed=Math.max(maxSpeed,g.ball.speed);}
+   report.shots.push({id,type,hit,maxSpeed});assert(hit&&maxSpeed>3,`${id} ${type}: release failed`);
+   await Promise.resolve();
+  }
+  g.start({...g.ui.settings,mode:'match5',humans:1});
+  for(let i=0;i<900;i++){w.__step(1,1/60,false);if(i%90===89)await Promise.resolve();}
+  assert(g.athletes.length===12&&g.athletes.every(a=>a.pos.toArray().every(Number.isFinite))&&g.ball.pos.toArray().every(Number.isFinite),'invalid match state');
+  report.match={players:12,seconds:15};
   output.textContent='PASS '+JSON.stringify(report,null,2);
  }catch(error){output.textContent='FAIL '+error.stack+'\n'+JSON.stringify(report,null,2);}
 },250);

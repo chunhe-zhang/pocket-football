@@ -388,7 +388,7 @@ export class Ball {
       } else if (spc && c.owner === spc.owner) continue;
       // a goalkeeper's touch: he decides (catch / beat it away / fingertips) right where they meet
       if (c.owner.isKeeper && c.owner.gkContact) {
-        const res = c.owner.gkContact(this, c, spc0, {point:Q.clone(),normal:{x:nx,y:ny,z:nz},surface:CV.clone()});
+        const res = c.owner.gkContact(this, c, spc0);
         if (res === 'beat') continue;
         if (res === 'catch') return;
         if (res === 'parry') {
@@ -397,7 +397,6 @@ export class Ball {
           continue;
         }
       }
-      if(c.part==='foot'&&!spc0&&c.owner.collectBootContact?.(this,c,Q))continue;
       p.set(Q.x + nx * min, Math.max(R, Q.y + ny * min), Q.z + nz * min);
       const rvx = v.x - CV.x, rvy = v.y - CV.y, rvz = v.z - CV.z;
       const vn = rvx * nx + rvy * ny + rvz * nz;

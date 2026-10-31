@@ -157,9 +157,11 @@ export class AIController {
     const gk = me.role === 'gk';           // a 5v5 goalkeeper is a specialist: reacts more often and earlier
     // the phantom shot is hard to pick up (an invisible combo even harder); a decoy sends him the wrong way
     const st = ball.specialType || '', ghost = st.includes('phantom') && !(g.m5 && beats(me.charId, 'phantom')), invis = ghost && /blaze|frost|cannon/.test(st), decoy = st.startsWith('gale+phantom');
-    if(this._shotKey!==shotKey){this._shotKey=shotKey;this._willDive=true;this._fooled=decoy;}
-    const lag=me.keeperReactionDelay()+(invis?.10:0);
-    if(ball.lastTouch&&me._isOpp(ball.lastTouch)&&g.time-ball.lastTouch.lastTouchTime<lag)return false;
+    if (this._shotKey !== shotKey) { this._shotKey = shotKey; this._willDive = Math.random() < (gk ? 0.9 + 0.1 * this.cfg.guard : this.cfg.guard) * (invis ? 0.6 : ghost ? 0.85 : 1); this._fooled = decoy && Math.random() < 0.75; }
+    if (!this._willDive) return false;
+    // a clear chance (close in, off a slick move: a high 射门评分) gives him less time to read it
+    const lag = [0, 0, 0.03, 0.07, 0.11, 0.14][Math.max(0, Math.min(5, ball.shotS ?? 2))];
+    if (lag && ball.lastTouch && me._isOpp(ball.lastTouch) && g.time - ball.lastTouch.lastTouchTime < lag) return false;
     // time until the ball reaches my position along the goal's inward axis
     const toward = -(v.x * home.inward.x + v.z * home.inward.z);
     // a slow one rolling towards goal: no need to dive, just get across and gather it
