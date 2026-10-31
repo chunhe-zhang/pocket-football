@@ -743,19 +743,9 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ fouls (6v6) --
-  /**
-   * A slide went through a man (athlete.js decides what kind of foul it was). Play waits a moment for
-   * advantage: if the fouled side still has the ball it goes on (the card is shown anyway); otherwise a
-   * free kick where it happened, or a penalty if it was in the defending side's 小禁区.
-   */
-  onFoul(fouler, victim, card) {
-    if (!this.m5 || this.state !== 'play' || this._pendFoul) return;
-    this.fouls = (this.fouls || 0) + 1;
-    fouler.stats.fouls = (fouler.stats.fouls || 0) + 1;
-    this.sfx.whistle([0.18]);
-    this._pendFoul = { t: this.time, fouler, victim, x: victim.pos.x, z: victim.pos.z, side: victim.gi };
-    if (card) this._card(fouler, card);
-    else { fouler.flair('犯规!', true); this.ui.toast?.(`犯规 · ${fouler.label}`); }
+  /** Body contact is legal under the current arcade rules. */
+  onFoul() {
+    // Arcade rules: tackles and body contact never cause a whistle, card or penalty.
   }
 
   _card(a, card) {

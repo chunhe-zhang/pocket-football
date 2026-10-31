@@ -182,7 +182,7 @@ export class Athlete {
     if (tacklePressed && !this.frozen && !this.slide && !this.tm && !this.dive && !this.kick && !this.poke && !this.trick && this.stunT <= 0 && g.state === 'play') {
       const b = g.ball, bd = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z);
       const holder = g.possessor;
-      const mine = holder === this || (this.dribbling && b.lastTouch === this) || (!holder && b.lastTouch === this && bd < 1.4 && b.pos.y < 0.8 && g.time - this.lastTouchTime < 1);
+      const mine = this.actionButtonMode() === 'skill';
       if (mine) {
         // with the ball, the tackle button is a skill move
         // the character's own move when it's ready, the quick 闪身步 in between
@@ -196,11 +196,8 @@ export class Athlete {
           if (this.isKeeper && bd < 1.9 && Math.hypot(b.vel.x, b.vel.z) < 8 && b.pos.y < 0.8) this._startPoke(); else this._startDive();
         }
         else if (mateHas && bd < 2.5) { /* never tackle my own team-mate */ }
-        // 6v6: off the ball the button is the character's skill too, when it's ready and there's someone to use it on
-        else if (g.m5 && !mateHas && this.powerCD <= 0 && !this.power && this._offBallSkill()) { /* started */ }
         else if (bd < 1.75 && b.pos.y < 0.8 && !(it.sprint && sp > 5.6)) this._startPoke();
-        else if (g.m5 && this.charId !== 'frost' && this.charId !== 'phantom') this._startTackleMove();      // 6v6: everyone has his own way of winning it (ice and the shadow's blink still slide)
-        else this._startSlide();
+        else this._startSlide(true);
       }
     }
 
@@ -458,11 +455,20 @@ export class Athlete {
   }
 
   // ---- slide tackle --------------------------------------------------------------
-  _startSlide() {
+  /** The action key has one meaning per possession state, shared with the HUD. */
+  actionButtonMode() {
+    const g = this.game, b = g.ball;
+    const close = Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 1.5 && b.pos.y < 0.9;
+    const owned = b.lastTouch === this && (g.possessor === this || this.dribbling || (b.carryBy === this && b.carryGuard > 0));
+    if (close && owned && !b.heldBy) return 'skill';
+    return inOwnBox(this.end, this.pos.x, this.pos.z) && (!this.role || this.isKeeper) ? 'dive' : 'tackle';
+  }
+
+  _startSlide(plain = false) {
     const it = this.intent;
     const dir = it.move.lengthSq() > 0.09 ? new THREE.Vector3(it.move.x, 0, it.move.y).normalize() : this.forward.clone();
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    const kind = this.charId, g = this.game, ball = g.ball;
+    const kind = plain ? null : this.charId, g = this.game, ball = g.ball;
     let from = null;
     if (kind === 'phantom') {
       // blink in right next to the ball, then slide through it
@@ -483,7 +489,7 @@ export class Athlete {
     if (kind === 'frost') { this.slide.dur = 0.75; this.slide.total = 0.95; this.slide.decay = 0.8; }
     if (kind === 'cannon') { this.slide.reach = Athlete.SLIDE_REACH.cannon; }
     if (kind === 'gale') { this.slide.reach = Athlete.SLIDE_REACH.gale; this.slide.dur = 0.68; }
-    g.onSlide?.(this, kind, from);
+    if (kind) g.onSlide?.(this, kind, from);
     this.facing = Math.atan2(dir.x, dir.z);
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null;
     this.stamina = Math.max(0, this.stamina - 0.15);

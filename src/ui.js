@@ -19,11 +19,11 @@ const HELP = {
     <b>一脚出球</b><span>队友的球还在路上就按键：跑过去不停球直接打——地滚球一脚射门/一脚传，空中球就是凌空抽射或头球。配合打出来的射门更准更狠，回传给刚传你的人就是撞墙配合</span>
     <b>头球</b><span>球在空中时按 <kbd>Space</kbd>：起跳头球攻门（会自动修正到门框里）；按 <kbd>I</kbd> 是头球摆渡给队友；按 <kbd>U</kbd> 是挑射；未主动出脚时先停稳来球</span>
     <b>冲刺</b><span><kbd>Shift</kbd>（消耗体力，看头顶蓝条）</span>
-    <b>抢断 / 铲球 / 扑救</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时正面抢断（对手用身体护着球时很难抢到），离得远或冲刺时滑铲（范围大、威力强，但铲空了会躺地、扣体力）；在自己的禁区里是扑救</span>
+    <b>无球 L＝抢断</b><span><kbd>L</kbd> 或 <kbd>E</kbd>：离球近时伸脚抢断，离得远或高速冲刺时普通滑铲；无球不会释放元素技能。门将在自己的禁区内是扑救。铲空仍需起身、消耗体力，但不判犯规、不出牌、不罚点球</span>
     <b>过人</b><span>带球时按 <kbd>L</kbd>：放出角色专属过人（雷 Z 字闪电冲刺、影瞬移、风高高腾空飞越（空中还能凌空射门）、火怒吼震飞、冰把人冻成冰雕、土低头冲撞），4 秒一次；冷却中按是普通闪身步。技能放到一半或刚放完时按射门/传球，立刻以最舒服的力度出脚（技能射门）</span>
     <b>必杀射门</b><span>每个角色有自己的必杀（闪电、火焰、冰冻、旋风、幻影、重炮）。每一脚爆射（蓄力超过 30%，轻点的传球除外）都是必杀；地上的预览线会变成角色的颜色。单人必杀对门将效果不大（冰除外）</span>
     <b>元素连携</b><span>每个一脚出球的队友都把自己的元素加到球上：两种不同元素连携有组合特效（雷+影瞬移进门、土+火炸飞门将…），三种不同元素以上是多元素合击，重复元素不累加，门将挡不住</span>
-    <b>规则</b><span>每人守一个球门，有 2 条命，被进两球就出局，球门会被挡板封死；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
+    <b>规则</b><span>不判犯规，没有黄红牌和犯规点球。四门模式每人守一个球门，有 2 条命，被进两球就出局；最后留下的人（2v2 时是最后还有人的一队）获胜</span>
     <b>其它</b><span><kbd>C</kbd> 视角 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</span></div>`,
   2: `<div class="grid">
     <b>P1</b><span><kbd>WASD</kbd> 移动 · <kbd>F</kbd> 射门/头球 · <kbd>R</kbd> 平传 · <kbd>G</kbd> 挑传 · <kbd>T</kbd> 挑射 · <kbd>H</kbd> 抢断/闪身步 · <kbd>左Shift</kbd> 冲刺</span>
@@ -255,7 +255,7 @@ export class UI {
     $('#scoreboard').classList.toggle('m5', this.game.m5);
     $('#btn-pause').classList.toggle('hidden', this.settings.net === 'online');
     $('#keyhint').innerHTML = solo
-      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传（短蓄力）　·　<b>U</b> 挑射（短蓄力）　·　<b>L</b> 抢断 · 带球时闪身步　·　<b>Shift</b> 冲刺　·　球在路上就按＝一脚出球`
+      ? `<b>Space</b> 射门（空中＝头球）　·　<b>I</b> 平传　·　<b>K</b> 挑传　·　<b>U</b> 挑射　·　<b>L</b> 无球抢断／有球过人　·　<b>Shift</b> 冲刺`
       : `P1：WASD + F 射门 / R 平传 / G 挑传 / H 抢断　·　P2：方向键 + Enter / , / / / .　·　P3/P4：手柄`;
     $('#keyhint').style.transition = 'none'; $('#keyhint').style.opacity = '1';
     clearTimeout(this._hintT); this._hintT = setTimeout(() => { $('#keyhint').style.transition = 'opacity 1s'; $('#keyhint').style.opacity = '0'; }, 9000);
@@ -373,6 +373,18 @@ export class UI {
 
   updateHud(g) {
     if (g.state === 'menu') { for (const t of this.tags) t.el.style.display = 'none'; return; }
+    const actions = [];
+    g.controllers.forEach((ctl, i) => {
+      if (ctl.type !== 'self' && !(ctl.type === 'human' && g.role !== 'guest')) return;
+      const a = g.athletes[i]; if (!a || a.out) return;
+      const mode = a.actionButtonMode();
+      const key = ctl.scheme?.startsWith('pad') ? 'X' : ctl.scheme === 'p1' ? 'H' : ctl.scheme === 'p2' ? '.' : 'L';
+      const label = mode === 'skill' ? a.powerCD <= 0 ? '元素过人' : a.skillCD <= 0 ? '闪身步' : `过人冷却 ${a.skillCD.toFixed(1)}s` : mode === 'dive' ? '扑救' : '抢断 / 滑铲';
+      actions.push(`${key} · ${label}`);
+      if (ctl.scheme === 'solo') $('#btn-tackle').textContent = mode === 'skill' ? '过人' : mode === 'dive' ? '扑救' : '抢断';
+    });
+    const actionText = actions.join('\n');
+    if ($('#action-hint').textContent !== actionText) $('#action-hint').textContent = actionText;
     const left = g.alive ? g.alive.filter(Boolean).length : 4;
     $('#clock').classList.toggle('low', g.m5 ? g.clock < 15 && !g.golden : !g.side && left === 2);
     if (g.m5 && !g.practice) { const tm = $('#clock .tm'), key = Math.ceil(g.clock) + (g.golden ? 'g' : '') + (g.half || 1); if (tm && key !== this._clockKey) { this._clockKey = key; if ((g.golden && !$('#clock .gold')) || $('#clock .hf')?.textContent !== (g.golden ? '' : g.half === 2 ? '下半场' : '上半场')) this.onScore(g); else tm.textContent = this._mmss(g.clock); } }

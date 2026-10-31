@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><title>Action key and arcade rules</title>
+<style>body{font:15px system-ui;background:#101625;color:white}pre{white-space:pre-wrap}iframe{width:100%;height:600px}</style>
+<h1>Action key and arcade rules</h1><pre id="results">Loading…</pre><iframe src="../?autostart=1&fx=off"></iframe>
+<script type="module">
+const output=document.querySelector('#results');
+const timer=setInterval(()=>{
+ const w=document.querySelector('iframe').contentWindow,g=w.__game;if(!g?.ui.game)return;
+ clearInterval(timer);w.__hold=true;const report={defensive:[],attacking:[]},assert=(ok,m)=>{if(!ok)throw Error(m);};
+ try{
+  g.start({...g.ui.settings,mode:'match5',humans:1});g.controllers=[];g.practice=true;g.state='play';
+  const player=g.athletes.find(a=>!a.isKeeper),other=g.athletes.find(a=>a.gi!==player.gi);
+  for(const a of g.athletes)if(a!==player)a.out=true;
+  const methods=['_startPower','_startSkill','_startPoke','_startSlide','_offBallSkill','_startTackleMove'],original={};let calls=[];
+  for(const name of methods){original[name]=player[name];player[name]=function(...args){calls.push(name);return original[name].apply(this,args);};}
+  const reset=(id,cd,distance,own=false)=>{
+   player.char.setStyle(id);player.charId=id;player.place(0,-4,0);player.frozen=false;player._prevTackle=false;player.intent.move.set(0,1);player.intent.tackle=true;player.intent.sprint=false;
+   player.intent.kick=player.intent.pass=player.intent.lob=player.intent.chipShot=false;player.slideCD=0;player.powerCD=cd;player.skillCD=0;player.dribbling=own;player._needRelease=false;
+   g.state='play';g.ball.reset(0,player.pos.z+distance);g.ball.lastTouch=own?player:other;g.ball.carryBy=own?player:null;g.ball.carryGuard=own?1.2:0;g.possessor=own?player:other;player.lastTouchTime=g.time;calls=[];
+  };
+  for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const fps of [30,60,144])for(const cd of [0,3])for(const distance of [1.2,3.4]){
+   reset(id,cd,distance);const mode=player.actionButtonMode();w.__step(1,1/fps,false);
+   assert(mode==='tackle'&&calls.length===1&&calls[0]===(distance<1.75?'_startPoke':'_startSlide'),`${id}/${fps}/${cd}/${distance}: ${calls}`);
+   assert(!player.power&&!player.tm,`${id}: off-ball element move`);
+   if(distance>1.75)assert(player.slide?.kind===null&&player.pos.distanceTo({x:0,y:0,z:-4})<.4,`${id}: elemental/teleport slide`);
+   report.defensive.push({id,fps,cd,distance,action:calls[0]});
+  }
+  for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const cd of [0,3]){
+   reset(id,cd,.5,true);assert(player.actionButtonMode()==='skill',`${id}: own ball mode`);w.__step(1,1/60,false);
+   assert(calls[0]===(cd===0?'_startPower':'_startSkill'),`${id}: on-ball action ${calls}`);report.attacking.push({id,cd,action:calls[0]});
+  }
+  reset('thunder',0,4);g.ball.lastTouch=player;g.possessor=player;player.dribbling=true;
+  assert(player.actionButtonMode()==='tackle','stale possession triggered skill');
+  for(const name of methods)player[name]=original[name];
+  let whistles=0,cards=0,penalties=0;const whistle=g.sfx.whistle,card=g._card,penalty=g._penalty;
+  g.sfx.whistle=()=>whistles++;g._card=()=>cards++;g._penalty=()=>penalties++;
+  try{for(const kind of [null,'yellow','red']){g.onFoul(player,other,kind);g.time+=1;g._foulTick();g._cardsTick(1);}}
+  finally{g.sfx.whistle=whistle;g._card=card;g._penalty=penalty;}
+  assert(!g._pendFoul&&whistles===0&&cards===0&&penalties===0&&g.state==='play','foul still stopped play');
+  report.noFouls={whistles,cards,penalties};
+  output.textContent='PASS '+JSON.stringify(report,null,2);
+ }catch(error){output.textContent='FAIL '+error.stack+'\n'+JSON.stringify(report,null,2);}
+},250);
+</script>
