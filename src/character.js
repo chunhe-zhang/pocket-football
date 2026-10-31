@@ -1090,7 +1090,7 @@ export class Character {
     else if (this.mocap && this.mocap.a.getClip() !== clip) this.mocap.a.stop();
     const a = this.mixer.clipAction(clip);
     a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.timeScale = 0; a.time = from; a.setEffectiveWeight(0); a.play();
-    this.mocap = { name, a, t: 0, from, to, ts, dur: dur + hold, run: dur, fi: fadeIn, fo: next ? 1e-3 : fadeOut, over, next };
+    this.mocap = { name, a, align, t: 0, from, to, ts, dur: dur + hold, run: dur, fi: fadeIn, fo: next ? 1e-3 : fadeOut, over, next };
     const yc = clip.userData?.yaw;
     if (yc) Object.assign(this.mocap, { yaw: yc, f0: this.group.rotation.y + (this._rootYaw || 0), y0: yawAt(yc, from) });
     return this.mocap;
@@ -1216,6 +1216,19 @@ export class Character {
 
   get busyLeg() { return this.gestures.some((g) => (g.name === 'kick' || g.name === 'chip' || g.name === 'pass') && !g.done); }
 
+  /** Contact location of the selected capture, sampled once without IK. */
+  strikeFootOffset() {
+    const m=this.mocap;if(!m || m.align==null)return this.kickCalib;
+    const cache=this._modelTemplate._strikeFeet ||= new Map(),clip=m.a.getClip(),key=clip.uuid+':'+m.align;
+    if(cache.has(key))return cache.get(key);
+    const root=cloneSkinned(this.root);root.position.set(0,0,0);root.rotation.y=0;
+    const mixer=new THREE.AnimationMixer(root),action=mixer.clipAction(clip);action.play();action.time=m.align;mixer.update(0);root.updateMatrixWorld(true);
+    const toe=root.getObjectByName(this.bones.toeR.name).getWorldPosition(new THREE.Vector3());
+    const ankle=root.getObjectByName(this.bones.footR.name).getWorldPosition(new THREE.Vector3());
+    const result={forward:toe.z,side:-toe.x,ankleHeight:ankle.y};
+    mixer.stopAllAction();mixer.uncacheRoot(root);cache.set(key,result);return result;
+  }
+
   footPos(side = 'R', out = new THREE.Vector3()) {
     return (side === 'R' ? this.bones.toeR : this.bones.toeL).getWorldPosition(out);
   }
@@ -1233,7 +1246,7 @@ export class Character {
       const mk = (part, side, r) => ({ part, side, r, pos: new THREE.Vector3(), b: null });
       this._sph = [mk('head', 0, 0.12), mk('chest', 0, 0.15), mk('hips', 0, 0.15),
         mk('thigh', 'R', 0.085), mk('thigh', 'L', 0.085), mk('shin', 'R', 0.065), mk('shin', 'L', 0.065),
-        mk('foot', 'R', 0.065), mk('foot', 'L', 0.065), mk('hand', 'R', 0.11), mk('hand', 'L', 0.11)];
+        mk('foot', 'R', 0.065), mk('foot', 'L', 0.065), mk('hand', 'R', 0.085), mk('hand', 'L', 0.085)];
       // limbs are capsules: pos = one end, b = the other end
       for (const i of [3, 4, 5, 6, 7, 8]) this._sph[i].b = new THREE.Vector3();
       this._sph[3].r = this._sph[4].r = 0.08; this._sph[5].r = this._sph[6].r = 0.06; this._sph[7].r = this._sph[8].r = 0.055;

@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><title>Physical strike integration</title>
+<style>body{font:15px system-ui;background:#101625;color:white}pre{white-space:pre-wrap}iframe{width:100%;height:600px}</style>
+<h1>Physical strike integration</h1><pre id="results">Loading…</pre><iframe src="../?autostart=1&fx=off"></iframe>
+<script type="module">
+const output=document.querySelector('#results');
+const timer=setInterval(async()=>{
+ const w=document.querySelector('iframe').contentWindow,g=w.__game;if(!g?.ui.game||g.athletes.length!==12)return;
+ clearInterval(timer);w.__hold=true;const assert=(ok,m)=>{if(!ok)throw Error(m);};
+ let report;
+ try{
+  g.controllers=[];g.state='play';g.practice=true;g.slowmo=0;g.hitstop=0;
+  const player=g.athletes.find(a=>!a.isKeeper);report={shots:[],misses:0};
+  for(const a of g.athletes){a.place(-20,-12,0);a.frozen=true;a.intent.move.set(0,0);a.intent.kick=a.intent.pass=a.intent.lob=a.intent.sprint=false;}
+  for(const id of ['thunder','blaze','frost','gale','phantom','cannon'])for(const type of ['pass','kick']){
+   player.char.setStyle(id);player.charId=id;player.place(0,0,0);player.frozen=false;player._aimSet=true;player.aimAng=0;player._needRelease=false;
+   g.ball.reset(-player.reachS,player.reachF);g.ball.lastTouch=player;player.lastTouchTime=g.time;
+   player.chargeType=type;player.charge=type==='pass'?.35:.65;player.chargeLobShot=false;player._release();
+   const clip=player.char.mocap?.name,offset=player.kick?.footOffset,start=g.contactLog?.length||0;
+   for(let i=0;i<60;i++)w.__step(1,1/60,false);
+   const hit=(g.contactLog||[]).slice(start).find(e=>e.kind==='strike');
+   if(hit)assert(hit.distance<=hit.radius+1e-6,'strike without geometric contact');else report.misses++;
+   report.shots.push({id,type,clip,offset,hit:!!hit,gap:hit?.distance,ball:g.ball.pos.toArray()});
+   await new Promise(r=>setTimeout(r,0));
+  }
+  report.timing=[];
+  for(const fps of [30,60,144])for(const incoming of [false,true]){
+   player.place(0,0,0);player.frozen=false;player.char.setStyle('thunder');player.charId='thunder';player._aimSet=true;player.aimAng=0;
+   if(incoming){g.ball.reset(0,2.2);g.ball.vel.set(0,0,-8);}else{g.ball.reset(-player.reachS,.65);g.ball.vel.set(0,0,5.7);player.vel.set(0,0,5.5);}
+   player.chargeType='pass';player.charge=.3;const frame=g.contactFrame;player._release();
+   for(let i=0;i<Math.ceil(fps*.9);i++)w.__step(1,1/fps,false);
+   const contact=(g.contactLog||[]).findLast(e=>e.kind==='strike'&&e.frame>frame);
+   report.timing.push({fps,incoming,hit:!!contact});
+   await new Promise(r=>setTimeout(r,0));
+  }
+  player.place(0,0,0);player.frozen=false;g.ball.reset(1.5,0);g.ball.lastTouch=player;g.ball.carryBy=player;g.ball.carryGuard=1.2;player.lastTouchTime=g.time;
+  g.ball.vel.set(3,0,1);const before=g.ball.vel.clone(),position=g.ball.pos.clone();player.touch=null;player.intent.move.set(0,0);
+  player._dribble(1/60,1.5,.16);assert(g.ball.vel.equals(before)&&g.ball.pos.equals(position),'hidden dribble attraction');report.freeRoll=true;
+  player.chargeType='kick';player.charge=.6;player._release();g.ball.pos.set(4,.16,0);const velocity=g.ball.vel.clone();player._contact(true);assert(g.ball.vel.equals(velocity),'missed boot launched a shot');report.noRemoteKick=true;
+  const keeper=g.athletes.find(a=>a.isKeeper&&a._isOpp(player));keeper.place(-10,0,0);g.ball.reset(0,0);assert(keeper.smother(g.ball)===false&&!g.ball.heldBy,'remote catch');report.noRemoteCatch=true;
+  keeper.place(keeper.home.centre.x+keeper.home.inward.x*.8,keeper.home.centre.z+keeper.home.inward.z*.8,0);keeper.frozen=false;
+  const point=keeper.char.bones.handR.getWorldPosition(g.ball.pos.clone()),normal={x:0,y:0,z:1},surface=point.clone().set(0,0,0),c={part:'hand',r:.11};
+  const outcomes=[];for(let trial=0;trial<2;trial++){
+   g.ball.pos.copy(point).add({x:0,y:0,z:.2});g.ball.vel.set(0,0,-20);g.ball.lastTouch=player;player.lastTouchTime=g.time-1;g.ball.noCatchT=0;keeper.holding=null;
+   const result=keeper.gkContact(g.ball,c,null,{point,normal,surface});outcomes.push({result,velocity:g.ball.vel.toArray()});
+  }
+  assert(outcomes[0].result==='parry','glove did not parry');assert(JSON.stringify(outcomes[0])===JSON.stringify(outcomes[1]),'random keeper result');report.deterministicKeeper=outcomes;
+  assert(report.timing.filter(s=>s.hit).length===6,'moving-ball contact timing regressed');
+  player.place(0,0,0);player.frozen=false;player.intent.move.set(0,1);player.intent.pass=false;
+  g.ball.reset(-player.reachS,player.reachF);g.ball.lastTouch=player;g.ball.carryBy=player;g.ball.carryGuard=1.2;player.lastTouchTime=g.time;
+  const contactFrame=g.contactFrame;for(let i=0;i<180;i++)w.__step(1,1/60,false);
+  const touches=g.contactLog.filter(e=>e.kind==='dribble'&&e.frame>contactFrame);
+  report.dribbling={touches:touches.length,distance:player.pos.distanceTo(g.ball.pos)};
+  assert(touches.length>=2&&report.dribbling.distance<3,'straight dribble lost control');
+  player.place(0,0,0);player.frozen=false;player.intent.move.set(0,0);g.ball.reset(-player.reachS,player.reachF);
+  player.chargeType='pass';player.charge=.3;player._release();
+  while(player.kick&&player.kick.t<player.kick.dur-.12)w.__step(1,1/60,false);
+  const release=player._release;let releases=0;player._release=function(){releases++;return release.apply(this,arguments);};
+  player.intent.pass=true;w.__step(1,1/60,false);assert(player.bufferedStrike,'late input was swallowed');player.intent.pass=false;
+  for(let i=0;i<20;i++)w.__step(1,1/60,false);player._release=release;
+  assert(releases===1,'buffer did not release exactly once');report.bufferedAction=true;
+  assert(report.shots.filter(s=>s.hit).length>=8,'too many ordinary grounded strikes missed');
+  g.start({...g.ui.settings,mode:'match5',humans:1});
+  for(let i=0;i<900;i++){w.__step(1,1/60,false);if(i%90===89)await new Promise(r=>setTimeout(r,0));}
+  assert(g.athletes.every(a=>a.pos.toArray().every(Number.isFinite))&&g.ball.pos.toArray().every(Number.isFinite),'invalid match physics');
+  assert(g.contactLog.every(e=>e.distance<=e.radius+1e-6),'invalid contact witness');report.match={players:g.athletes.length,seconds:15,contactWitnesses:g.contactLog.length};
+  output.textContent='PASS '+JSON.stringify(report,null,2);
+ }catch(e){output.textContent='FAIL '+e.stack+'\n'+JSON.stringify({report,contacts:g.contactLog?.slice(-3)},null,2);}
+},250);
+</script>

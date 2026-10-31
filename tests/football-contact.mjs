@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {capsuleContact,sweepBootContact,keeperOutcome,planContactTime,recordContact} from '../src/football-contact.js';
+const a={x:0,y:.1,z:0},b={x:0,y:.1,z:.22};
+assert.equal(capsuleContact({x:.5,y:.16,z:.1},a,b,.16),null,'near a player is not boot contact');
+const proof=capsuleContact({x:.2,y:.16,z:.15},a,b,.16);
+assert.ok(proof&&proof.distance<=proof.radius);assert.ok(proof.u>0&&proof.u<1);
+assert.equal(capsuleContact({x:0,y:.9,z:.1},a,b,.16),null,'high ball cannot hit a ground boot');
+assert.equal(keeperOutcome(10,.95,true),'catch');assert.equal(keeperOutcome(30,.95,true),'parry');
+assert.equal(keeperOutcome(10,.95,false),'parry','one hand cannot award a two-hand catch');
+assert.equal(keeperOutcome(30,.15,false),'fingertip');
+const near=planContactTime(.2,()=>.05,0),far=planContactTime(.2,()=>.5,0);
+assert.ok(far>near&&far<=.29+1e-6,'bounded arrival-aware wind-up');
+assert.ok(sweepBootContact({x:0,y:.16,z:.1},{x:-.5,y:.1,z:0},{x:-.5,y:.1,z:.22},{x:.5,y:.1,z:0},{x:.5,y:.1,z:.22},.16,.055),'fast boot swept past ball');
+assert.equal(sweepBootContact({x:0,y:.16,z:.1},{x:-5,y:.1,z:0},{x:-5,y:.1,z:.22},a,b,.16,.055),null,'teleport is not a kick');
+const g={time:1,ball:{pos:{x:1,y:2,z:3}}};for(let i=0;i<120;i++)recordContact(g,{team:0},'strike',proof);
+assert.equal(g.contactLog.length,96);g.ball.pos.x=10;assert.equal(g.contactLog[0].ball.x,1,'witness snapshots are immutable');
+console.log('PASS: contact-only geometry, high-ball misses, deterministic glove outcomes, bounded approach timing, bounded audit log.');

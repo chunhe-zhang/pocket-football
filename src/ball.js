@@ -388,7 +388,7 @@ export class Ball {
       } else if (spc && c.owner === spc.owner) continue;
       // a goalkeeper's touch: he decides (catch / beat it away / fingertips) right where they meet
       if (c.owner.isKeeper && c.owner.gkContact) {
-        const res = c.owner.gkContact(this, c, spc0);
+        const res = c.owner.gkContact(this, c, spc0, {point:Q.clone(),normal:{x:nx,y:ny,z:nz},surface:CV.clone()});
         if (res === 'beat') continue;
         if (res === 'catch') return;
         if (res === 'parry') {

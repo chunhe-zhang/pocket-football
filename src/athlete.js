@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { constrainCarry } from './ball-motion.js';
+import { capsuleContact, sweepBootContact, keeperOutcome, recordContact, planContactTime } from './football-contact.js';
 import { FIELD, PLAYER, ANIM, BALL, GOALS, CHAR, CAMP, beats, clampToArena, pushOutOfObstacles, inOwnBox, padAt, route, comboOf, comboElements, shotZone, shotScore } from './config.js';
 
 // what a shot's 评分 (config.shotScore, 0..5) does to it: pace, the top speed, and how much harder it is to save
@@ -75,7 +75,7 @@ export class Athlete {
   place(x, z, facing) {
     this.pos.set(x, 0, z); this.vel.set(0, 0, 0); this.facing = facing;
     this.lastShotPower = null;
-    this._footStepIndex = null;
+    this._footStepIndex = null; this.bufferedStrike = null;
     this.receivedFrom = null; this.receivedAt = -9; this.giveGoT = -9; this.giveGoTo = null;
     this.kick = null; this.gather = null; this.chargeLobShot = false; this.elementReceiveUntil = -9; this.elementFeeder = null; this.charging = false; this.charge = 0; this.touchCD = 0.2; this.armed = null;
     this.touch = null; this.trapT = 0; this.holdT = 0; this.holdW = 0;
@@ -212,6 +212,15 @@ export class Athlete {
     this._prevChipShot = !!it.chipShot;
     this._prevKick = it.kick; this._prevLob = it.lob; this._prevPass = it.pass;
     if (!this.charging && (pressedKick || pressedChipShot || pressedLob || pressedPass)) this.chargeLobShot = !!pressedChipShot;
+    const blocked=this.kick||this.header||this.slide||this.dive||this.tm||this.stunT>0;
+    if((pressedKick||pressedPass||pressedLob||pressedChipShot)&&blocked&&!this.frozen&&g.state==='play')
+      this.bufferedStrike={type:pressedPass?'pass':pressedLob||pressedChipShot?'chip':'kick',lobShot:pressedChipShot,aim:it.move.clone(),until:g.time+.22};
+    if(this.bufferedStrike&&(g.time>this.bufferedStrike.until||this.frozen||g.state!=='play'))this.bufferedStrike=null;
+    if(this.bufferedStrike&&!blocked&&!this.charging&&!this.holding){
+      const input=this.bufferedStrike;this.bufferedStrike=null;this.chargeType=input.type;this.chargeLobShot=input.lobShot;this.charge=.30;
+      if(input.aim.lengthSq()>.04){this.aimAng=Math.atan2(input.aim.x,input.aim.y);this._aimSet=true;}
+      this._needRelease=true;this._release();
+    }
     if (this.header) this._headerMotionTick(dt);
     // the gale leap: a strike in mid-air is a flying volley
     const pressedAny = pressedKick || pressedLob || pressedPass || pressedChipShot;
@@ -452,7 +461,7 @@ export class Athlete {
       if (c.part === 'hand') c.active = (!!this.dive && this.dive.t < 0.75) || (gloves && !this.holding);
       // a fully stretched keeper covers more than the bare skeleton suggests (gloves, sleeves, body)
       const stretch = this.dive && this.dive.t > 0.05 && this.dive.t < 0.75;
-      c.r = c.r0 * (stretch && c.part !== 'head' ? 1.15 : 1) * (gloves && c.part === 'hand' ? 1.6 : 1);
+      c.r = c.r0 * (stretch && c.part !== 'head' ? 1.15 : 1) * 1;
     });
     this._resetColliders = false;
   }
@@ -611,7 +620,7 @@ export class Athlete {
     // (the push is spent over 0.36 s: if the ball gets there sooner, push harder to be there in time)
     const sc = this.char.group.scale.x || 1, travel = clamp(need - 0.6 * sc, 0.35, 2.8);
     const tArr = cross ? clamp(cross.t, 0.08, 0.36) : 0.36, got = 1 - Math.pow(1 - tArr / 0.36, 2.4);
-    const speed0 = this.role === 'gk' ? clamp((travel * 2.4) / (0.36 * Math.max(got, 0.2)), 4, 17) : 5.6;
+    const speed0 = this.role === 'gk' ? clamp((travel * 2.4) / (0.36 * Math.max(got, 0.2)), 4, 7.5) : 5.6;
     this.dive = { t: 0, dur: 1.15, dir, speed0, side, lift };
     this.charging = false; this.charge = 0; this.receive = null; this.touch = null; this.dribbling = false;
     this.slideCD = 1.4;
@@ -712,16 +721,11 @@ export class Athlete {
   get isKeeper() { return this.role === 'gk'; }
 
   /** the ball arrived at my body: hold on to it if it's catchable */
-  tryCatch(part, v) {
-    const g = this.game, b = g.ball;
-    if (!this.isKeeper || g.state !== 'play' || this.holding || b.heldBy || b.noCatchT > 0 || this.stunT > 0) return false;
-    if (!inOwnBox(this.end, this.pos.x, this.pos.z) || part === 'foot' || part === 'shin') return false;
-    const limit = this.dive ? 27 : 33;
-    if (v > limit || Math.random() < 0.06 + 0.45 * Math.max(0, (v - 17) / 16) ** 2) return false;   // too hot to hold: it's parried
-    this.smother(b);
-    g.sfx.body(Math.min(10, v)); g.rumble(this, 0.4, 80);
-    return true;
-  }
+  tryCatch() { return false; } // Catching is resolved by the actual glove collision.
+
+  keeperReactionDelay() { return .14+(1-this._gkLevel())*.4+(this.game.ball.specialType?.includes('phantom')?.08:0); }
+  keeperReacted() { const b=this.game.ball;return !!b.lastTouch && this.game.time-b.lastTouch.lastTouchTime>=this.keeperReactionDelay(); }
+
   /**
    * Shot-stopping: the ball crossed my line this frame (p0 = where it was before). If it went by
    * within reach — a stride standing, a full stretch mid-dive — I get a glove to it: held if it's
@@ -787,50 +791,28 @@ export class Athlete {
    * a glove, an arm, the body or a leg). Decide what a keeper makes of it:
    * 'catch' (held), 'parry' (beaten away), 'beat' (a touch, but it squirms on through), or null (plain bounce).
    */
-  gkContact(b, c, spc) {
-    const g = this.game, lt = b.lastTouch;
-    if (!this.isKeeper || !this._tough() || b.heldBy || this.holding || g.state !== 'play') return null;
-    if (!lt || !this._isOpp(lt)) return null;
-    const justIced = this.iceT > 1.3;
-    if ((this.stunT > 0 || this.frozen) && !justIced) return null;
-    if (this._beatT > g.time) return 'beat';
-    const sp = b.speed; if (sp < 5) return null;
-    this.char.receiveImpact(b.pos.clone().sub(c.pos).normalize().toArray(), sp, c.part);
-    const key = lt.team + ':' + lt.lastTouchTime;
-    if (this._saveKey === key) return null;              // already decided for this shot: plain physics
-    this._saveKey = key;
-    const cb = spc && spc.combo, combo = cb && cb.level > 1;
-    const glove = c.part === 'hand', body = c.part === 'chest' || c.part === 'head' || c.part === 'hips';
-    const S = sOf(b);
-    if (S >= 4 && combo && !justIced) { this._beatT = g.time + 0.35; this.flair('挡不住!', true); return 'beat'; }   // 4+: it takes him in with it
-    // he's got there: most of the time that's a save. A clear chance (close in, off a move) is less sure
-    let chance = 1.14 - Math.max(0, sp - 22) * 0.012;
-    chance += S_HOLD[S];
-    if (!glove && !body) chance -= 0.05;
-    if (spc) chance -= spc.has?.('phantom') && !this._counters('phantom') ? 0.13 : 0.02;   // a control keeper (冰 风) reads the shadow
-    chance -= (1 - this._gkLevel()) * 0.55;
-    const roll = Math.random();
-    if (roll > chance && body) return null;                    // off his body it can't go through him: it bounces off, wherever that takes it
-    if (roll > chance) {
-      // fingertips: it's touched, slowed a little and nudged, but goes on
-      this._beatT = g.time + 0.35;
-      b.vel.multiplyScalar(0.85); b.vel.x += (Math.random() - 0.5) * 1.6; b.vel.z += (Math.random() - 0.5) * 1.6; b.vel.y += 0.5;
-      this.flair('指尖碰到了…', true);
-      return 'beat';
-    }
-    b.endSpecial(); b.passEls = null; b.chain = null;
-    const catchable = !combo && !(b.noCatchT > 0) && (glove || body) && sp < 27 && !justIced;
-    if (catchable) { this.smother(b); g.sfx.body(9); this.flair('稳稳抱住!', true); return 'catch'; }
-    // beaten away off the glove: back out of the goal and wide
-    const inw = this.home.inward;
-    const vin = b.vel.x * inw.x + b.vel.z * inw.z, side = Math.sign((b.pos.z - this.pos.z) * inw.x - (b.pos.x - this.pos.x) * inw.z) || 1;
-    if (vin < 0) { b.vel.x += -1.55 * vin * inw.x; b.vel.z += -1.55 * vin * inw.z; }
-    b.vel.multiplyScalar(0.42); b.vel.x += -inw.z * side * 3; b.vel.z += inw.x * side * 3; b.vel.y = 2.5 + Math.random() * 2;
-    b.lastTouch = this; this.lastTouchTime = g.time; b.noCatchT = 0.3;
-    g.sfx.body(14); g.sfx.ooh(); g.shake = Math.max(g.shake, 0.12); g.squashBall?.({ x: inw.x, y: 0, z: inw.z }, 0.2);
-    g.fx('spark', b.pos, { x: inw.x, z: inw.z }, 14, 4);
-    this.flair('神扑!', true);
-    return 'parry';
+  gkContact(b, c, spc, contact) {
+    const g=this.game,lt=b.lastTouch;
+    if(!this.isKeeper||!this._tough()||b.heldBy||this.holding||g.state!=='play'||!lt||!this._isOpp(lt)||c.part!=='hand'||!contact)return null;
+    if(this.stunT>0||this.frozen||this.iceT>0)return null;
+    const cb=spc?.combo;if(cb?.level>1&&(sOf(b)>=4||cb.gk==='through'||cb.gk==='blast'||cb.gk==='teleport'))return 'beat';
+    const n=contact.normal,rv=b.vel.clone().sub(contact.surface),speed=rv.length(),vn=rv.x*n.x+rv.y*n.y+rv.z*n.z;
+    if(vn>=0||speed<.1)return null;
+    const alignment=-vn/speed;
+    const hands=['handL','handR'].map(name=>this.char.bones[name]?.getWorldPosition(new THREE.Vector3()));
+    const paired=hands.every(p=>p&&p.distanceTo(b.pos)<R+.10);
+    const outcome=keeperOutcome(speed,alignment,paired && this.keeperReacted() && !(b.noCatchT>0) && !(cb?.level>1));
+    const proof={point:contact.point,distance:b.pos.distanceTo(contact.point),radius:R+c.r,normal:n};
+    recordContact(g,this,outcome,proof);
+    if(outcome==='catch' && this.smother(b,{...proof,part:'hand'})){g.sfx.body(7);return 'catch';}
+    // The local surface normal and relative glove velocity determine the rebound.
+    const restitution=outcome==='fingertip'?.12:.40;
+    rv.addScaledVector(new THREE.Vector3(n.x,n.y,n.z),-(1+restitution)*vn);
+    if(outcome!=='fingertip')rv.multiplyScalar(.78);
+    b.vel.copy(contact.surface).add(rv);b.endSpecial();b.passEls=null;b.chain=null;
+    b.lastTouch=this;this.lastTouchTime=g.time;b.noCatchT=.25;
+    this.char.receiveImpact([n.x,n.y,n.z],speed,'hand');g.sfx.body(Math.min(14,speed));
+    this.flair(outcome==='fingertip'?'指尖变线':'扑出!',true);return 'parry';
   }
 
   /**
@@ -844,9 +826,9 @@ export class Athlete {
     const r = this.rightDir;
     if (this.holding && !this.holding.release) {
       this.handPos(T);
-      ik.L.target.copy(T).addScaledVector(r, -0.11); ik.R.target.copy(T).addScaledVector(r, 0.11);
+      ik.L.target.copy(T).addScaledVector(r, -(R+.035)); ik.R.target.copy(T).addScaledVector(r, R+.035);
       wl = wr = 0.92;
-    } else if (this.isKeeper && this._tough() && !this.holding && this.stunT <= 0 && g.state === 'play' && b.speed > 4.5 && b.lastTouch && this._isOpp(b.lastTouch) && this._crossing(T)) {
+    } else if (this.isKeeper && this._tough() && !this.holding && this.stunT <= 0 && g.state === 'play' && this.keeperReacted() && !(this.dive && this.dive.t>.75) && b.speed > 4.5 && b.lastTouch && this._isOpp(b.lastTouch) && this._crossing(T)) {
       const w = clamp((1.15 - T.t) / 0.7, 0, 1);
       const s = (T.x - this.pos.x) * r.x + (T.z - this.pos.z) * r.z;
       const shotKey = b.lastTouch.team + ':' + b.lastTouch.lastTouchTime;
@@ -855,7 +837,7 @@ export class Athlete {
         this.char.play('gkReach', { height: T.y, arrive: T.t, side: s >= 0 ? 'Right' : 'Left', duration: T.t + 0.45 });
       }
       if (Math.abs(s) < 0.32 && T.y > 0.5 && T.y < 1.75 && !this.dive) {
-        ik.L.target.copy(T).addScaledVector(r, -0.1); ik.R.target.copy(T).addScaledVector(r, 0.1); wl = wr = w;
+        ik.L.target.copy(T).addScaledVector(r, -(R+.025)); ik.R.target.copy(T).addScaledVector(r, R+.025); wl = wr = w;
       } else {
         const bn = this.char.bones, aL = bn.armL.getWorldPosition(this._fa || (this._fa = new THREE.Vector3())), aR = bn.armR.getWorldPosition(this._fb || (this._fb = new THREE.Vector3()));
         if (aR.distanceToSquared(T) <= aL.distanceToSquared(T)) { ik.R.target.copy(T); wr = w; } else { ik.L.target.copy(T); wl = w; }
@@ -870,7 +852,11 @@ export class Athlete {
   _gkLevel() { const ai = this.game.controllers[this.team]?.ai; return ai ? 0.8 + 0.2 * ai.cfg.skill : 0.97; }
 
   /** the ball into my hands */
-  smother(b) {
+  smother(b, proof) {
+    if(b.heldBy===this)return true;
+    const hands=['handL','handR'].map(name=>this.char.bones[name]?.getWorldPosition(new THREE.Vector3()));
+    const touching=proof?.part==='hand' && proof.distance<=proof.radius+1e-6 || hands.some(p=>p&&p.distanceTo(b.pos)<=R+.085);
+    if(!touching)return false;
     // the ball stays where the gloves met it, then is gathered in to the chest
     const off = new THREE.Vector3(b.pos.x - this.pos.x, Math.max(BALL.r, b.pos.y), b.pos.z - this.pos.z);
     b.hold(this);
@@ -885,7 +871,7 @@ export class Athlete {
       else if (off.y < 0.35) this.char.playMocap('goalkeeper_scoop', { from: 0.62, to: 1.75, dur: 0.8, fadeIn: 0.06, fadeOut: 0.25 });
       else this.char.playMocap('goalkeeper_catch', { from: 0.62, to: 1.75, dur: 0.85, fadeIn: 0.06, fadeOut: 0.25 });
     }
-    this.game.sfx.body(6);
+    this.game.sfx.body(6);return true;
   }
 
   /** where the ball sits while I'm holding it */
@@ -1186,7 +1172,7 @@ export class Athlete {
       pk.ok = true;
       if (gkBox) {
         if (carrier) { carrier.touchCD = 0.6; carrier.dribbling = false; carrier.touch = null; carrier.trick = null; carrier.charging = false; carrier.charge = 0; carrier.stunT = Math.max(carrier.stunT, 0.3); carrier.vel.multiplyScalar(0.4); }
-        this.smother(ball); this.flair('扑住了!', true); this.stats.tackles++;
+        if(this.smother(ball)){this.flair('扑住了!', true);this.stats.tackles++;}
         g.onTackle?.(this, carrier, true);
         return;
       }
@@ -1458,24 +1444,7 @@ export class Athlete {
   }
 
   /** a goalkeeper reads the skill move and smothers the ball (he isn't simply dribbled round any more) */
-  _keeperClaim() {
-    const P = this.power, g = this.game, b = g.ball;
-    for (const k of g.live) {
-      if (!k.isKeeper || !this._isOpp(k) || k.stunT > 0 || k.frozen || k.holding || b.heldBy || !inOwnBox(k.end, k.pos.x, k.pos.z)) continue;
-      if (P.gkTried && P.gkTried.has(k)) continue;
-      const d = Math.hypot(b.pos.x - k.pos.x, b.pos.z - k.pos.z);
-      const reach = (k.dive ? 1.6 : 1.2) + (P.type === 'phantom' && P.jumped ? 0.9 : 0);
-      if (d > reach || b.pos.y > 2.7) continue;
-      (P.gkTried || (P.gkTried = new Set())).add(k);
-      const c = { thunder: 0.62, gale: 0.62, phantom: 0.58, cannon: 0.72, blaze: 0.8, frost: 0.8 }[P.type] ?? 0.6;
-      if (Math.random() > c * k._gkLevel()) continue;
-      this._endPower();
-      this.stunT = Math.max(this.stunT, 0.25); this.vel.multiplyScalar(0.3);
-      k.smother(b);
-      k.flair('扑救!', true);
-      return;
-    }
-  }
+  _keeperClaim() { /* Ball/glove collision owns the claim, including during skills. */ }
 
   /** strike the ball from the top of the gale leap: a flying volley at goal (her special) */
   _galeVolley() {
@@ -2030,6 +1999,12 @@ export class Athlete {
       ik[s].target.copy(ball.pos); ik[s].target.y = ball.pos.y + R * 0.75 + ankleH * 0.4;
       ik[s].w = Math.max(ik[s].w, w); ik[s].sole = 0.32 * w;
     }
+    for(const side of ['R','L'])if(ik[side].w>0){
+      const actual=this.char.anklePos(side,new THREE.Vector3()),delta=ik[side].target.clone().sub(actual);
+      const limit=k?.support && side==='L'?.16:.10;
+      if(delta.length()>limit)ik[side].target.copy(actual).add(delta.setLength(limit));
+      if(k && side==='R')ik[side].w=Math.min(ik[side].w,.45);
+    }
   }
 
   /**
@@ -2098,6 +2073,8 @@ export class Athlete {
   }
 
   _sync(dt) {
+    this._bootPrevious ||= {R:{a:new THREE.Vector3(),b:new THREE.Vector3()},L:{a:new THREE.Vector3(),b:new THREE.Vector3()}};
+    for(const side of ['R','L']){const p=this._bootPrevious[side];this.char.anklePos(side,p.a);this.char.footPos(side,p.b);p.valid=dt>0;}
     if (this.iceT > 0) { this.iceT = Math.max(0, this.iceT - dt); dt = 0; }   // frozen: the pose holds
     this.char.airY = (this.air ? this.air.y : (this.netAir ? this.netAir[0] : 0)) + (this.dive?.y || 0);
     this.char.tumble = this.air ? this.air.rot : (this.netAir ? this.netAir[1] : 0);
@@ -2198,7 +2175,7 @@ export class Athlete {
     const d = Math.hypot(ball.pos.x - this.pos.x, ball.pos.z - this.pos.z);
     if (ball.pos.y > Athlete.MAXH[type]) return false;
     if (d < 0.75) return true;
-    const dur = ANIM.kickDuration * (type === 'pass' ? 0.82 : 1);
+    let dur = ANIM.kickDuration * (type === 'pass' ? 0.82 : 1);
     const ct = dur * ANIM.kickContact;
     const t = this._approachTarget(ct, this.armed ? this.armedAim(this._r2 || (this._r2 = new THREE.Vector3())) : this.aimDir(new THREE.Vector3()));
     return !!t && Math.hypot(t.x - this.pos.x, t.z - this.pos.z) < 9 * ct * 0.8;
@@ -2285,8 +2262,10 @@ export class Athlete {
     const perfect = power >= Athlete.SWEET[0] && power <= Athlete.SWEET[1];
     if (perfect) { this.lastPerfectT = g.time; g.onPerfect?.(this); }
 
-    const dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : type === 'pass' ? 0.86 - 0.08 * power : 1.0);
-    const contactT = dur * ANIM.kickContact;
+    let dur = ANIM.kickDuration * (type === 'kick' ? 1.08 - 0.16 * power : type === 'pass' ? 0.86 - 0.08 * power : 1.0);
+    const base=dur*ANIM.kickContact;
+    const contactT=planContactTime(base,t=>{const q=this._approachTarget(t,aim);return q?q.distanceTo(this.pos):99;},this.vel.length());
+    dur=contactT/ANIM.kickContact;
     this.kick = { type, power, lobShot, aim, t: 0, dur, contactT, hit: false, resolved: false, passSpeed, loft, perfect, over: power > 0.95 && type !== 'pass', armed: !!this._fromArmed, skill: !!this._skillShot, feeder: this._fromArmed && this._fromArmed !== true ? this._fromArmed : null };
     this.receive = null; this.touch = null;
     this.kick.approach = this._approachTarget(contactT, aim);
@@ -2294,6 +2273,8 @@ export class Athlete {
     const volley = g.ball.pos.y > 0.5 && type !== 'chip';
     if (type === 'kick' && power < 0.3 && !volley) this.char.play('pass', { duration: dur, side: 'Right', power, amp: 0.8 + 0.6 * power });
     else this.char.play(volley ? 'kick' : type, { duration: dur, side: 'Right', volley, power, amp: (0.85 + 0.3 * power) * (volley ? 1.25 : 1) });
+    this.kick.footOffset=this.char.strikeFootOffset();
+    this.kick.approach=this._approachTarget(contactT,aim);
   }
 
   _approachTarget(timeLeft, aim) {
@@ -2301,7 +2282,9 @@ export class Athlete {
     const pred = ball.predict(Math.max(0, timeLeft), new THREE.Vector3());
     if (pred.y > Athlete.MAXH.kick) return null;
     const right = new THREE.Vector3().crossVectors(aim, UP);
-    const t = pred.clone().addScaledVector(aim, -this.reachF).addScaledVector(right, -this.reachS); t.y = 0;
+    const offset=this.kick?.footOffset,scale=this.char.group.scale.x;
+    const reachF=offset?offset.forward*scale+R*.85:this.reachF,reachS=offset?offset.side*scale:this.reachS;
+    const t = pred.clone().addScaledVector(aim, -reachF).addScaledVector(right, -reachS); t.y = 0;
     const d = Math.hypot(t.x - this.pos.x, t.z - this.pos.z);
     return d < 3 ? t : null;
   }
@@ -2313,14 +2296,14 @@ export class Athlete {
     this._turnTo(Math.atan2(k.aim.x, k.aim.z), dt, 14);
     if (k.t < k.contactT) {
       const left = k.contactT - k.t;
-      k.approach = this._approachTarget(left, k.aim) || k.approach;
+      if(left>.075) k.approach = this._approachTarget(left, k.aim) || k.approach;
       if (k.approach) {
         const dx = k.approach.x - this.pos.x, dz = k.approach.z - this.pos.z;
         let vx = dx / Math.max(left, 0.05), vz = dz / Math.max(left, 0.05);
-        const s = Math.hypot(vx, vz), max = 9;
+        const s = Math.hypot(vx, vz), max = 6.5;
         if (s > max) { vx *= max / s; vz *= max / s; }
-        this.vel.x += (vx - this.vel.x) * Math.min(1, dt * 18);
-        this.vel.z += (vz - this.vel.z) * Math.min(1, dt * 18);
+        const dxv=vx-this.vel.x,dzv=vz-this.vel.z,delta=Math.hypot(dxv,dzv),step=Math.min(1,14*dt/Math.max(delta,1e-6));
+        this.vel.x += dxv*step;this.vel.z += dzv*step;
       } else this.vel.multiplyScalar(Math.max(0, 1 - dt * 6));
     } else {
       // follow-through: carry a little momentum along the aim
@@ -2328,16 +2311,29 @@ export class Athlete {
       this.vel.lerp(target, Math.min(1, dt * 6));
     }
     this.pos.addScaledVector(this.vel, dt);
-    // contact happens when the boot really reaches the ball (instep: ankle→toe segment)
-    if (!k.resolved && k.t >= k.contactT * 0.55) {
-      const ball = this.game.ball;
-      const a = this.char.anklePos('R', this._fa), b = this.char.footPos('R', this._fb);
-      const ab = b.sub(a), t = clamp(ball.pos.clone().sub(a).dot(ab) / Math.max(ab.lengthSq(), 1e-6), 0, 1);
-      const d = a.addScaledVector(ab, t).distanceTo(ball.pos);
-      if (d < R + (k.type === 'pass' ? 0.1 : 0.075)) { k.resolved = true; this._contact(true); }
-      else if (k.t > k.contactT + 0.07) { k.resolved = true; this._contact(false); }
+    // Resolve only after this frame's skeleton and player separation are final.
+  }
+
+  _bootContact(side='R', swept=false) {
+    const a=this.char.anklePos(side,new THREE.Vector3()),b=this.char.footPos(side,new THREE.Vector3());
+    let proof=capsuleContact(this.game.ball.pos,a,b,R,.055*this.char.group.scale.x);
+    const previous=this._bootPrevious?.[side];
+    if(!proof&&swept&&previous?.valid)proof=sweepBootContact(this.game.ball.pos,previous.a,previous.b,a,b,R,.055*this.char.group.scale.x);
+    if(proof){const c=this.colliders?.find(c=>c.part==='foot'&&c.side===side);
+      const surface=c?c.vel.clone().lerp(c.velB||c.vel,proof.u):new THREE.Vector3();
+      proof.closing=surface.sub(this.game.ball.vel).dot(new THREE.Vector3(proof.normal.x,proof.normal.y,proof.normal.z));}
+    return proof;
+  }
+
+  resolveStrikeContact() {
+    const k=this.kick;if(!k)return;
+    if(this.frozen||this.stunT>0||this.iceT>0){if(k.t>=k.dur)this.kick=null;return;}
+    if(!k.resolved && k.t>=k.contactT*.65){
+      const proof=this._bootContact('R',true);
+      if(proof && proof.closing>.05){k.resolved=true;this._contact(true);}
+      else if(k.t>k.contactT+.10){k.resolved=true;this.game.onWhiff(this);}
     }
-    if (k.t >= k.dur) this.kick = null;
+    if(k.t>=k.dur)this.kick=null;
   }
 
   _contact(footTouched) {
@@ -2346,10 +2342,12 @@ export class Athlete {
     const right = new THREE.Vector3().crossVectors(k.aim, UP);
     const ideal = this.pos.clone().addScaledVector(this.forward, this.reachF).addScaledVector(right, this.reachS);
     const d = Math.hypot(ball.pos.x - ideal.x, ball.pos.z - ideal.z);
+    const proof = footTouched && this._bootContact('R',true);
     const maxH = Athlete.MAXH[k.type] + 0.05;
     const reach = k.armed ? 0.95 : 0.55;          // met on the run (first time): the boot finds it
-    if (!footTouched && (d > reach || ball.pos.y > maxH)) { g.onWhiff(this); return; }
+    if (!proof || proof.closing<=.05 || ball.pos.y > maxH) { g.onWhiff(this); return; }
     k.hit = true;
+    k.witness=proof;recordContact(g,this,'strike',proof);
     k.contactPos = ball.pos.clone(); k.contactTime = k.t;
     // Contact IK reaches the ball; never move it to a missed boot. That used
     // to shift ordinary shots up to sixty centimetres in a single frame.
@@ -2393,7 +2391,7 @@ export class Athlete {
     // where the boot met the ball: off-centre contact slices, low contact lifts
     let slice = 0;
     if (footTouched) {
-      const toe = this.char.footPos('R', this._fa);
+      const toe = proof.point;
       slice = clamp((ball.pos.x - toe.x) * right.x + (ball.pos.z - toe.z) * right.z, -R, R) / R; // -1..1
       elev += clamp((ball.pos.y - toe.y - R * 0.6) * 0.5, -0.04, 0.1);
     }
@@ -2411,8 +2409,8 @@ export class Athlete {
     }
     // small errors only: the aim is the player's, so the ball should go (almost) exactly there
     let err = ((1 - quality) * 0.035 + Math.pow(p, 3) * 0.05 * (1.3 - this.skill) + gd * 0.0012) * (Math.random() * 2 - 1);
-    if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice = 0; }  // side-foot: accurate, a driven pass a little less so
-    if (this.passTarget && (k.type === 'pass' || k.loft)) { err *= 0.2; slice = 0; }   // a pass to a team-mate goes where it was meant
+    if (k.type === 'pass') { err *= 0.15 + 0.35 * p * p; slice *= .25; }  // side-foot: accurate, a driven pass a little less so
+    if (this.passTarget && (k.type === 'pass' || k.loft)) { err *= 0.2; slice *= .35; }   // a pass to a team-mate goes where it was meant
     if (k.perfect && footTouched) { err *= 0.15; slice *= 0.3; }       // pin-point: released in the sweet window
     if (k.skill) { err *= 0.2; slice *= 0.3; }
     if (oneTouch) { err *= 0.3; slice *= 0.4; if (k.type === 'kick') speed *= 1.06; }
@@ -2668,32 +2666,12 @@ export class Athlete {
     if (this.stunT > 0 || this.slide || this.dive || this.poke || (this.header && !this.header.hit)) { this.dribbling = false; return false; }
     // a special shot in flight can't be trapped (it goes through people, or is too wild to control)
     if (ball.special && ball.special.owner !== this) { this.dribbling = false; this.receive = null; return false; }
-    if (this.gather) {
-      if (ball.lastTouch !== this || this.knockFree > 0 || this.kick || this.header) this.gather = null;
-      else {
-        const gather = this.gather; gather.t += dt;
-        const u = clamp(gather.t / gather.dur, 0, 1), f = this.forward;
-        const target = this.pos.clone().addScaledVector(f, 0.48); target.y = R;
-        ball.pos.x += (target.x - ball.pos.x) * (1 - Math.exp(-dt * 16));
-        ball.pos.z += (target.z - ball.pos.z) * (1 - Math.exp(-dt * 16));
-        ball.pos.y = R + (gather.height - R) * (1 - smoothstep(u));
-        ball.vel.set(this.vel.x, 0, this.vel.z); ball.spin.multiplyScalar(Math.exp(-dt * 12));
-        this.lastTouchTime = g.time; ball.carryBy = this; ball.carryGuard = 1.2;
-        ball.dribbleBy = this; ball.dribbleGuard = 0.15; this.dribbling = true;
-        if (u >= 1) this.gather = null;
-        return true;
-      }
-    }
+    this.gather=null;
     this._anticipate();
     // a receive in progress owns the ball's arrival
     if (this.receive) {
       this.dribbling = false; this.touch = null;
       const r = this.receive;
-      if (r.t > r.ta * 0.7 && dist < 1.0 + R && by < 2.1) {
-        // didn't quite meet the planned body part: take it with whatever is closest
-        const part = by > 1.45 ? 'head' : by > 0.9 ? 'chest' : by > 0.36 ? 'thigh' : 'foot';
-        if (this.completeReceive(part)) return true;
-      }
       return false;
     }
 
@@ -2703,7 +2681,7 @@ export class Athlete {
 
     if (this.touchCD > 0) return false;
     const inZone = fwd > -0.4 && fwd < 1.05 + R && Math.abs(lat) < 0.85 && dist < 1.1 + R;
-    if (!inZone || by > 1.5) return false;
+    if (!inZone || by > 1.5 || !(this._bootContact('R') || this._bootContact('L'))) return false;
 
     const rvx = ball.vel.x - this.vel.x, rvz = ball.vel.z - this.vel.z;
     const rel = Math.hypot(rvx, rvz, ball.vel.y);
@@ -2733,12 +2711,8 @@ export class Athlete {
   }
 
   /**
-   * Close control. While I have the ball, it is kept in front of my feet in the
-   * direction I want to go: its velocity relative to me is steered towards a
-   * point a stride ahead (a critically damped spring), and every few steps a
-   * visible touch knocks it on a little further. Turning takes a touch that
-   * swings the ball round to the new direction. The ball is only lost to a shot,
-   * a tackle, an opponent's foot or body, or a hard bounce off something.
+   * Close control plans the next touch; only an intersecting, approaching boot
+   * applies an impulse. Between touches the ordinary turf/flight solver owns it.
    */
   _dribble(dt, dist, by) {
     const g = this.game, ball = g.ball;
@@ -2812,28 +2786,7 @@ export class Athlete {
     } else this.shieldK = 0;
     if (reverse || this.shieldK) { clampToArena(tgt, R + 0.04); pushOutOfObstacles(tgt, R + 0.05); tx = tgt.x; tz = tgt.z; }
 
-    // desired relative velocity towards the target, capped so it reads as rolling
-    const kp = sk ? 11 : reverse ? 9 : turning ? 7 : !wants ? 7 : 5.5;
-    let dvx = (tx - ball.pos.x) * kp, dvz = (tz - ball.pos.z) * kp;
-    const cap = sk ? 7.5 : turning ? 6.5 : 4.5, m = Math.hypot(dvx, dvz);
-    if (m > cap) { dvx *= cap / m; dvz *= cap / m; }
-    // swing round the body rather than through it when turning
-    if (turning && !sk && !reverse) {
-      const cross = bx * d.z - bz * d.x; // which way round is shorter
-      const s2 = cross > 0 ? 1 : -1, px = -bz / bl * s2, pz = bx / bl * s2;
-      dvx += px * 1.8; dvz += pz * 1.8;
-    }
-    // a loose, rolling ball between touches (not glued to the boot): the spring only really bites
-    // when a touch is played or the ball has drifted out of reach
-    const drift = Math.hypot(tx - ball.pos.x, tz - ball.pos.z);
-    // between touches the ball rolls on its own (only a light guiding hand, firmer if it drifts away)
-    // (a change of direction is played by the turn touch itself, when the boot gets there — not by a hidden pull)
-    const kv = 1 - Math.exp(-dt * (retained ? 18 : sk ? 16 : reverse ? 10 : turning ? (this.touch ? 0.6 : 2.2) : !wants ? 8 : this.knockT > 0 ? 1.0 : drift > 0.4 ? 5 : 2.2));
-    this._reverse = reverse ? 0.2 : Math.max(0, (this._reverse || 0) - dt);
-    ball.vel.x = this.vel.x + rvx + (dvx - rvx) * kv;
-    ball.vel.z = this.vel.z + rvz + (dvz - rvz) * kv;
-    if (by < R + 0.05) ball.vel.y = Math.min(ball.vel.y, 0.6);
-    ball.spin.y *= Math.exp(-dt * 6.32);
+    this._reverse = reverse ? .2 : Math.max(0,(this._reverse||0)-dt);
     this.lastTouchTime = g.time;
     // close control: an opponent has to make a tackle to take it off me (no more squeezing it away)
     if (!this.trick || this.trick.type === 'knock') { ball.dribbleBy = this; ball.dribbleGuard = 0.1; }
@@ -2870,8 +2823,8 @@ export class Athlete {
         tt.gap = ank.addScaledVector(ab, u).distanceTo(ball.pos);
         reached = tt.gap < R + 0.06;
       }
-      if ((reached || (tt.t >= tt.dur * 0.9 && tt.gap < R + 0.16)) && !tt.done) {
-        tt.done = true;
+      if ((this._bootContact(tt.side==='Left'?'L':'R',true)?.closing ?? 0)>.03 && !tt.done) {
+        tt.done = true;recordContact(g,this,'dribble',this._bootContact(tt.side==='Left'?'L':'R'));
         this.knockDur = tt.turn ? 0.12 : interval * 0.75;
         this.knockT = this.knockDur;
         // the touch itself: the boot pushes the ball out ahead into my path, a little further than I'll run
@@ -2891,14 +2844,6 @@ export class Athlete {
       }
       if (tt.t >= tt.dur * 1.3) this.touch = null;
     }
-    // A bounded control envelope repairs an unopposed gait/turn overshoot.
-    // A shot clears carryGuard; tackles and other players' touches clear ownership.
-    if (retained && !this.kick && !this.header && !sk) {
-      constrainCarry(ball.pos, this.pos, dt);
-      if (ball.pos.y > R + 0.04) ball.pos.y -= Math.min(ball.pos.y - R - 0.04, 1.2 * dt);
-      ball.vel.y = Math.min(0, ball.vel.y);
-      clampToArena(ball.pos, R + 0.04);
-    }
     return true;
   }
 
@@ -2913,7 +2858,7 @@ export class Athlete {
     this.passTarget = null; this.passT = -1;
     if (b.passTo === this) { b.passTo = null; b.passToT = 0; }
     b.dribbleBy = this; b.dribbleGuard = 0.2;
-    this.gather = b.pos.y > R + 0.12 ? { t: 0, dur: clamp(0.18 + b.pos.y * 0.15, 0.22, 0.48), height: b.pos.y } : null;
+    this.gather = null;
     this.dribbling = true;
     this.lastTouchTime = g.time;
     this.touchCD = cd;
