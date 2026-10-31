@@ -629,8 +629,13 @@ export class Character {
     for (const e of this.loco.fwd) e.len /= e.cy;
     const ent = (e) => e && { ...e, a: act(e.n), d: C[e.n].duration, len: Math.max(0.4, Math.hypot(e.v.f, e.v.r)) * C[e.n].duration / e.cy };
     this.loco.drib = ent(L.drib);
+    // and_dribble_control / and_dribble_run were captured nearly on the spot (≈0.5 and 0.1 m/s of
+    // stance travel): stretched to match the player's speed they turned into a frantic shuffle
+    // (30+ steps a second when sprinting with the ball). Close control keeps a sensible minimum
+    // stride; at pace the carrier simply runs with the real run/sprint gaits, touches on top.
     this.loco.closeDrib = ent(L.closeDrib); this._closeW = 0;
-    this.loco.fastDrib = ent(L.fastDrib); this._fastDribW = 0;
+    if (this.loco.closeDrib) this.loco.closeDrib.len = Math.max(0.6, this.loco.closeDrib.len);
+    this.loco.fastDrib = L.fastDrib && L.fastDrib.v.f > 1.5 ? ent(L.fastDrib) : null; this._fastDribW = 0;
     this.loco.gk = L.gk && { L: ent(L.gk.L), R: ent(L.gk.R) };
     this._locoEntries = [...this.loco.fwd, ...Object.values(this.loco.dir), this.loco.drib, this.loco.closeDrib, this.loco.fastDrib, this.loco.gk?.L, this.loco.gk?.R].filter(Boolean);
     this._locoBlendW = {};

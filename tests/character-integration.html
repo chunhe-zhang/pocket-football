@@ -37,10 +37,12 @@ document.querySelector('#run').onclick=async()=>{
     c.update(1/fps,{speed,vf:speed,vr:0});
     for(const bone of Object.values(c.bones))if(bone?.isBone)assert(bone.quaternion.toArray().every(Number.isFinite),'invalid bone quaternion');
    }
-   assert(c.loco.fastDrib?.a.getEffectiveWeight()>0.85,'fast dribble never takes over');
+   const runW=c.loco.fwd.filter(e=>e.s>=3.6).reduce((n,e)=>n+e.a.getEffectiveWeight(),0);
+   assert(runW>0.85,'running with the ball does not use the run gaits');
+   assert(5.5/c._stride*2<7,'dribbling cadence is a shuffle: '+(5.5/c._stride*2).toFixed(1)+' steps/s');
    const sum=c.actions.idle.getEffectiveWeight()+(c.actions.idle2?.getEffectiveWeight()||0)+(c._idlePrevious?.a.getEffectiveWeight()||0)+c._locoEntries.reduce((n,e)=>n+e.a.getEffectiveWeight(),0);
    assert(Math.abs(sum-1)<0.005,'locomotion blend budget '+sum);
-   report.framerates.push({fps,fastDribbleWeight:c.loco.fastDrib.a.getEffectiveWeight(),weightSum:sum});
+   report.framerates.push({fps,runWeight:runW,stepsPerSecond:5.5/c._stride*2,weightSum:sum});
   }
   c.dribbling=false;
   for(let i=0;i<90;i++)c.update(1/60,{speed:0});
